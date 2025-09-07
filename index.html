@@ -178,14 +178,31 @@
                 $('#error-modal').addClass('hidden');
             });
 
+            // NEW: More robust function to clean up PGNs.
             function sanitizePgn(pgnString) {
-                const parts = pgnString.split('\n\n');
-                if (parts.length < 2) {
-                    return pgnString;
+                const lines = pgnString.trim().split('\n');
+                let lastHeaderIndex = -1;
+
+                // Find the index of the last PGN header (lines starting with '[')
+                for (let i = lines.length - 1; i >= 0; i--) {
+                    if (lines[i].trim().startsWith('[')) {
+                        lastHeaderIndex = i;
+                        break;
+                    }
                 }
-                const headers = parts[0];
-                const movetext = parts.slice(1).join('\n\n');
-                const cleanedMovetext = movetext.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ');
+
+                // If no headers are found, assume the whole string is movetext and just clean it.
+                if (lastHeaderIndex === -1) {
+                    return lines.join(' ').replace(/\s+/g, ' ').trim();
+                }
+
+                const headerLines = lines.slice(0, lastHeaderIndex + 1);
+                const movetextLines = lines.slice(lastHeaderIndex + 1);
+
+                const headers = headerLines.join('\n');
+                // Join movetext, remove its internal newlines, and clean up spacing.
+                const cleanedMovetext = movetextLines.join(' ').replace(/\s+/g, ' ').trim();
+
                 return headers + '\n\n' + cleanedMovetext;
             }
 
@@ -366,13 +383,11 @@
                     const target = $(`.move-item[data-move-index="${currentMoveIndex}"]`);
                     target.addClass('highlight');
                     
-                    // Smoothly scroll the highlighted move to the top of the container
                     const container = $('#move-analysis-container');
-                    // Calculate the exact scroll position to bring the element's top to the container's top
                     const newScrollTop = container.scrollTop() + target.position().top;
                     container.animate({
                         scrollTop: newScrollTop
-                    }, 250); // 250ms for a smooth scroll animation
+                    }, 250);
                 }
 
                 $('#prev-btn').prop('disabled', currentMoveIndex < 0);
