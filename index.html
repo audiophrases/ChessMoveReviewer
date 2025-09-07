@@ -3,323 +3,373 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Chess Move Reviewer</title>
-  <!-- Tailwind CSS (CDN build) -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          boxShadow: {
-            soft: '0 8px 30px rgba(0,0,0,.08)'
-          }
-        }
-      }
-    }
-  </script>
-  <!-- React + ReactDOM (for interactivity without a build step) -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <!-- chess.js for PGN/FEN handling -->
-  <script src="https://unpkg.com/chess.js@1.0.0-beta.6/dist/chess.umd.js"></script>
-  <!-- chessboard-element web component (no bundler needed) -->
-  <script type="module" src="https://unpkg.com/chessboard-element@4.5.5/dist/chessboard-element.js"></script>
+  <title>Chess Move Reviewer — Safe Mode</title>
   <style>
-    /* Smooth scrolling in the analysis panel */
-    html { scroll-behavior: smooth; }
-    .prose b { font-weight: 700; }
-    /* Tag badges */
-    .tag { @apply text-xs font-semibold px-2 py-0.5 rounded-full; }
+    :root { color-scheme: light dark; }
+    body { background:#f6f6f6; color:#111; margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    .container { max-width: 1120px; margin: 0 auto; padding: 24px; }
+    .card { background:#fff; border:1px solid #e5e5e5; border-radius:16px; padding:16px; box-shadow: 0 8px 30px rgba(0,0,0,.05); }
+    .row { display:grid; grid-template-columns: 1fr; gap:24px; }
+    @media (min-width: 1024px){ .row { grid-template-columns: 1fr 1fr; } }
+    .board { display:grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); aspect-ratio:1/1; border-radius:12px; overflow:hidden; border:1px solid #e5e5e5; }
+    .sq { display:flex; align-items:center; justify-content:center; font-size: clamp(22px, 5.5vmin, 48px); user-select:none; }
+    .dark { background:#769656; } .light { background:#eeeed2; }
+    .btn { padding:8px 12px; border-radius:10px; border:1px solid #e5e5e5; background:#fff; cursor:pointer; }
+    .btn.primary { background:#111; color:#fff; border-color:#111; }
+    .tag { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius:9999px; display:inline-block; }
+    .tag.good { background:#d1fae5; color:#065f46; } .tag.great { background:#dcfce7; color:#166534; }
+    .tag.book { background:#dbeafe; color:#1e40af; } .tag.inaccuracy { background:#fde68a; color:#92400e; }
+    .tag.mistake { background:#fed7aa; color:#9a3412; } .tag.blunder { background:#fecaca; color:#991b1b; }
+    textarea { width:100%; height:170px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:13px; border-radius:12px; border:1px solid #e5e5e5; padding:10px; }
+    .muted { color:#666; font-size:13px; }
+    .hidden { display:none; }
+    .analysis-item { border:1px solid #e5e5e5; border-radius:12px; padding:12px; cursor:pointer; }
+    .analysis-item:hover { background:#fafafa; }
+    .active { border-color:#111; background:#fafafa; }
+    .slider { width:100%; }
+    .flex { display:flex; gap:8px; align-items:center; }
+    .space { height: 8px; }
   </style>
 </head>
-<body class="bg-neutral-50 text-neutral-900">
-  <div id="app" class="min-h-screen"></div>
+<body>
+  <div class="container">
+    <h1 style="font-size:28px; font-weight:800; margin:0 0 8px;">Chess Move Reviewer (Safe Mode)</h1>
+    <p class="muted" id="status">Loading libraries…</p>
+    <div id="app"></div>
+  </div>
 
-  <script type="text/javascript">
-    const { useEffect, useMemo, useRef, useState } = React;
-
-    // ---- Utilities ---------------------------------------------------------
-    function download(filename, text) {
-      const el = document.createElement('a');
-      el.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
-      el.setAttribute('download', filename);
-      el.style.display = 'none';
-      document.body.appendChild(el);
-      el.click();
-      document.body.removeChild(el);
-    }
-
-    // Parse the custom analysis format: "1. e4 – **book**: comment" or "1... g6 – **book**: comment"
-    function parseAnalysis(raw) {
-      const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-      const entries = [];
-      const re = /^(\d+)\.(\.{3})?\s*([a-hRNBQKO0-9x+=#-]+)\s*[–-]\s*\*\*(\w+)\*\*\s*:\s*(.+)$/i;
-      for (const line of lines) {
-        const m = line.match(re);
-        if (m) {
-          const moveNumber = parseInt(m[1], 10);
-          const isBlack = Boolean(m[2]);
-          const san = m[3].replace(/^0-0-0$/, 'O-O-O').replace(/^0-0$/, 'O-O');
-          const tag = m[4].toLowerCase();
-          const comment = m[5];
-          entries.push({ moveNumber, color: isBlack ? 'b' : 'w', san, tag, comment, raw: line });
-        } else if (/^\*\*/.test(line) || /^—|–/.test(line)) {
-          // Ignore section headers like **Strengths** etc. We'll capture them separately below.
-        } else {
-          // Could be a paragraph (Strengths, Mistakes, Takeaways). We keep them as meta.
-          entries.push({ meta: true, text: line });
-        }
+  <!-- Loader with CDN fallbacks -->
+  <script>
+    (function(){
+      const tried = {};
+      function add(src){
+        return new Promise((res, rej)=>{
+          const s = document.createElement('script');
+          s.src = src; s.async = false;
+          s.onload = res; s.onerror = ()=>rej(new Error('fail '+src));
+          document.head.appendChild(s);
+        });
       }
-      return entries;
-    }
-
-    function tagStyle(tag) {
-      switch (tag) {
-        case 'great': return 'bg-green-100 text-green-800';
-        case 'good': return 'bg-emerald-100 text-emerald-800';
-        case 'book': return 'bg-blue-100 text-blue-800';
-        case 'inaccuracy': return 'bg-amber-100 text-amber-900';
-        case 'mistake': return 'bg-orange-100 text-orange-900';
-        case 'blunder': return 'bg-red-100 text-red-800';
-        default: return 'bg-neutral-200 text-neutral-800';
+      async function loadOne(urls){ for(const u of urls){ if(tried[u]) continue; tried[u]=1; try{ await add(u); return true; } catch(_){} } return false; }
+      window.loadDeps = async function(){
+        const okReact = await loadOne([
+          'https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js',
+          'https://unpkg.com/react@18/umd/react.development.js',
+          'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js'
+        ]);
+        const okReactDOM = await loadOne([
+          'https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js',
+          'https://unpkg.com/react-dom@18/umd/react-dom.development.js',
+          'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js'
+        ]);
+        const okChess = await loadOne([
+          'https://cdn.jsdelivr.net/npm/chess.js@1.0.0-beta.6/dist/chess.umd.js',
+          'https://unpkg.com/chess.js@1.0.0-beta.6/dist/chess.umd.js',
+          'https://cdnjs.cloudflare.com/ajax/libs/chess.js/1.0.0-beta.6/chess.umd.min.js'
+        ]);
+        return okReact && okReactDOM && okChess;
       }
-    }
+    })();
+  </script>
 
-    function useLocalStorage(key, initialValue) {
-      const [value, setValue] = useState(() => {
-        try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : initialValue; } catch { return initialValue; }
-      });
-      useEffect(() => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }, [key, value]);
-      return [value, setValue];
-    }
+  <!-- App (only runs after libs load) -->
+  <script>
+    (async function bootstrap(){
+      const status = document.getElementById('status');
+      const ok = await loadDeps();
+      if(!ok || !window.React || !window.ReactDOM || !window.Chess){
+        status.textContent = '';
+        const app = document.getElementById('app');
+        app.innerHTML = `
+          <div class="card">
+            <div style="font-weight:700; margin-bottom:6px; color:#991b1b;">Failed to load a required library.</div>
+            <div class="space"></div>
+            <div>This can happen on restrictive networks. Try:</div>
+            <ul style="margin:8px 0 0 18px;">
+              <li>Click <button id="retry" class="btn primary">Retry</button></li>
+              <li>Use a local server (e.g. <code>python3 -m http.server 8000</code>)</li>
+              <li>Or use <b>Local Files</b> (works offline): download 3 files into the same folder as this HTML, then use the snippet below.</li>
+            </ul>
+            <div class="space"></div>
+            <details>
+              <summary class="btn">Local Files method (instructions)</summary>
+              <div class="space"></div>
+              <ol style="margin-left:18px;">
+                <li>Download these to the same folder as <code>index.html</code>:
+                  <ul style="margin:6px 0 0 18px;">
+                    <li><code>react.development.js</code> (React 18 UMD)</li>
+                    <li><code>react-dom.development.js</code> (ReactDOM 18 UMD)</li>
+                    <li><code>chess.umd.js</code> (chess.js 1.0.0-beta.6 UMD)</li>
+                  </ul>
+                </li>
+                <li>Replace the loader above with local tags:
+                  <pre style="background:#f3f3f3; padding:10px; border-radius:8px; overflow:auto;"><code>&lt;script src="./react.development.js"&gt;&lt;/script&gt;
+&lt;script src="./react-dom.development.js"&gt;&lt;/script&gt;
+&lt;script src="./chess.umd.js"&gt;&lt;/script&gt;</code></pre>
+                </li>
+                <li>Open via a local server or just double-click.</li>
+              </ol>
+            </details>
+          </div>`;
+        const btn = document.getElementById('retry');
+        if(btn) btn.onclick = ()=>location.reload();
+        return;
+      }
+      status.textContent = '';
 
-    // Map SAN to move index from a loaded game
-    function indexMoves(chess) {
-      const hist = chess.history({ verbose: true });
-      // Create a map: key = `${moveNumber}-${color}` => index
-      const map = new Map();
-      hist.forEach((mv, idx) => {
-        map.set(`${mv.turn === 'w' ? mv.moveNumber : mv.moveNumber}-${mv.color}`, idx);
-      });
-      return { hist, map };
-    }
+      // ---------------- React App ----------------
+      const { useEffect, useMemo, useState } = React;
 
-    function App() {
-      const [pgn, setPgn] = useLocalStorage('cmr:pgn', `; Paste your PGN here or load a .pgn file.\n\n[Event "Casual Game"]\n[Site "?"]\n[Date "????.??.??"]\n[Round "-"]\n[White "White"]\n[Black "Black"]\n[Result "*"]\n\n1. e4 g6 2. Bc4 Bg7 3. d3 e5 4. Nc3 d6 5. Nh3 h6 6. f3 Ne7 7. g4 a6 8. Ng1 Nbc6 9. Qe2 Nd4 10. Qf2 h5 11. Be3 hxg4 12. fxg4 Bxg4 13. Bxd4 exd4 14. Nd5 Nxd5 15. Bxd5 Qe7 16. h3 Be6 17. Bxe6 Qxe6 18. O-O-O O-O-O 19. c3 Qxa2 20. cxd4 Qa1+ 21. Kd2 Bh6+ 22. Ke2 Qxb2+ 23. Ke1 Qxf2+ 24. Kxf2 d5 25. Ke1 dxe4 26. dxe4 Be3 27. Ne2 *`);
+      const UNI = {p:'♟',r:'♜',n:'♞',b:'♝',q:'♛',k:'♚',P:'♙',R:'♖',N:'♘',B:'♗',Q:'♕',K:'♔'};
 
-      const [analysis, setAnalysis] = useLocalStorage('cmr:analysis', `1. e4 – **book**: A principled first move, claiming central space and opening lines for the queen and bishop.\n\n1... g6 – **book**: The Modern Defense. Black fianchettos the bishop, delaying central occupation.\n\n2. Bc4 – **inaccuracy**: Developing to c4 looks active but is misplaced in this structure, as the bishop may be harassed. Better is 2.d4, directly challenging the center.\n\n2... Bg7 – **book**: Normal continuation, reinforcing the g7 bishop’s long diagonal.\n\n3. d3 – **inaccuracy**: Passive. White blocks the c1-bishop and misses the chance to strike with 3.d4, securing central space.\n\n3... e5 – **book**: Black establishes a classical pawn duo, grabbing central control.\n\n4. Nc3 – **good**: Development toward the center. White prepares d4 or supports e4.\n\n4... d6 – **book**: Solidly supporting the e5 pawn and preparing …Nf6.\n\n5. Nh3 – **mistake**: This knight is awkward on h3. Better is 5.Nf3, hitting e5 and developing naturally.\n\n5... h6 – **inaccuracy**: Slow. Black should prefer 5…Nf6 to complete development.\n\n6. f3 – **mistake**: This move weakens the dark squares (g3, e3) and blocks natural knight development to f3. Better was 6.0-0 followed by f4 in due time.\n\n6... Ne7 – **good**: The knight reroutes to c6 or g6, keeping flexibility.\n\n7. g4 – **mistake**: Premature pawn thrust, loosening kingside structure without development. A calm 7.0-0 was safer.\n\n7... a6 – **inaccuracy**: Too slow in a sharp position. Black should immediately counter with 7…c6 or 7…d5.\n\n8. Ng1 – **blunder**: Moving the knight back wastes time and cedes initiative. White should instead have played 8.Nf2, at least regrouping actively.\n\n8... Nbc6 – **good**: Logical development, increasing central pressure.\n\n9. Qe2 – **inaccuracy**: A passive queen move; development is lagging. Better was 9.Nf3.\n\n9... Nd4 – **great**: Strong outpost move, placing the knight aggressively in White’s camp.\n\n10. Qf2 – **mistake**: Retreating the queen wastes time again. White should challenge with 10.Nf3, contesting d4.\n\n10... h5 – **great**: Black seizes the initiative, opening lines against White’s weakened kingside.\n\n11. Be3 – **inaccuracy**: Misplaces the bishop; White had to play 11.h4 to restrain Black’s pawn storm.\n\n11... hxg4 – **good**: Logical, opening the h-file.\n\n12. fxg4 – **mistake**: Opening more lines toward White’s king. Safer was 12.hxg4, keeping the f-file closed.\n\n12... Bxg4 – **good**: Black wins a pawn and keeps pressure.\n\n13. Bxd4 – **inaccuracy**: Exchanges relieve pressure but hand Black the strong e5–d4 duo. Better was 13.h3, challenging the bishop first.\n\n13... exd4 – **great**: Black gains a central pawn and an open file.\n\n14. Nd5 – **good**: Activates the knight with tempo, hitting c7 and f6.\n\n14... Nxd5 – **good**: Correct to eliminate the intruder.\n\n15. Bxd5 – **good**: Strong centralization of the bishop, eyeing b7 and f7.\n\n15... Qe7 – **inaccuracy**: Defends but passively. Better was 15…c6, striking at the bishop immediately.\n\n16. h3 – **good**: Kicks the g4 bishop and consolidates.\n\n16... Be6 – **mistake**: Walking into exchanges that leave Black underdeveloped. Safer was 16…c6, gaining tempo.\n\n17. Bxe6 – **good**: White exchanges and reduces Black’s attacking potential.\n\n17... Qxe6 – **good**: Recapture, keeping material balance.\n\n18. O-O-O – **great**: White castles long, activating the rook and creating king safety.\n\n18... O-O-O – **good**: Logical counter, but dangerous with the queenside already open.\n\n19. c3 – **good**: White opens the center to expose Black’s king.\n\n19... Qxa2 – **mistake**: Grabbing the pawn is too greedy. Better was 19…d5, countering in the center before White opens lines.\n\n**Critical Moment**: After 19…Qxa2, Black falls into danger with the queen far from the defense. The priority should have been central play.\n\n20. cxd4 – **great**: White blasts open the center, threatening rapid piece activity against the Black king.\n\n20... Qa1+ – **mistake**: A forcing check that leads the queen astray. Retreat to a5 was safer.\n\n21. Kd2 – **good**: Calm defense, walking into safety.\n\n21... Bh6+ – **mistake**: Waste of time. Black needed 21…Qa5+ to trade queens and relieve pressure.\n\n22. Ke2 – **good**: King steps toward safety; White remains better.\n\n22... Qxb2+ – **mistake**: More pawn grabbing while Black’s own king is exposed.\n\n23. Ke1 – **good**: White finds safety, keeping rooks ready for central play.\n\n23... Qxf2+ – **inaccuracy**: Simplification helps White, whose king is now safe. Better was 23…Qc3+, seeking perpetual chances.\n\n24. Kxf2 – **good**: White consolidates, with a safe king and extra central control.\n\n24... d5 – **good**: Thematic pawn break, finally opening lines.\n\n25. Ke1 – **good**: King steps away, preparing central consolidation.\n\n25... dxe4 – **inaccuracy**: Trades off tension without improving piece activity. 25…Rxd4 was more testing.\n\n26. dxe4 – **good**: White keeps the strong central pawn.\n\n26... Be3 – **mistake**: Black spends time on a bishop sortie instead of activating the rooks.\n\n27. Ne2 – **good**: White develops calmly and holds all threats. Black loses on time.\n\n---\n\n**Strengths**\n\n* White showed resilience after early missteps, especially with calm defensive king moves.\n* Good recognition of the opportunity to open the center with 19.c3 and 20.cxd4.\n* Castling queenside at the right moment (18.O-O-O), activating rooks and securing king safety.\n\n**Recurring Mistakes**\n\n* Early knight maneuvers (Nh3–g1) wasted time and hurt development.\n* Overextension with pawn pushes (f3, g4) weakened White’s kingside unnecessarily.\n* Black repeatedly grabbed pawns (Qxa2, Qxb2) instead of consolidating and defending the king.\n\n**Top 3 Takeaways**\n\n1. **Prioritize development over flank pawn moves** – moves like Nh3, f3, and g4 created weaknesses and wasted time. Study opening principles to avoid slow maneuvers.\n2. **Beware of greed in sharp positions** – Black’s pawn grabs with the queen allowed White to seize the initiative. Practice positions where “activity over material” matters.\n3. **Open the center when the opponent’s king is exposed** – White’s 19.c3–cxd4 was instructive. Drill central pawn breaks in middlegames to understand when to open files against an unsafe king.`);
-
-      const boardRef = useRef(null);
-      const [game, setGame] = useState(() => new Chess());
-      const [moveIdx, setMoveIdx] = useState(0);
-      const [parsed, setParsed] = useState({ entries: [], hist: [], index: new Map() });
-
-      // Load PGN into chess.js
-      function loadPGN(newPgn) {
-        const c = new Chess();
-        const ok = c.load_pgn(newPgn, { sloppy: true });
-        if (!ok) {
-          alert('Could not parse PGN. Please check formatting.');
-          return;
-        }
-        setGame(c);
-        const { hist, map } = indexMoves(c);
-        setParsed(p => ({ ...p, hist, index: map }));
-        setMoveIdx(0);
-        // Set start pos on board
-        queueMicrotask(() => {
-          const board = boardRef.current;
-          if (board) board.setPosition(c.fen());
+      function fenToArray(fen){
+        const rows = fen.split(' ')[0].split('/');
+        return rows.map(row=>{
+          const out=[]; for(const ch of row){ if(/\d/.test(ch)) out.push(...Array(+ch).fill('')); else out.push(ch); }
+          return out;
         });
       }
 
-      // Parse analysis and attempt to link to moves
-      function loadAnalysis(rawText) {
-        const entries = parseAnalysis(rawText);
-        setParsed(p => ({ ...p, entries }));
-      }
-
-      // Sync board whenever moveIdx changes
-      useEffect(() => {
-        const c = new Chess();
-        c.load_pgn(pgn, { sloppy: true });
-        const hist = c.history({ verbose: true });
-        // Play first moveIdx moves
-        for (let i = 0; i < moveIdx && i < hist.length; i++) c.move(hist[i]);
-        const board = boardRef.current;
-        if (board) board.setPosition(c.fen());
-      }, [moveIdx, pgn]);
-
-      // Initial load from default values
-      useEffect(() => { loadPGN(pgn); }, []);
-      useEffect(() => { loadAnalysis(analysis); }, []);
-
-      function goto(index) { setMoveIdx(Math.max(0, Math.min(index, parsed.hist.length))); }
-      function step(delta) { goto(moveIdx + delta); }
-
-      // Link analysis rows to move index by matching number+color OR SAN around that ply.
-      function analysisToIndex(entry) {
-        if (!entry || entry.meta) return null;
-        // First try by number+color
-        const key = `${entry.moveNumber}-${entry.color}`;
-        if (parsed.index.has(key)) return parsed.index.get(key) + 1; // board shows after the move
-        // Fallback: try to find SAN match around that number
-        const targetPly = (entry.moveNumber - 1) * 2 + (entry.color === 'b' ? 2 : 1);
-        const window = 6;
-        for (let i = Math.max(0, targetPly - window); i < Math.min(parsed.hist.length, targetPly + window); i++) {
-          if (parsed.hist[i]?.san?.replace(/[+#!?]/g, '') === entry.san.replace(/[+#!?]/g, '')) {
-            return i + 1;
-          }
+      function parseAnalysis(raw){
+        const lines = raw.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+        const re = /^(\d+)\.(\.{3})?\s*([a-hRNBQKO0-9x+=#-]+)\s*[–-]\s*\*\*(\w+)\*\*\s*:\s*(.+)$/i;
+        const out=[];
+        for(const line of lines){
+          const m=line.match(re);
+          if(m){ out.push({moveNumber:+m[1], color:m[2]?'b':'w', san:m[3].replace(/^0-0-0$/,'O-O-O').replace(/^0-0$/,'O-O'), tag:m[4].toLowerCase(), comment:m[5]});}
+          else out.push({meta:true,text:line});
         }
-        return null;
+        return out;
       }
 
-      const summaryBlocks = useMemo(() => {
-        const out = [];
-        let current = null;
-        parsed.entries.forEach(e => {
-          if (e.meta && /^\*\*(.+)\*\*/.test(e.text)) {
-            const title = e.text.replace(/^\*\*(.+)\*\*/,'$1');
-            current = { title, items: [] };
-            out.push(current);
-          } else if (e.meta && current) {
-            current.items.push(e.text);
-          }
-        });
-        return out.filter(b => b.items.length);
-      }, [parsed.entries]);
+      function useLS(k, v0){ const [v,setV]=useState(()=>{try{const s=localStorage.getItem(k);return s?JSON.parse(s):v0}catch{return v0}}); useEffect(()=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}},[k,v]); return [v,setV]; }
 
-      // Export combined review as JSON
-      function exportJSON() {
-        const payload = {
-          pgn,
-          analysis: parsed.entries,
-          createdAt: new Date().toISOString()
-        };
-        download('review.json', JSON.stringify(payload, null, 2));
+      function Board({fen}){
+        const a = fenToArray(fen);
+        return React.createElement('div',{className:'board'},
+          a.map((row,r)=>row.map((p,c)=>React.createElement('div',{key:r+'-'+c,className:`sq ${(r+c)%2?'dark':'light'}`}, UNI[p]||'')))
+        );
       }
 
-      // Handlers for file inputs
-      function onFile(file, setter) {
-        const reader = new FileReader();
-        reader.onload = e => setter(e.target.result);
-        reader.readAsText(file);
-      }
+      function App(){
+        const [pgn,setPgn]=useLS('cmr:pgn',`[Event "Casual Game"]
+[Site "?"]
+[Date "????.??.??"]
+[Round "-"]
+[White "White"]
+[Black "Black"]
+[Result "*"]
 
-      return (
-        React.createElement('div', { className: 'max-w-7xl mx-auto p-4 md:p-8 space-y-6' },
-          React.createElement('header', { className: 'flex items-start justify-between flex-wrap gap-4' },
-            React.createElement('div', null,
-              React.createElement('h1', { className: 'text-3xl md:text-4xl font-bold' }, 'Chess Move Reviewer'),
-              React.createElement('p', { className: 'text-neutral-600 mt-1' }, 'Paste a PGN and an analysis in the provided format. Click an analysis line to jump the board to that position.')
-            ),
-            React.createElement('div', { className: 'flex items-center gap-2' },
-              React.createElement('button', { onClick: exportJSON, className: 'px-3 py-2 rounded-xl bg-neutral-900 text-white shadow-soft hover:opacity-90' }, 'Export JSON'),
-              React.createElement('a', { href: 'https://github.com/new', target: '_blank', className: 'px-3 py-2 rounded-xl bg-white border shadow-soft hover:bg-neutral-50' }, 'Create GitHub Repo')
-            )
-          ),
+1. e4 g6 2. Bc4 Bg7 3. d3 e5 4. Nc3 d6 5. Nh3 h6 6. f3 Ne7 7. g4 a6 8. Ng1 Nbc6 9. Qe2 Nd4 10. Qf2 h5 11. Be3 hxg4 12. fxg4 Bxg4 13. Bxd4 exd4 14. Nd5 Nxd5 15. Bxd5 Qe7 16. h3 Be6 17. Bxe6 Qxe6 18. O-O-O O-O-O 19. c3 Qxa2 20. cxd4 Qa1+ 21. Kd2 Bh6+ 22. Ke2 Qxb2+ 23. Ke1 Qxf2+ 24. Kxf2 d5 25. Ke1 dxe4 26. dxe4 Be3 27. Ne2 *`);
+        const [txt,setTxt]=useLS('cmr:txt',`1. e4 – **book**: A principled first move, claiming central space and opening lines for the queen and bishop.
 
-          React.createElement('div', { className: 'grid grid-cols-1 lg:grid-cols-2 gap-6' },
-            // Left: Board + controls
-            React.createElement('section', { className: 'bg-white rounded-2xl shadow-soft p-4 space-y-4' },
-              React.createElement('div', { className: 'aspect-square rounded-xl overflow-hidden border' },
-                React.createElement('chess-board', { ref: boardRef, id: 'board', class: 'w-full h-full', position: 'start', "auto-rotate": false, "highlight": true })
+1... g6 – **book**: The Modern Defense. Black fianchettos the bishop, delaying central occupation.
+
+2. Bc4 – **inaccuracy**: Developing to c4 looks active but is misplaced in this structure, as the bishop may be harassed. Better is 2.d4, directly challenging the center.
+
+2... Bg7 – **book**: Normal continuation, reinforcing the g7 bishop’s long diagonal.
+
+3. d3 – **inaccuracy**: Passive. White blocks the c1-bishop and misses the chance to strike with 3.d4, securing central space.
+
+3... e5 – **book**: Black establishes a classical pawn duo, grabbing central control.
+
+4. Nc3 – **good**: Development toward the center. White prepares d4 or supports e4.
+
+4... d6 – **book**: Solidly supporting the e5 pawn and preparing …Nf6.
+
+5. Nh3 – **mistake**: This knight is awkward on h3. Better is 5.Nf3, hitting e5 and developing naturally.
+
+5... h6 – **inaccuracy**: Slow. Black should prefer 5…Nf6 to complete development.
+
+6. f3 – **mistake**: This move weakens the dark squares (g3, e3) and blocks natural knight development to f3. Better was 6.0-0 followed by f4 in due time.
+
+6... Ne7 – **good**: The knight reroutes to c6 or g6, keeping flexibility.
+
+7. g4 – **mistake**: Premature pawn thrust, loosening kingside structure without development. A calm 7.0-0 was safer.
+
+7... a6 – **inaccuracy**: Too slow in a sharp position. Black should immediately counter with 7…c6 or 7…d5.
+
+8. Ng1 – **blunder**: Moving the knight back wastes time and cedes initiative. White should instead have played 8.Nf2, at least regrouping actively.
+
+8... Nbc6 – **good**: Logical development, increasing central pressure.
+
+9. Qe2 – **inaccuracy**: A passive queen move; development is lagging. Better was 9.Nf3.
+
+9... Nd4 – **great**: Strong outpost move, placing the knight aggressively in White’s camp.
+
+10. Qf2 – **mistake**: Retreating the queen wastes time again. White should challenge with 10.Nf3, contesting d4.
+
+10... h5 – **great**: Black seizes the initiative, opening lines against White’s weakened kingside.
+
+11. Be3 – **inaccuracy**: Misplaces the bishop; White had to play 11.h4 to restrain Black’s pawn storm.
+
+11... hxg4 – **good**: Logical, opening the h-file.
+
+12. fxg4 – **mistake**: Opening more lines toward White’s king. Safer was 12.hxg4, keeping the f-file closed.
+
+12... Bxg4 – **good**: Black wins a pawn and keeps pressure.
+
+13. Bxd4 – **inaccuracy**: Exchanges relieve pressure but hand Black the strong e5–d4 duo. Better was 13.h3, challenging the bishop first.
+
+13... exd4 – **great**: Black gains a central pawn and an open file.
+
+14. Nd5 – **good**: Activates the knight with tempo, hitting c7 and f6.
+
+14... Nxd5 – **good**: Correct to eliminate the intruder.
+
+15. Bxd5 – **good**: Strong centralization of the bishop, eyeing b7 and f7.
+
+15... Qe7 – **inaccuracy**: Defends but passively. Better was 15…c6, striking at the bishop immediately.
+
+16. h3 – **good**: Kicks the g4 bishop and consolidates.
+
+16... Be6 – **mistake**: Walking into exchanges that leave Black underdeveloped. Safer was 16…c6, gaining tempo.
+
+17. Bxe6 – **good**: White exchanges and reduces Black’s attacking potential.
+
+17... Qxe6 – **good**: Recapture, keeping material balance.
+
+18. O-O-O – **great**: White castles long, activating the rook and creating king safety.
+
+18... O-O-O – **good**: Logical counter, but dangerous with the queenside already open.
+
+19. c3 – **good**: White opens the center to expose Black’s king.
+
+19... Qxa2 – **mistake**: Grabbing the pawn is too greedy. Better was 19…d5, countering in the center before White opens lines.
+
+**Critical Moment**: After 19…Qxa2, Black falls into danger with the queen far from the defense. The priority should have been central play.
+
+20. cxd4 – **great**: White blasts open the center, threatening rapid piece activity against the Black king.
+
+20... Qa1+ – **mistake**: A forcing check that leads the queen astray. Retreat to a5 was safer.
+
+21. Kd2 – **good**: Calm defense, walking into safety.
+
+21... Bh6+ – **mistake**: Waste of time. Black needed 21…Qa5+ to trade queens and relieve pressure.
+
+22. Ke2 – **good**: King steps toward safety; White remains better.
+
+22... Qxb2+ – **mistake**: More pawn grabbing while Black’s own king is exposed.
+
+23. Ke1 – **good**: White finds safety, keeping rooks ready for central play.
+
+23... Qxf2+ – **inaccuracy**: Simplification helps White, whose king is now safe. Better was 23…Qc3+, seeking perpetual chances.
+
+24. Kxf2 – **good**: White consolidates, with a safe king and extra central control.
+
+24... d5 – **good**: Thematic pawn break, finally opening lines.
+
+25. Ke1 – **good**: King steps away, preparing central consolidation.
+
+25... dxe4 – **inaccuracy**: Trades off tension without improving piece activity. 25…Rxd4 was more testing.
+
+26. dxe4 – **good**: White keeps the strong central pawn.
+
+26... Be3 – **mistake**: Black spends time on a bishop sortie instead of activating the rooks.
+
+27. Ne2 – **good**: White develops calmly and holds all threats. Black loses on time.`);
+        const [entries, setEntries] = useState([]);
+        const [hist, setHist] = useState([]);
+        const [idx, setIdx] = useState(0);
+
+        useEffect(()=>{ try{
+          const c=new Chess(); if(!c.load_pgn(pgn,{sloppy:true})) throw 0;
+          setHist(c.history({verbose:true})); setIdx(0);
+        }catch{ alert('PGN parsing failed.'); } },[]);
+        useEffect(()=>{ setEntries(parseAnalysis(txt)); },[]);
+
+        function fenAt(ply){
+          const c=new Chess(); c.load_pgn(pgn,{sloppy:true});
+          const h=c.history({verbose:true}); for(let i=0;i<ply && i<h.length;i++) c.move(h[i]);
+          return c.fen();
+        }
+        function goto(i){ setIdx(Math.max(0, Math.min(i, hist.length))); }
+        function step(d){ goto(idx+d); }
+
+        const summary = useMemo(()=>{
+          const blocks=[]; let cur=null;
+          entries.forEach(e=>{
+            if(e.meta && /^\*\*(.+)\*\*/.test(e.text)){ cur={title:e.text.replace(/^\*\*(.+)\*\*/,'$1'), items:[]}; blocks.push(cur); }
+            else if(e.meta && cur){ cur.items.push(e.text); }
+          });
+          return blocks;
+        },[entries]);
+
+        function Tag({t}){ const cls='tag ' + (t||'').toLowerCase(); return React.createElement('span',{className:cls}, t); }
+
+        return React.createElement(React.Fragment, null,
+          React.createElement('div',{className:'row'},
+            React.createElement('section',{className:'card'},
+              React.createElement('div',{className:'board'}, React.createElement(Board,{fen: fenAt(idx)})),
+              React.createElement('div',{className:'space'}), 
+              React.createElement('div',{className:'flex'},
+                React.createElement('button',{className:'btn', onClick:()=>goto(0)},'⏮︎'),
+                React.createElement('button',{className:'btn', onClick:()=>step(-1)},'◀︎'),
+                React.createElement('button',{className:'btn', onClick:()=>step(1)},'▶︎'),
+                React.createElement('button',{className:'btn', onClick:()=>goto(hist.length)},'⏭︎'),
+                React.createElement('input',{type:'range',min:0,max:hist.length,value:idx,onChange:e=>goto(+e.target.value),className:'slider'}),
+                React.createElement('div',{className:'muted'}, `${idx}/${hist.length} ply`)
               ),
-              React.createElement('div', { className: 'flex items-center justify-between gap-2' },
-                React.createElement('div', { className: 'flex items-center gap-2' },
-                  React.createElement('button', { className: 'px-3 py-2 rounded-lg bg-neutral-100', onClick: () => goto(0) }, '⏮︎'),
-                  React.createElement('button', { className: 'px-3 py-2 rounded-lg bg-neutral-100', onClick: () => step(-1) }, '◀︎'),
-                  React.createElement('button', { className: 'px-3 py-2 rounded-lg bg-neutral-100', onClick: () => step(1) }, '▶︎'),
-                  React.createElement('button', { className: 'px-3 py-2 rounded-lg bg-neutral-100', onClick: () => goto(parsed.hist.length) }, '⏭︎')
-                ),
-                React.createElement('div', { className: 'flex-1' },
-                  React.createElement('input', { type: 'range', min: 0, max: parsed.hist.length, value: moveIdx, onChange: e => goto(parseInt(e.target.value)), className: 'w-full' })
-                ),
-                React.createElement('div', { className: 'text-sm text-neutral-600 min-w-[6rem] text-right' }, `${moveIdx}/${parsed.hist.length} ply`)
-              ),
-              React.createElement('div', { className: 'text-sm text-neutral-700' },
-                parsed.hist.length ? React.createElement('div', null,
-                  React.createElement('span', { className: 'font-semibold' }, 'Current SAN: '), parsed.hist[moveIdx-1]?.san || '—'
-                ) : null
-              )
+              hist.length ? React.createElement('div',{className:'muted', style:{marginTop:'6px'}},
+                React.createElement('b', null, 'Current SAN: '), hist[idx-1]?.san || '—'
+              ) : null
             ),
-
-            // Right: Analysis + inputs
-            React.createElement('section', { className: 'space-y-6' },
-              React.createElement('div', { className: 'bg-white rounded-2xl shadow-soft p-4 space-y-3' },
-                React.createElement('div', { className: 'flex items-center justify-between' },
-                  React.createElement('h2', { className: 'text-xl font-semibold' }, 'Analysis'),
-                  React.createElement('div', { className: 'flex items-center gap-2' },
-                    React.createElement('button', { onClick: () => loadAnalysis(analysis), className: 'px-3 py-1.5 rounded-lg bg-neutral-900 text-white' }, 'Parse')
-                  )
-                ),
-                React.createElement('div', { id: 'analysisList', className: 'max-h-[22rem] overflow-y-auto pr-1 space-y-2' },
-                  parsed.entries.filter(e => !e.meta).map((e, i) => {
-                    const idx = analysisToIndex(e);
-                    const active = idx === moveIdx;
-                    return React.createElement('div', {
-                      key: i,
-                      onClick: () => idx && goto(idx),
-                      className: `p-3 rounded-xl border cursor-pointer transition ${active ? 'border-neutral-900 bg-neutral-50' : 'border-neutral-200 hover:bg-neutral-50'}`
-                    },
-                      React.createElement('div', { className: 'flex items-center justify-between gap-2' },
-                        React.createElement('div', { className: 'font-mono text-sm' }, `${e.moveNumber}${e.color==='b'?'...':'.'} ${e.san}`),
-                        React.createElement('span', { className: `tag ${tagStyle(e.tag)}` }, e.tag)
-                      ),
-                      React.createElement('p', { className: 'text-sm text-neutral-700 mt-1' }, e.comment)
-                    );
-                  })
+            React.createElement('section', {className:'card'},
+              React.createElement('div',{className:'flex', style:{justifyContent:'space-between'}},
+                React.createElement('h3', null, 'PGN'),
+                React.createElement('label', {className:'btn'}, 'Load .pgn',
+                  React.createElement('input',{type:'file',accept:'.pgn',className:'hidden',onchange:e=>{
+                    const f=e.target.files?.[0]; if(!f) return;
+                    const r=new FileReader(); r.onload=ev=>{
+                      setPgn(ev.target.result);
+                      const c=new Chess(); if(c.load_pgn(ev.target.result,{sloppy:true})){ setHist(c.history({verbose:true})); setIdx(0);} else alert('PGN parse error.');
+                    }; r.readAsText(f);
+                  }})
                 )
               ),
-
-              React.createElement('div', { className: 'bg-white rounded-2xl shadow-soft p-4 space-y-3' },
-                React.createElement('div', { className: 'flex items-center justify-between' },
-                  React.createElement('h3', { className: 'font-semibold' }, 'PGN'),
-                  React.createElement('div', { className: 'flex items-center gap-2' },
-                    React.createElement('label', { className: 'px-3 py-1.5 rounded-lg bg-neutral-100 cursor-pointer' },
-                      'Load .pgn',
-                      React.createElement('input', { type: 'file', accept: '.pgn', className: 'hidden', onChange: e => e.target.files?.[0] && onFile(e.target.files[0], setPgn) })
-                    ),
-                    React.createElement('button', { className: 'px-3 py-1.5 rounded-lg bg-neutral-900 text-white', onClick: () => loadPGN(pgn) }, 'Parse PGN')
-                  )
-                ),
-                React.createElement('textarea', { value: pgn, onChange: e => setPgn(e.target.value), className: 'w-full h-40 p-3 rounded-xl border font-mono text-sm', spellCheck: false })
-              ),
-
-              React.createElement('div', { className: 'bg-white rounded-2xl shadow-soft p-4 space-y-3' },
-                React.createElement('div', { className: 'flex items-center justify-between' },
-                  React.createElement('h3', { className: 'font-semibold' }, 'Move-by-move Review'),
-                  React.createElement('div', { className: 'flex items-center gap-2' },
-                    React.createElement('label', { className: 'px-3 py-1.5 rounded-lg bg-neutral-100 cursor-pointer' },
-                      'Load .txt',
-                      React.createElement('input', { type: 'file', accept: '.txt,.md', className: 'hidden', onChange: e => e.target.files?.[0] && onFile(e.target.files[0], setAnalysis) })
-                    ),
-                    React.createElement('button', { className: 'px-3 py-1.5 rounded-lg bg-neutral-900 text-white', onClick: () => loadAnalysis(analysis) }, 'Parse Review')
-                  )
-                ),
-                React.createElement('textarea', { value: analysis, onChange: e => setAnalysis(e.target.value), className: 'w-full h-56 p-3 rounded-xl border font-mono text-sm', spellCheck: false })
-              ),
-
-              summaryBlocks.length ? React.createElement('div', { className: 'bg-white rounded-2xl shadow-soft p-4 space-y-2' },
-                React.createElement('h3', { className: 'font-semibold' }, 'Summary Blocks'),
-                summaryBlocks.map((b, i) => React.createElement('div', { key: i, className: 'border rounded-xl p-3' },
-                  React.createElement('div', { className: 'font-semibold mb-1' }, b.title),
-                  React.createElement('ul', { className: 'list-disc pl-6 text-sm text-neutral-700 space-y-1' }, b.items.map((t, j) => React.createElement('li', { key: j }, t)))
-                ))
-              ) : null
+              React.createElement('textarea',{value:pgn,onChange:e=>setPgn(e.target.value),spellCheck:false})
             )
           ),
-
-          React.createElement('footer', { className: 'text-xs text-neutral-500 py-6 text-center' },
-            'Built with chess.js and chessboard-element · Save this file as ',
-            React.createElement('code', null, 'index.html'),
-            ' and host on GitHub Pages.'
+          React.createElement('div',{className:'space'}), 
+          React.createElement('div',{className:'row'},
+            React.createElement('section',{className:'card'},
+              React.createElement('div',{className:'flex', style:{justifyContent:'space-between'}},
+                React.createElement('h3', null, 'Move-by-move Review'),
+                React.createElement('label',{className:'btn'},'Load .txt',
+                  React.createElement('input',{type:'file',accept:'.txt,.md',className:'hidden',onchange:e=>{
+                    const f=e.target.files?.[0]; if(!f) return;
+                    const r=new FileReader(); r.onload=ev=> setTxt(ev.target.result); r.readAsText(f);
+                  }})
+                )
+              ),
+              React.createElement('textarea',{value:txt,onChange:e=>setTxt(e.target.value),spellCheck:false})
+            ),
+            React.createElement('section',{className:'card'},
+              React.createElement('div',{className:'flex', style:{justifyContent:'space-between', alignItems:'center'}},
+                React.createElement('h3', null, 'Analysis'), 
+                React.createElement('button',{className:'btn primary', onClick:()=>setEntries(parseAnalysis(txt))}, 'Parse')
+              ),
+              React.createElement('div',{style:{maxHeight:'350px', overflow:'auto', marginTop:'8px'}},
+                entries.filter(e=>!e.meta).map((e,i)=>{
+                  const target = (e.moveNumber-1)*2 + (e.color==='b'?2:1);
+                  const active = target===idx;
+                  return React.createElement('div',{key:i, className:'analysis-item'+(active?' active':''), onclick:()=>setIdx(target)},
+                    React.createElement('div',{className:'flex', style:{justifyContent:'space-between'}},
+                      React.createElement('div',{style:{fontFamily:'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize:'13px'}},
+                        `${e.moveNumber}${e.color==='b'?'...':'.'} ${e.san}`),
+                      React.createElement(Tag,{t:e.tag})
+                    ),
+                    React.createElement('div', {className:'muted', style:{marginTop:'4px'}}, e.comment)
+                  )
+                })
+              )
+            )
           )
-        )
-      );
-    }
+        );
+      }
 
-    ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
+      ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
+    })();
   </script>
 </body>
 </html>
