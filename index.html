@@ -109,15 +109,10 @@
                 <div id="board" class="chessboard-container"></div>
             </div>
             <div id="controls" class="mt-4 flex flex-wrap items-center justify-center gap-2 w-full">
-                 <button id="reset-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Start</button>
-                <button id="prev-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">‹ Prev</button>
+                 <button id="prev-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">‹ Prev</button>
                 <button id="next-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Next ›</button>
-                <button id="end-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">End</button>
                 <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
             </div>
-            <button id="new-game-btn" class="mt-4 w-full max-w-xs py-2 px-4 text-white font-semibold rounded-lg btn-primary">
-                Load New Game
-            </button>
         </div>
 
         <div class="lg:col-span-3 bg-[#252526] p-4 rounded-lg flex flex-col h-96 lg:h-auto lg:max-h-[calc(100vh-5rem)]">
@@ -386,14 +381,10 @@
 
                 $('#prev-btn').prop('disabled', currentMoveIndex < 0);
                 $('#next-btn').prop('disabled', currentMoveIndex >= movesWithAnalysis.length - 1);
-                $('#reset-btn').prop('disabled', currentMoveIndex < 0);
-                $('#end-btn').prop('disabled', currentMoveIndex >= movesWithAnalysis.length - 1);
             }
 
             $('#next-btn').on('click', () => goToMove(currentMoveIndex + 1));
             $('#prev-btn').on('click', () => goToMove(currentMoveIndex - 1));
-            $('#reset-btn').on('click', () => goToMove(-1));
-            $('#end-btn').on('click', () => goToMove(movesWithAnalysis.length - 1));
             
             $('#flip-btn').on('click', () => {
                 if(board) {
@@ -401,11 +392,6 @@
                 }
             });
 
-            $('#new-game-btn').on('click', () => {
-                $('#review-section').addClass('hidden').removeClass('grid');
-                $('#input-section').removeClass('hidden');
-            });
-            
             $(document).on('keydown', function(e) {
                 if ($('#review-section').is(':visible')) {
                     if (e.key === 'ArrowRight') {
@@ -420,3 +406,4 @@
 
 </body>
 </html>
+
