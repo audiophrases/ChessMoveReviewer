@@ -1,375 +1,387 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Chess Move Reviewer — Safe Mode</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { background:#f6f6f6; color:#111; margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
-    .container { max-width: 1120px; margin: 0 auto; padding: 24px; }
-    .card { background:#fff; border:1px solid #e5e5e5; border-radius:16px; padding:16px; box-shadow: 0 8px 30px rgba(0,0,0,.05); }
-    .row { display:grid; grid-template-columns: 1fr; gap:24px; }
-    @media (min-width: 1024px){ .row { grid-template-columns: 1fr 1fr; } }
-    .board { display:grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); aspect-ratio:1/1; border-radius:12px; overflow:hidden; border:1px solid #e5e5e5; }
-    .sq { display:flex; align-items:center; justify-content:center; font-size: clamp(22px, 5.5vmin, 48px); user-select:none; }
-    .dark { background:#769656; } .light { background:#eeeed2; }
-    .btn { padding:8px 12px; border-radius:10px; border:1px solid #e5e5e5; background:#fff; cursor:pointer; }
-    .btn.primary { background:#111; color:#fff; border-color:#111; }
-    .tag { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius:9999px; display:inline-block; }
-    .tag.good { background:#d1fae5; color:#065f46; } .tag.great { background:#dcfce7; color:#166534; }
-    .tag.book { background:#dbeafe; color:#1e40af; } .tag.inaccuracy { background:#fde68a; color:#92400e; }
-    .tag.mistake { background:#fed7aa; color:#9a3412; } .tag.blunder { background:#fecaca; color:#991b1b; }
-    textarea { width:100%; height:170px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:13px; border-radius:12px; border:1px solid #e5e5e5; padding:10px; }
-    .muted { color:#666; font-size:13px; }
-    .hidden { display:none; }
-    .analysis-item { border:1px solid #e5e5e5; border-radius:12px; padding:12px; cursor:pointer; }
-    .analysis-item:hover { background:#fafafa; }
-    .active { border-color:#111; background:#fafafa; }
-    .slider { width:100%; }
-    .flex { display:flex; gap:8px; align-items:center; }
-    .space { height: 8px; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Move Reviewer</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
+        crossorigin="anonymous">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* Custom styles for the application */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+        }
+
+        /* Chessboard.js aspect ratio fix */
+        .chessboard-container {
+            width: 100%;
+            margin: 0 auto;
+            aspect-ratio: 1 / 1;
+        }
+
+        /* Styling for the move list */
+        .move-item {
+            transition: background-color 0.2s ease-in-out;
+            border-radius: 0.5rem;
+        }
+        .move-item.highlight {
+            background-color: #384a6e; /* A distinct highlight color */
+        }
+        .move-item:hover {
+            background-color: #2c3a57;
+        }
+
+        /* Custom scrollbar for move list */
+        #move-analysis-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        #move-analysis-container::-webkit-scrollbar-track {
+            background: #2a2a2a;
+        }
+        #move-analysis-container::-webkit-scrollbar-thumb {
+            background-color: #4a4a4a;
+            border-radius: 10px;
+            border: 2px solid #2a2a2a;
+        }
+
+        /* Custom styles for buttons and textareas */
+        .btn-primary {
+            background-color: #4a90e2;
+            transition: background-color 0.3s;
+        }
+        .btn-primary:hover {
+            background-color: #357abd;
+        }
+        .btn-secondary {
+            background-color: #4a4a4a;
+            transition: background-color: 0.3s;
+        }
+        .btn-secondary:hover {
+            background-color: #5a5a5a;
+        }
+        textarea.form-input {
+            background-color: #252526;
+            border-color: #4a4a4a;
+        }
+        textarea.form-input:focus {
+            border-color: #4a90e2;
+            box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.5);
+            outline: none;
+        }
+    </style>
 </head>
-<body>
-  <div class="container">
-    <h1 style="font-size:28px; font-weight:800; margin:0 0 8px;">Chess Move Reviewer (Safe Mode)</h1>
-    <p class="muted" id="status">Loading libraries…</p>
-    <div id="app"></div>
-  </div>
+<body class="min-h-screen flex flex-col p-4 md:p-6">
 
-  <!-- Loader with CDN fallbacks -->
-  <script>
-    (function(){
-      const tried = {};
-      function add(src){
-        return new Promise((res, rej)=>{
-          const s = document.createElement('script');
-          s.src = src; s.async = false;
-          s.onload = res; s.onerror = ()=>rej(new Error('fail '+src));
-          document.head.appendChild(s);
+    <header class="text-center mb-6">
+        <h1 class="text-3xl md:text-4xl font-bold text-white">Chess Move Reviewer</h1>
+        <p class="text-gray-400 mt-2">Pair your PGN and analysis with an interactive board.</p>
+    </header>
+
+    <div id="input-section" class="max-w-6xl w-full mx-auto flex flex-col gap-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <label for="pgn-input" class="block mb-2 font-semibold text-gray-300">1. Paste PGN here</label>
+                <textarea id="pgn-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..."></textarea>
+            </div>
+            <div>
+                <label for="analysis-input" class="block mb-2 font-semibold text-gray-300">2. Paste Formatted Analysis here</label>
+                <textarea id="analysis-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="1. e4 – **book**: A principled first move..."></textarea>
+            </div>
+        </div>
+        <button id="load-game-btn" class="w-full md:w-1/3 mx-auto py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
+            Generate Review
+        </button>
+    </div>
+
+    <main id="review-section" class="hidden flex-1 max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div class="lg:col-span-2 flex flex-col items-center">
+            <div class="w-full max-w-md mx-auto"> <div id="board" class="chessboard-container"></div>
+            </div>
+            <div id="controls" class="mt-4 flex flex-wrap items-center justify-center gap-2 w-full">
+                 <button id="reset-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Start</button>
+                <button id="prev-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">‹ Prev</button>
+                <button id="next-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Next ›</button>
+                <button id="end-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">End</button>
+                <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
+            </div>
+            <button id="new-game-btn" class="mt-4 w-full max-w-xs py-2 px-4 text-white font-semibold rounded-lg btn-primary">
+                Load New Game
+            </button>
+        </div>
+
+        <div class="lg:col-span-3 bg-[#252526] p-4 rounded-lg flex flex-col lg:max-h-[calc(100vh-5rem)]">
+            <h2 class="text-xl font-bold border-b border-gray-600 pb-2 mb-3 flex-shrink-0">Game Analysis</h2>
+            <div id="move-analysis-container" class="overflow-y-auto flex-1 pr-2 space-y-1">
+                </div>
+        </div>
+    </main>
+
+    <div id="error-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+        <div class="bg-[#2d2d2d] p-8 rounded-lg shadow-xl max-w-sm w-full text-center">
+            <h3 class="text-2xl font-bold text-red-400 mb-4">Error</h3>
+            <p id="error-message" class="text-gray-300 mb-6">Could not process the input.</p>
+            <button id="close-modal-btn" class="py-2 px-6 font-semibold text-white rounded-lg btn-primary">Close</button>
+        </div>
+    </div>
+
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"
+        crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
+
+    <script>
+        $(document).ready(function () {
+            let board = null;
+            let game = new Chess();
+            let movesWithAnalysis = [];
+            let currentMoveIndex = -1;
+
+            const classificationStyles = {
+                'book': 'text-blue-400',
+                'good': 'text-green-400',
+                'great': 'text-teal-400',
+                'inaccuracy': 'text-yellow-400',
+                'mistake': 'text-orange-400',
+                'blunder': 'text-red-500',
+                'default': 'text-gray-400'
+            };
+
+            function getStyleForClassification(classification) {
+                const key = classification.toLowerCase().replace(' ', '');
+                return classificationStyles[key] || classificationStyles['default'];
+            }
+            
+            function formatText(text) {
+                if (!text) return '';
+                return text.toString().replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            }
+
+            function showError(message) {
+                $('#error-message').text(message);
+                $('#error-modal').removeClass('hidden');
+            }
+
+            $('#close-modal-btn').on('click', () => {
+                $('#error-modal').addClass('hidden');
+            });
+
+            $('#load-game-btn').on('click', function () {
+                const pgn = $('#pgn-input').val().trim();
+                const analysisText = $('#analysis-input').val().trim();
+
+                if (!pgn || !analysisText) {
+                    showError("Please provide both a PGN and analysis text.");
+                    return;
+                }
+
+                if (!game.load_pgn(pgn)) {
+                    showError("Invalid PGN. Please check the PGN format.");
+                    return;
+                }
+
+                const gameMoves = game.history({ verbose: true });
+                const parsedAnalysis = parseAnalysis(analysisText);
+
+                movesWithAnalysis = gameMoves.map((move, index) => {
+                    const moveNumber = Math.floor(index / 2) + 1;
+                    const key = `${moveNumber}${move.color === 'b' ? '...' : '.'}-${move.san}`;
+                    return {
+                        ...move,
+                        analysis: parsedAnalysis.moves[key] || null,
+                        criticalMoment: parsedAnalysis.criticalMoments[key] || null
+                    };
+                });
+                
+                if (!board) {
+                    board = Chessboard('board', {
+                        position: 'start',
+                        draggable: false,
+                        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+                    });
+                     $(window).on('resize', () => board.resize());
+                }
+
+                $('#input-section').addClass('hidden');
+                $('#review-section').removeClass('hidden').addClass('grid');
+                board.resize();
+                
+                renderMoveList();
+                renderSummary(parsedAnalysis.summaries);
+                goToMove(-1);
+            });
+            
+            function parseAnalysis(text) {
+                const lines = text.split('\n');
+                const moves = {};
+                const criticalMoments = {};
+                const summaries = {};
+                let currentSummary = null;
+
+                const moveRegex = /^(\d+\.{1,3})\s*([^\s–]+)\s*–\s*\*\*(.+?)\*\*:\s*(.*)/;
+                const criticalMomentRegex = /^\*\*Critical Moment\*\*:\s*(.*)/;
+                const summaryHeaderRegex = /^\*\*(Strengths|Recurring Mistakes|Top 3 Takeaways)\*\*/;
+
+                lines.forEach(line => {
+                    const moveMatch = line.match(moveRegex);
+                    const criticalMomentMatch = line.match(criticalMomentRegex);
+                    const summaryHeaderMatch = line.match(summaryHeaderRegex);
+
+                    if (moveMatch) {
+                        const moveNumStr = moveMatch[1].replace(/\s/g, '');
+                        const moveSan = moveMatch[2];
+                        const key = `${moveNumStr}-${moveSan}`;
+                        moves[key] = {
+                            classification: moveMatch[3],
+                            text: moveMatch[4]
+                        };
+                    } else if (criticalMomentMatch) {
+                        const lastMoveKey = Object.keys(moves).pop();
+                        if (lastMoveKey) {
+                            criticalMoments[lastMoveKey] = criticalMomentMatch[1];
+                        }
+                    } else if (summaryHeaderMatch) {
+                        currentSummary = summaryHeaderMatch[1].replace(/\s/g, '');
+                        summaries[currentSummary] = [];
+                    } else if (line.trim() !== '' && line.trim() !== '---' && currentSummary) {
+                        summaries[currentSummary].push(line.trim());
+                    }
+                });
+
+                return { moves, criticalMoments, summaries };
+            }
+
+            function renderMoveList() {
+                const container = $('#move-analysis-container');
+                container.empty();
+                
+                movesWithAnalysis.forEach((move, index) => {
+                    const moveNumber = Math.floor(index / 2) + 1;
+                    const moveNumberDisplay = move.color === 'w' ? `${moveNumber}.` : '';
+
+                    const moveHtml = `
+                        <div class="move-item p-2 cursor-pointer" data-move-index="${index}">
+                            <div class="flex items-baseline gap-3">
+                                <span class="text-gray-500 font-mono w-8 text-right">${moveNumberDisplay}</span>
+                                <span class="font-bold text-lg text-white">${move.san}</span>
+                                ${move.analysis ? `<span class="font-semibold text-sm ${getStyleForClassification(move.analysis.classification)}">${move.analysis.classification}</span>` : ''}
+                            </div>
+                            ${move.analysis ? `<p class="pl-12 text-gray-300 text-sm">${formatText(move.analysis.text)}</p>` : ''}
+                            ${move.criticalMoment ? `<p class="pl-12 mt-1 text-sm text-yellow-300 bg-yellow-900 bg-opacity-40 p-2 rounded">${formatText(`**Critical Moment:** ${move.criticalMoment}`)}</p>` : ''}
+                        </div>
+                    `;
+                    container.append(moveHtml);
+                });
+                
+                $('.move-item').on('click', function() {
+                    const index = $(this).data('move-index');
+                    goToMove(index);
+                });
+            }
+
+            function renderSummary(summaries) {
+                const container = $('#move-analysis-container');
+                const summaryContent = [];
+
+                const summaryOrder = ['Strengths', 'RecurringMistakes', 'Top3Takeaways'];
+                const summaryTitles = {
+                    'Strengths': 'Strengths',
+                    'RecurringMistakes': 'Recurring Mistakes',
+                    'Top3Takeaways': 'Top 3 Takeaways'
+                };
+
+                summaryOrder.forEach(key => {
+                    if (summaries[key] && summaries[key].length > 0) {
+                        const title = summaryTitles[key];
+                        const items = summaries[key];
+                        
+                        let summaryHtml = `<h3 class="text-lg font-semibold mt-2 mb-1 text-gray-200">${title}</h3>`;
+                        summaryHtml += '<ul class="list-disc list-inside space-y-1 text-sm text-gray-300">';
+                        items.forEach(item => {
+                            let cleanedItem = item.trim().replace(/^(\*|-|\d+\.)\s*/, '');
+                            summaryHtml += `<li>${formatText(cleanedItem)}</li>`;
+                        });
+                        summaryHtml += '</ul>';
+                        summaryContent.push(summaryHtml);
+                    }
+                });
+
+                if (summaryContent.length > 0) {
+                    container.append(`
+                        <div class="mt-4 border-t border-gray-600 pt-3">
+                            ${summaryContent.join('')}
+                        </div>
+                    `);
+                }
+            }
+
+            function goToMove(index) {
+                if (index < -1 || index >= movesWithAnalysis.length) return;
+
+                currentMoveIndex = index;
+                
+                game.reset();
+                for (let i = 0; i <= currentMoveIndex; i++) {
+                    game.move(movesWithAnalysis[i].san);
+                }
+
+                board.position(game.fen());
+                
+                $('.move-item').removeClass('highlight');
+                if (currentMoveIndex >= 0) {
+                    const target = $(`.move-item[data-move-index="${currentMoveIndex}"]`);
+                    target.addClass('highlight');
+                    const container = $('#move-analysis-container');
+                    container.scrollTop(container.scrollTop() + target.position().top - container.height()/2 + target.height()/2);
+                }
+
+                $('#prev-btn').prop('disabled', currentMoveIndex < 0);
+                $('#next-btn').prop('disabled', currentMoveIndex >= movesWithAnalysis.length - 1);
+                $('#reset-btn').prop('disabled', currentMoveIndex < 0);
+                $('#end-btn').prop('disabled', currentMoveIndex >= movesWithAnalysis.length - 1);
+            }
+
+            $('#next-btn').on('click', () => goToMove(currentMoveIndex + 1));
+            $('#prev-btn').on('click', () => goToMove(currentMoveIndex - 1));
+            $('#reset-btn').on('click', () => goToMove(-1));
+            $('#end-btn').on('click', () => goToMove(movesWithAnalysis.length - 1));
+            
+            $('#flip-btn').on('click', () => {
+                if(board) {
+                    board.flip();
+                }
+            });
+
+            $('#new-game-btn').on('click', () => {
+                $('#review-section').addClass('hidden').removeClass('grid');
+                $('#input-section').removeClass('hidden');
+                // Optional: clear inputs when loading a new game
+                // $('#pgn-input').val('');
+                // $('#analysis-input').val('');
+            });
+            
+            $(document).on('keydown', function(e) {
+                if ($('#review-section').is(':visible')) {
+                    if (e.key === 'ArrowRight') {
+                        goToMove(currentMoveIndex + 1);
+                    } else if (e.key === 'ArrowLeft') {
+                        goToMove(currentMoveIndex - 1);
+                    }
+                }
+            });
         });
-      }
-      async function loadOne(urls){ for(const u of urls){ if(tried[u]) continue; tried[u]=1; try{ await add(u); return true; } catch(_){} } return false; }
-      window.loadDeps = async function(){
-        const okReact = await loadOne([
-          'https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js',
-          'https://unpkg.com/react@18/umd/react.development.js',
-          'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js'
-        ]);
-        const okReactDOM = await loadOne([
-          'https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js',
-          'https://unpkg.com/react-dom@18/umd/react-dom.development.js',
-          'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js'
-        ]);
-        const okChess = await loadOne([
-          'https://cdn.jsdelivr.net/npm/chess.js@1.0.0-beta.6/dist/chess.umd.js',
-          'https://unpkg.com/chess.js@1.0.0-beta.6/dist/chess.umd.js',
-          'https://cdnjs.cloudflare.com/ajax/libs/chess.js/1.0.0-beta.6/chess.umd.min.js'
-        ]);
-        return okReact && okReactDOM && okChess;
-      }
-    })();
-  </script>
+    </script>
 
-  <!-- App (only runs after libs load) -->
-  <script>
-    (async function bootstrap(){
-      const status = document.getElementById('status');
-      const ok = await loadDeps();
-      if(!ok || !window.React || !window.ReactDOM || !window.Chess){
-        status.textContent = '';
-        const app = document.getElementById('app');
-        app.innerHTML = `
-          <div class="card">
-            <div style="font-weight:700; margin-bottom:6px; color:#991b1b;">Failed to load a required library.</div>
-            <div class="space"></div>
-            <div>This can happen on restrictive networks. Try:</div>
-            <ul style="margin:8px 0 0 18px;">
-              <li>Click <button id="retry" class="btn primary">Retry</button></li>
-              <li>Use a local server (e.g. <code>python3 -m http.server 8000</code>)</li>
-              <li>Or use <b>Local Files</b> (works offline): download 3 files into the same folder as this HTML, then use the snippet below.</li>
-            </ul>
-            <div class="space"></div>
-            <details>
-              <summary class="btn">Local Files method (instructions)</summary>
-              <div class="space"></div>
-              <ol style="margin-left:18px;">
-                <li>Download these to the same folder as <code>index.html</code>:
-                  <ul style="margin:6px 0 0 18px;">
-                    <li><code>react.development.js</code> (React 18 UMD)</li>
-                    <li><code>react-dom.development.js</code> (ReactDOM 18 UMD)</li>
-                    <li><code>chess.umd.js</code> (chess.js 1.0.0-beta.6 UMD)</li>
-                  </ul>
-                </li>
-                <li>Replace the loader above with local tags:
-                  <pre style="background:#f3f3f3; padding:10px; border-radius:8px; overflow:auto;"><code>&lt;script src="./react.development.js"&gt;&lt;/script&gt;
-&lt;script src="./react-dom.development.js"&gt;&lt;/script&gt;
-&lt;script src="./chess.umd.js"&gt;&lt;/script&gt;</code></pre>
-                </li>
-                <li>Open via a local server or just double-click.</li>
-              </ol>
-            </details>
-          </div>`;
-        const btn = document.getElementById('retry');
-        if(btn) btn.onclick = ()=>location.reload();
-        return;
-      }
-      status.textContent = '';
-
-      // ---------------- React App ----------------
-      const { useEffect, useMemo, useState } = React;
-
-      const UNI = {p:'♟',r:'♜',n:'♞',b:'♝',q:'♛',k:'♚',P:'♙',R:'♖',N:'♘',B:'♗',Q:'♕',K:'♔'};
-
-      function fenToArray(fen){
-        const rows = fen.split(' ')[0].split('/');
-        return rows.map(row=>{
-          const out=[]; for(const ch of row){ if(/\d/.test(ch)) out.push(...Array(+ch).fill('')); else out.push(ch); }
-          return out;
-        });
-      }
-
-      function parseAnalysis(raw){
-        const lines = raw.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-        const re = /^(\d+)\.(\.{3})?\s*([a-hRNBQKO0-9x+=#-]+)\s*[–-]\s*\*\*(\w+)\*\*\s*:\s*(.+)$/i;
-        const out=[];
-        for(const line of lines){
-          const m=line.match(re);
-          if(m){ out.push({moveNumber:+m[1], color:m[2]?'b':'w', san:m[3].replace(/^0-0-0$/,'O-O-O').replace(/^0-0$/,'O-O'), tag:m[4].toLowerCase(), comment:m[5]});}
-          else out.push({meta:true,text:line});
-        }
-        return out;
-      }
-
-      function useLS(k, v0){ const [v,setV]=useState(()=>{try{const s=localStorage.getItem(k);return s?JSON.parse(s):v0}catch{return v0}}); useEffect(()=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}},[k,v]); return [v,setV]; }
-
-      function Board({fen}){
-        const a = fenToArray(fen);
-        return React.createElement('div',{className:'board'},
-          a.map((row,r)=>row.map((p,c)=>React.createElement('div',{key:r+'-'+c,className:`sq ${(r+c)%2?'dark':'light'}`}, UNI[p]||'')))
-        );
-      }
-
-      function App(){
-        const [pgn,setPgn]=useLS('cmr:pgn',`[Event "Casual Game"]
-[Site "?"]
-[Date "????.??.??"]
-[Round "-"]
-[White "White"]
-[Black "Black"]
-[Result "*"]
-
-1. e4 g6 2. Bc4 Bg7 3. d3 e5 4. Nc3 d6 5. Nh3 h6 6. f3 Ne7 7. g4 a6 8. Ng1 Nbc6 9. Qe2 Nd4 10. Qf2 h5 11. Be3 hxg4 12. fxg4 Bxg4 13. Bxd4 exd4 14. Nd5 Nxd5 15. Bxd5 Qe7 16. h3 Be6 17. Bxe6 Qxe6 18. O-O-O O-O-O 19. c3 Qxa2 20. cxd4 Qa1+ 21. Kd2 Bh6+ 22. Ke2 Qxb2+ 23. Ke1 Qxf2+ 24. Kxf2 d5 25. Ke1 dxe4 26. dxe4 Be3 27. Ne2 *`);
-        const [txt,setTxt]=useLS('cmr:txt',`1. e4 – **book**: A principled first move, claiming central space and opening lines for the queen and bishop.
-
-1... g6 – **book**: The Modern Defense. Black fianchettos the bishop, delaying central occupation.
-
-2. Bc4 – **inaccuracy**: Developing to c4 looks active but is misplaced in this structure, as the bishop may be harassed. Better is 2.d4, directly challenging the center.
-
-2... Bg7 – **book**: Normal continuation, reinforcing the g7 bishop’s long diagonal.
-
-3. d3 – **inaccuracy**: Passive. White blocks the c1-bishop and misses the chance to strike with 3.d4, securing central space.
-
-3... e5 – **book**: Black establishes a classical pawn duo, grabbing central control.
-
-4. Nc3 – **good**: Development toward the center. White prepares d4 or supports e4.
-
-4... d6 – **book**: Solidly supporting the e5 pawn and preparing …Nf6.
-
-5. Nh3 – **mistake**: This knight is awkward on h3. Better is 5.Nf3, hitting e5 and developing naturally.
-
-5... h6 – **inaccuracy**: Slow. Black should prefer 5…Nf6 to complete development.
-
-6. f3 – **mistake**: This move weakens the dark squares (g3, e3) and blocks natural knight development to f3. Better was 6.0-0 followed by f4 in due time.
-
-6... Ne7 – **good**: The knight reroutes to c6 or g6, keeping flexibility.
-
-7. g4 – **mistake**: Premature pawn thrust, loosening kingside structure without development. A calm 7.0-0 was safer.
-
-7... a6 – **inaccuracy**: Too slow in a sharp position. Black should immediately counter with 7…c6 or 7…d5.
-
-8. Ng1 – **blunder**: Moving the knight back wastes time and cedes initiative. White should instead have played 8.Nf2, at least regrouping actively.
-
-8... Nbc6 – **good**: Logical development, increasing central pressure.
-
-9. Qe2 – **inaccuracy**: A passive queen move; development is lagging. Better was 9.Nf3.
-
-9... Nd4 – **great**: Strong outpost move, placing the knight aggressively in White’s camp.
-
-10. Qf2 – **mistake**: Retreating the queen wastes time again. White should challenge with 10.Nf3, contesting d4.
-
-10... h5 – **great**: Black seizes the initiative, opening lines against White’s weakened kingside.
-
-11. Be3 – **inaccuracy**: Misplaces the bishop; White had to play 11.h4 to restrain Black’s pawn storm.
-
-11... hxg4 – **good**: Logical, opening the h-file.
-
-12. fxg4 – **mistake**: Opening more lines toward White’s king. Safer was 12.hxg4, keeping the f-file closed.
-
-12... Bxg4 – **good**: Black wins a pawn and keeps pressure.
-
-13. Bxd4 – **inaccuracy**: Exchanges relieve pressure but hand Black the strong e5–d4 duo. Better was 13.h3, challenging the bishop first.
-
-13... exd4 – **great**: Black gains a central pawn and an open file.
-
-14. Nd5 – **good**: Activates the knight with tempo, hitting c7 and f6.
-
-14... Nxd5 – **good**: Correct to eliminate the intruder.
-
-15. Bxd5 – **good**: Strong centralization of the bishop, eyeing b7 and f7.
-
-15... Qe7 – **inaccuracy**: Defends but passively. Better was 15…c6, striking at the bishop immediately.
-
-16. h3 – **good**: Kicks the g4 bishop and consolidates.
-
-16... Be6 – **mistake**: Walking into exchanges that leave Black underdeveloped. Safer was 16…c6, gaining tempo.
-
-17. Bxe6 – **good**: White exchanges and reduces Black’s attacking potential.
-
-17... Qxe6 – **good**: Recapture, keeping material balance.
-
-18. O-O-O – **great**: White castles long, activating the rook and creating king safety.
-
-18... O-O-O – **good**: Logical counter, but dangerous with the queenside already open.
-
-19. c3 – **good**: White opens the center to expose Black’s king.
-
-19... Qxa2 – **mistake**: Grabbing the pawn is too greedy. Better was 19…d5, countering in the center before White opens lines.
-
-**Critical Moment**: After 19…Qxa2, Black falls into danger with the queen far from the defense. The priority should have been central play.
-
-20. cxd4 – **great**: White blasts open the center, threatening rapid piece activity against the Black king.
-
-20... Qa1+ – **mistake**: A forcing check that leads the queen astray. Retreat to a5 was safer.
-
-21. Kd2 – **good**: Calm defense, walking into safety.
-
-21... Bh6+ – **mistake**: Waste of time. Black needed 21…Qa5+ to trade queens and relieve pressure.
-
-22. Ke2 – **good**: King steps toward safety; White remains better.
-
-22... Qxb2+ – **mistake**: More pawn grabbing while Black’s own king is exposed.
-
-23. Ke1 – **good**: White finds safety, keeping rooks ready for central play.
-
-23... Qxf2+ – **inaccuracy**: Simplification helps White, whose king is now safe. Better was 23…Qc3+, seeking perpetual chances.
-
-24. Kxf2 – **good**: White consolidates, with a safe king and extra central control.
-
-24... d5 – **good**: Thematic pawn break, finally opening lines.
-
-25. Ke1 – **good**: King steps away, preparing central consolidation.
-
-25... dxe4 – **inaccuracy**: Trades off tension without improving piece activity. 25…Rxd4 was more testing.
-
-26. dxe4 – **good**: White keeps the strong central pawn.
-
-26... Be3 – **mistake**: Black spends time on a bishop sortie instead of activating the rooks.
-
-27. Ne2 – **good**: White develops calmly and holds all threats. Black loses on time.`);
-        const [entries, setEntries] = useState([]);
-        const [hist, setHist] = useState([]);
-        const [idx, setIdx] = useState(0);
-
-        useEffect(()=>{ try{
-          const c=new Chess(); if(!c.load_pgn(pgn,{sloppy:true})) throw 0;
-          setHist(c.history({verbose:true})); setIdx(0);
-        }catch{ alert('PGN parsing failed.'); } },[]);
-        useEffect(()=>{ setEntries(parseAnalysis(txt)); },[]);
-
-        function fenAt(ply){
-          const c=new Chess(); c.load_pgn(pgn,{sloppy:true});
-          const h=c.history({verbose:true}); for(let i=0;i<ply && i<h.length;i++) c.move(h[i]);
-          return c.fen();
-        }
-        function goto(i){ setIdx(Math.max(0, Math.min(i, hist.length))); }
-        function step(d){ goto(idx+d); }
-
-        const summary = useMemo(()=>{
-          const blocks=[]; let cur=null;
-          entries.forEach(e=>{
-            if(e.meta && /^\*\*(.+)\*\*/.test(e.text)){ cur={title:e.text.replace(/^\*\*(.+)\*\*/,'$1'), items:[]}; blocks.push(cur); }
-            else if(e.meta && cur){ cur.items.push(e.text); }
-          });
-          return blocks;
-        },[entries]);
-
-        function Tag({t}){ const cls='tag ' + (t||'').toLowerCase(); return React.createElement('span',{className:cls}, t); }
-
-        return React.createElement(React.Fragment, null,
-          React.createElement('div',{className:'row'},
-            React.createElement('section',{className:'card'},
-              React.createElement('div',{className:'board'}, React.createElement(Board,{fen: fenAt(idx)})),
-              React.createElement('div',{className:'space'}), 
-              React.createElement('div',{className:'flex'},
-                React.createElement('button',{className:'btn', onClick:()=>goto(0)},'⏮︎'),
-                React.createElement('button',{className:'btn', onClick:()=>step(-1)},'◀︎'),
-                React.createElement('button',{className:'btn', onClick:()=>step(1)},'▶︎'),
-                React.createElement('button',{className:'btn', onClick:()=>goto(hist.length)},'⏭︎'),
-                React.createElement('input',{type:'range',min:0,max:hist.length,value:idx,onChange:e=>goto(+e.target.value),className:'slider'}),
-                React.createElement('div',{className:'muted'}, `${idx}/${hist.length} ply`)
-              ),
-              hist.length ? React.createElement('div',{className:'muted', style:{marginTop:'6px'}},
-                React.createElement('b', null, 'Current SAN: '), hist[idx-1]?.san || '—'
-              ) : null
-            ),
-            React.createElement('section', {className:'card'},
-              React.createElement('div',{className:'flex', style:{justifyContent:'space-between'}},
-                React.createElement('h3', null, 'PGN'),
-                React.createElement('label', {className:'btn'}, 'Load .pgn',
-                  React.createElement('input',{type:'file',accept:'.pgn',className:'hidden',onchange:e=>{
-                    const f=e.target.files?.[0]; if(!f) return;
-                    const r=new FileReader(); r.onload=ev=>{
-                      setPgn(ev.target.result);
-                      const c=new Chess(); if(c.load_pgn(ev.target.result,{sloppy:true})){ setHist(c.history({verbose:true})); setIdx(0);} else alert('PGN parse error.');
-                    }; r.readAsText(f);
-                  }})
-                )
-              ),
-              React.createElement('textarea',{value:pgn,onChange:e=>setPgn(e.target.value),spellCheck:false})
-            )
-          ),
-          React.createElement('div',{className:'space'}), 
-          React.createElement('div',{className:'row'},
-            React.createElement('section',{className:'card'},
-              React.createElement('div',{className:'flex', style:{justifyContent:'space-between'}},
-                React.createElement('h3', null, 'Move-by-move Review'),
-                React.createElement('label',{className:'btn'},'Load .txt',
-                  React.createElement('input',{type:'file',accept:'.txt,.md',className:'hidden',onchange:e=>{
-                    const f=e.target.files?.[0]; if(!f) return;
-                    const r=new FileReader(); r.onload=ev=> setTxt(ev.target.result); r.readAsText(f);
-                  }})
-                )
-              ),
-              React.createElement('textarea',{value:txt,onChange:e=>setTxt(e.target.value),spellCheck:false})
-            ),
-            React.createElement('section',{className:'card'},
-              React.createElement('div',{className:'flex', style:{justifyContent:'space-between', alignItems:'center'}},
-                React.createElement('h3', null, 'Analysis'), 
-                React.createElement('button',{className:'btn primary', onClick:()=>setEntries(parseAnalysis(txt))}, 'Parse')
-              ),
-              React.createElement('div',{style:{maxHeight:'350px', overflow:'auto', marginTop:'8px'}},
-                entries.filter(e=>!e.meta).map((e,i)=>{
-                  const target = (e.moveNumber-1)*2 + (e.color==='b'?2:1);
-                  const active = target===idx;
-                  return React.createElement('div',{key:i, className:'analysis-item'+(active?' active':''), onclick:()=>setIdx(target)},
-                    React.createElement('div',{className:'flex', style:{justifyContent:'space-between'}},
-                      React.createElement('div',{style:{fontFamily:'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize:'13px'}},
-                        `${e.moveNumber}${e.color==='b'?'...':'.'} ${e.san}`),
-                      React.createElement(Tag,{t:e.tag})
-                    ),
-                    React.createElement('div', {className:'muted', style:{marginTop:'4px'}}, e.comment)
-                  )
-                })
-              )
-            )
-          )
-        );
-      }
-
-      ReactDOM.createRoot(document.getElementById('app')).render(React.createElement(App));
-    })();
-  </script>
 </body>
 </html>
