@@ -31,7 +31,7 @@
 
         /* Styling for the move list */
         .move-item {
-            transition: background-color 0.2s ease-in-out;
+            transition: background-color: 0.2s ease-in-out;
             border-radius: 0.5rem;
         }
         .move-item.highlight {
@@ -95,7 +95,7 @@
             </div>
             <div>
                 <label for="analysis-input" class="block mb-2 font-semibold text-gray-300">2. Paste Formatted Analysis here</label>
-                <textarea id="analysis-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="1. e4 – **book**: A principled first move..."></textarea>
+                <textarea id="analysis-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="e4 – book: A principled first move..."></textarea>
             </div>
         </div>
         <button id="load-game-btn" class="w-full md:w-1/3 mx-auto py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
@@ -152,6 +152,7 @@
                 'book': 'text-blue-400',
                 'good': 'text-green-400',
                 'great': 'text-teal-400',
+                'brilliant': 'text-cyan-300',
                 'inaccuracy': 'text-yellow-400',
                 'mistake': 'text-orange-400',
                 'blunder': 'text-red-500',
@@ -177,14 +178,28 @@
                 $('#error-modal').addClass('hidden');
             });
 
+            // NEW: Function to clean up PGNs with line breaks in the movetext
+            function sanitizePgn(pgnString) {
+                const parts = pgnString.split('\n\n');
+                if (parts.length < 2) {
+                    return pgnString; // Not a standard PGN with headers and moves
+                }
+                const headers = parts[0];
+                const movetext = parts.slice(1).join('\n\n');
+                const cleanedMovetext = movetext.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ');
+                return headers + '\n\n' + cleanedMovetext;
+            }
+
             $('#load-game-btn').on('click', function () {
-                const pgn = $('#pgn-input').val().trim();
+                const rawPgn = $('#pgn-input').val().trim();
                 const analysisText = $('#analysis-input').val().trim();
 
-                if (!pgn || !analysisText) {
+                if (!rawPgn || !analysisText) {
                     showError("Please provide both a PGN and analysis text.");
                     return;
                 }
+
+                const pgn = sanitizePgn(rawPgn);
 
                 if (!game.load_pgn(pgn)) {
                     showError("Invalid PGN. Please check the PGN format.");
@@ -194,13 +209,26 @@
                 const gameMoves = game.history({ verbose: true });
                 const parsedAnalysis = parseAnalysis(analysisText);
 
-                movesWithAnalysis = gameMoves.map((move, index) => {
-                    const moveNumber = Math.floor(index / 2) + 1;
-                    const key = `${moveNumber}${move.color === 'b' ? '...' : '.'}-${move.san}`;
+                // NEW: More robustly map analysis to moves by sequence
+                let analysisCursor = 0;
+                movesWithAnalysis = gameMoves.map(move => {
+                    let moveAnalysis = null;
+                    let criticalMoment = null;
+
+                    if (analysisCursor < parsedAnalysis.moves.length && parsedAnalysis.moves[analysisCursor].san === move.san) {
+                        moveAnalysis = parsedAnalysis.moves[analysisCursor];
+                        analysisCursor++;
+                    }
+
+                    // Check for critical moments attached to this move's SAN
+                    if (parsedAnalysis.criticalMoments[move.san]) {
+                        criticalMoment = parsedAnalysis.criticalMoments[move.san];
+                    }
+
                     return {
                         ...move,
-                        analysis: parsedAnalysis.moves[key] || null,
-                        criticalMoment: parsedAnalysis.criticalMoments[key] || null
+                        analysis: moveAnalysis,
+                        criticalMoment: criticalMoment
                     };
                 });
                 
@@ -222,16 +250,19 @@
                 goToMove(-1);
             });
             
+            // REWRITTEN: More flexible parsing logic
             function parseAnalysis(text) {
                 const lines = text.split('\n');
-                const moves = {};
+                const parsedMoves = [];
                 const criticalMoments = {};
                 const summaries = {};
                 let currentSummary = null;
+                let lastSan = null;
 
-                const moveRegex = /^(\d+\.{1,3})\s*([^\s]+)\s*[–-—]\s*\*\*(.+?)\*\*:\s*(.*)/;
-                const criticalMomentRegex = /^\*\*Critical Moment\*\*:\s*(.*)/;
-                const summaryHeaderRegex = /^\*\*(Strengths|Recurring Mistakes|Top 3 Takeaways)\*\*/;
+                // Regex now handles optional move numbers
+                const moveRegex = /^(?:\d+\.{1,3}\s*)?([^\s–-—]+)\s*[–-—]\s*(?:\*\*)?([^:]+?)(?:\*\*)?:\s*(.*)/;
+                const criticalMomentRegex = /^Critical Moment:\s*(.*)/i;
+                const summaryHeaderRegex = /^\s*\*\*(Strengths|Recurring Mistakes|Top 3 Takeaways)\*\*/i;
 
                 lines.forEach(line => {
                     const moveMatch = line.match(moveRegex);
@@ -239,17 +270,14 @@
                     const summaryHeaderMatch = line.match(summaryHeaderRegex);
 
                     if (moveMatch) {
-                        const moveNumStr = moveMatch[1].replace(/\s/g, '');
-                        const moveSan = moveMatch[2];
-                        const key = `${moveNumStr}-${moveSan}`;
-                        moves[key] = {
-                            classification: moveMatch[3],
-                            text: moveMatch[4]
-                        };
+                        const san = moveMatch[1];
+                        const classification = moveMatch[2].trim();
+                        const analysisText = moveMatch[3].trim();
+                        parsedMoves.push({ san, classification, text: analysisText });
+                        lastSan = san; // Keep track of the last move for critical moments
                     } else if (criticalMomentMatch) {
-                        const lastMoveKey = Object.keys(moves).pop();
-                        if (lastMoveKey) {
-                            criticalMoments[lastMoveKey] = criticalMomentMatch[1];
+                        if (lastSan) {
+                             criticalMoments[lastSan] = criticalMomentMatch[1];
                         }
                     } else if (summaryHeaderMatch) {
                         currentSummary = summaryHeaderMatch[1].replace(/\s/g, '');
@@ -259,7 +287,7 @@
                     }
                 });
 
-                return { moves, criticalMoments, summaries };
+                return { moves: parsedMoves, criticalMoments, summaries };
             }
 
             function renderMoveList() {
@@ -366,9 +394,6 @@
             $('#new-game-btn').on('click', () => {
                 $('#review-section').addClass('hidden').removeClass('grid');
                 $('#input-section').removeClass('hidden');
-                // Optional: clear inputs when loading a new game
-                // $('#pgn-input').val('');
-                // $('#analysis-input').val('');
             });
             
             $(document).on('keydown', function(e) {
@@ -385,5 +410,3 @@
 
 </body>
 </html>
-
-
