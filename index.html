@@ -338,41 +338,85 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
 
     $('#goto-step3-btn').on('click', function(){ switchStep(3); });
 
-    $('#generate-review-btn').on('click', function () {
-      var finalAnalysisRaw = $('#final-analysis-input').val().trim();
-      if (!finalAnalysisRaw) { showError('Please paste the final analysis.'); return; }
+$('#generate-review-btn').on('click', function () {
+  var finalAnalysisRaw = $('#final-analysis-input').val().trim();
+  if (!finalAnalysisRaw) { showError('Please paste the final analysis.'); return; }
 
-      // New: normalize again before sending to chess.js (strips comments/NAGs/variations)
-      var pgn = normalizePgn(finalAnalysisRaw /* keepComments: false */);
+  // 1) Try to normalize & load as-is (in case a PGN is present)
+  var pgn = normalizePgn(finalAnalysisRaw /* keepComments: false */);
+  var loaded = game.load_pgn(pgn);
 
-      if (!game.load_pgn(pgn)) {
-        showError('Could not find a valid PGN in the pasted text.');
-        return;
-      }
-
-      switchStep(4);
-
-      var gameMoves = game.history({ verbose: true });
-      var parsed = parseAnalysis(finalAnalysisRaw); // keep original text for commentary parsing
-
-      var cursor = 0;
-      movesWithAnalysis = gameMoves.map(function(m) {
-        var analysis = null;
-        if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++];
-        return { ...m, analysis: analysis, criticalMoment: parsed.criticalMoments[m.san] };
+  // 2) If that failed, try to reconstruct a PGN from "SAN - classification: comment" lines
+  var parsed = parseAnalysis(finalAnalysisRaw);
+  if (!loaded && parsed.moves.length) {
+    var rebuiltPGN = buildPGNFromSAN(parsed.moves.map(function(m){ return m.san; }));
+    game.reset();
+    loaded = game.load_pgn(rebuiltPGN);
+    // If chess.js still can’t load, try applying SAN moves one by one,
+    // then export PGN from the position we successfully built.
+    if (!loaded) {
+      game.reset();
+      var ok = true;
+      parsed.moves.forEach(function(m){
+        if (ok) ok = !!game.move(m.san);
       });
-
-      if (!board) {
-        board = Chessboard('board', { position: 'start', draggable: false, pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' });
-        $(window).on('resize', function(){ board.resize(); });
+      if (ok) {
+        rebuiltPGN = game.pgn({ maxWidth: 9999 });
+        game.reset();
+        loaded = game.load_pgn(rebuiltPGN);
       }
+    }
+    // Ensure we use the rebuilt PGN as the “pgn” variable going forward
+    if (loaded) pgn = rebuiltPGN;
+  }
 
-      board.position('start');
-      renderMoveList();
-      renderSummary(parsed.summaries);
-      goToMove(-1);
-      board.resize();
-    });
+  if (!loaded) {
+    showError('Could not find or reconstruct a valid PGN from the text you pasted.');
+    return;
+  }
+
+  switchStep(4);
+
+  // Map parsed annotations to the actual moves
+  var gameMoves = game.history({ verbose: true });
+  var cursor = 0;
+  movesWithAnalysis = gameMoves.map(function(m) {
+    var analysis = null;
+    if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) {
+      analysis = parsed.moves[cursor++];
+    }
+    return { ...m, analysis: analysis, criticalMoment: parsed.criticalMoments[m.san] };
+  });
+
+  if (!board) {
+    board = Chessboard('board', { position: 'start', draggable: false, pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' });
+    $(window).on('resize', function(){ board.resize(); });
+  }
+
+  board.position('start');
+  renderMoveList();
+  renderSummary(parsed.summaries);
+  goToMove(-1);
+  board.resize();
+});
+
+    // Build a minimal, clean PGN from a list of SAN moves (e.g., ["e4","e5","Nf3","Nc6",...])
+function buildPGNFromSAN(sanList) {
+  var parts = [];
+  for (var i = 0; i < sanList.length; i++) {
+    var moveNumber = Math.floor(i / 2) + 1;
+    if (i % 2 === 0) { // white move -> add move number prefix
+      parts.push(moveNumber + '. ' + sanList[i]);
+    } else { // black move
+      parts.push(sanList[i]);
+    }
+  }
+  return parts.join(' ');
+}
+
+// (Existing) parseAnalysis already extracts SAN + classification + text from lines like:
+// "e4 - Good: comment". We reuse that so we don’t need a second SAN parser.
+
 
     function parseAnalysis(text) {
       var lines = text.split('\\n');
