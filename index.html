@@ -187,12 +187,11 @@ Summary: <a single-sentence overview of the whole game>
           const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
           if (currentScoreResolver) {
             if (mt) {
-              const val = mt[1].startsWith('-') ? -999 : 999;
-              currentScoreResolver(val);
+              currentScoreResolver({ type: 'mate', value: parseInt(mt[1], 10) });
             } else if (cp) {
-              currentScoreResolver(parseInt(cp[1], 10));
+              currentScoreResolver({ type: 'cp', value: parseInt(cp[1], 10) });
             } else {
-              currentScoreResolver(0);
+              currentScoreResolver({ type: 'cp', value: 0 });
             }
             currentScoreResolver = null;
           }
@@ -282,11 +281,17 @@ Summary: <a single-sentence overview of the whole game>
           const move = sanMoves[i]; temp.move(move);
           $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
           $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
-          const stmCp = await getScore(temp.fen()); // side-to-move centipawns
-          let cp = stmCp;
-          // Convert to WHITE-relative: if it's Black to move, negate
-          if (temp.turn() === 'b') cp = -cp;
-          const evalStr = cpToEvalBraced(cp);
+          const score = await getScore(temp.fen());
+          let evalStr = '';
+          if (score.type === 'mate') {
+            let m = score.value; // mate in N from side to move
+            if (temp.turn() === 'b') m = -m; // convert to WHITE-relative
+            evalStr = `{#${m}}`;
+          } else {
+            let cp = score.value; // centipawns from side to move
+            if (temp.turn() === 'b') cp = -cp; // convert to WHITE-relative
+            evalStr = cpToEvalBraced(cp);
+          }
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
         }
         const combined = ANALYSIS_PROMPT + '\n\n' + annotatedPgn.trim();
