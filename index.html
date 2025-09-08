@@ -75,9 +75,15 @@
         <div class="p-4 bg-green-900/50 border border-green-700 rounded-lg">
              <h3 class="font-semibold text-green-300">2. Get textual analysis from an AI</h3>
              <p class="text-sm text-green-300/80 mt-1">
-                Take the copied text to your favorite AI assistant (like Gemini, Claude, etc.) and ask it to generate move-by-move coaching comments. Example prompt: <br>
-                <code class="bg-black/30 p-1 rounded text-xs">"Create a move-by-move textual analysis for this chess game based on the included Stockfish evaluations."</code>
+                Take the copied text to your favorite AI assistant (like Gemini, Claude, etc.) and give it the following prompt to ensure correct formatting for the final step.
             </p>
+            <div class="mt-2 p-2 bg-black/30 rounded">
+                <p class="text-xs text-gray-300 whitespace-pre-wrap font-mono">Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, provide a textual analysis on a new line. Format each line exactly as:
+
+move - classification: comment
+
+For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add any move numbers, markdown, or other formatting to your response.</p>
+            </div>
         </div>
         <button id="goto-step3-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
             Continue to Final Step
@@ -178,7 +184,8 @@
                 let annotatedPgn = game.header() ? game.pgn({ maxWidth: 9999 }).split('\n\n')[0] + '\n\n' : '';
                 
                 if (!stockfish) {
-                    stockfish = await Stockfish();
+                    const wasmPath = "https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish-nnue-16.wasm";
+                    stockfish = await Stockfish({ locateFile: () => wasmPath });
                     stockfish.addMessageListener(handleStockfishMessage);
                 }
                 
@@ -310,7 +317,7 @@
                         summaries[currentSummary].push(line.trim());
                     }
                 });
-                return { moves: parsedMoves, criticalMoments, summaries };
+                return { moves: parsedMoves, criticalMoments: summaries };
             }
 
             function renderMoveList() {
@@ -326,7 +333,7 @@
             function renderSummary(summaries) {
                 const container = $('#move-analysis-container');
                 const summaryContent = [];
-                const summaryOrder = ['Strengths', 'RecurringMistakes', 'Top3Takeaways'];
+                const summaryOrder = ['Strengths', 'Recurring Mistakes', 'Top3Takeaways'];
                 const summaryTitles = { 'Strengths': 'Strengths', 'RecurringMistakes': 'Recurring Mistakes', 'Top3Takeaways': 'Top 3 Takeaways' };
                 summaryOrder.forEach(key => {
                     if (summaries[key] && summaries[key].length > 0) {
