@@ -137,10 +137,9 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
     
-    <!-- SCRIPT FIX: Using unpkg CDN for a reliable, browser-ready version of Stockfish.js -->
+    <!-- SCRIPT FIX: Corrected URL to point to the correct distribution file on the unpkg CDN. -->
     <script type="module">
-        // This script's only job is to load the module and make it globally available.
-        import stockfish from 'https://unpkg.com/stockfish.js@^15.0.0/stockfish.wasm.js';
+        import stockfish from 'https://unpkg.com/stockfish.js@^15.0.0/dist/stockfish.js';
         window.Stockfish = stockfish;
     </script>
     
@@ -153,7 +152,6 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
             let stockfish;
 
             const engineCheck = setInterval(function() {
-                // Now correctly checks for window.Stockfish, which is set by the module loader script
                 if (typeof window.Stockfish === 'function') {
                     clearInterval(engineCheck);
                     $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
@@ -197,8 +195,8 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
                 let annotatedPgn = game.header() ? game.pgn({ maxWidth: 9999 }).split('\n\n')[0] + '\n\n' : '';
                 
                 if (!stockfish) {
-                     // This function tells Stockfish where to find its core engine file.
-                    const wasmPath = fen => `https://unpkg.com/stockfish.js@^15.0.0/${fen}`;
+                    // SCRIPT FIX: This function now correctly points to the 'dist' folder for the WASM file.
+                    const wasmPath = fileName => `https://unpkg.com/stockfish.js@^15.0.0/dist/${fileName}`;
                     stockfish = await window.Stockfish({ locateFile: wasmPath });
                     stockfish.addMessageListener(handleStockfishMessage);
                 }
