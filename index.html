@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>AI Chess Reviewer</title>
 
-  <!-- Tailwind Play CDN (fine for now; shows a console warning in production) -->
+  <!-- Tailwind Play CDN (warning in console is harmless) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
@@ -70,21 +70,23 @@
       </div>
     </div>
     <div>
-      <label for="stockfish-output" class="block mb-2 font-semibold text-gray-300">1. Copy the annotated PGN below</label>
-      <textarea id="stockfish-output" rows="12" class="w-full p-3 rounded-lg form-input" readonly></textarea>
+      <label for="stockfish-output" class="block mb-2 font-semibold text-gray-300">1. Copy the prompt + annotated PGN below</label>
+      <textarea id="stockfish-output" rows="14" class="w-full p-3 rounded-lg form-input" readonly></textarea>
       <button id="copy-stockfish-btn" class="w-full mt-2 py-2 px-4 font-semibold text-white rounded-lg btn-secondary">Copy to Clipboard</button>
     </div>
     <div class="p-4 bg-green-900/50 border border-green-700 rounded-lg">
-      <h3 class="font-semibold text-green-300">2. Get textual analysis from an AI</h3>
+      <h3 class="font-semibold text-green-300">2. What this button copies</h3>
       <p class="text-sm text-green-300/80 mt-1">
-        Take the copied text to your favorite AI assistant and give it the following prompt to ensure correct formatting for the final step.
+        The button above copies the following instruction block and your annotated PGN together, ready to paste into an AI.
       </p>
       <div class="mt-2 p-2 bg-black/30 rounded">
-        <p class="text-xs text-gray-300 whitespace-pre-wrap font-mono">Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, provide a textual analysis on a new line. Format each line exactly as:
+        <p class="text-xs text-gray-300 whitespace-pre-wrap font-mono">
+Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, provide a textual analysis on a new line. Format each line exactly as:
 
 move - classification: comment
 
-For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add any move numbers, markdown, or other formatting to your response.</p>
+For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add any move numbers, markdown, or other formatting to your response.
+        </p>
       </div>
     </div>
     <button id="goto-step3-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
@@ -143,63 +145,68 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
     $(function () {
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
-      let engineWorker = new Worker(LOCAL_ENGINE);  // no CORS issue
+      let engineWorker = new Worker(LOCAL_ENGINE);
       let engineReady = false;
       let lastInfoMsg = '';
       let currentScoreResolver = null;
 
-      engineWorker.onmessage = (e) => {
-        const msg = String(e.data || '');
+      // This is the exact instruction block you want prepended to the PGN
+      var ANALYSIS_PROMPT =
+        'Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, provide a textual analysis on a new line. Format each line exactly as:\\n\\n' +
+        'move - classification: comment\\n\\n' +
+        'For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add any move numbers, markdown, or other formatting to your response.';
+
+      engineWorker.onmessage = function(e) {
+        var msg = String(e.data || '');
         if (msg.startsWith('id name')) {
           engineReady = true;
           $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
         } else if (msg.startsWith('info depth')) {
           lastInfoMsg = msg;
         } else if (msg.startsWith('bestmove')) {
-          const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
-          const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
+          var cp = /score cp (-?\\d+)/.exec(lastInfoMsg);
+          var mt = /score mate (-?\\d+)/.exec(lastInfoMsg);
           if (currentScoreResolver) {
             if (mt) currentScoreResolver('#' + mt[1]);
             else if (cp) {
-              const s = (parseInt(cp[1], 10) / 100).toFixed(2);
+              var s = (parseInt(cp[1], 10) / 100).toFixed(2);
               currentScoreResolver(parseFloat(s) > 0 ? '+' + s : s);
             } else currentScoreResolver('0.00');
             currentScoreResolver = null;
           }
         }
       };
-      // start UCI handshake
       engineWorker.postMessage('uci');
 
       // ====== App state ======
-      let board = null;
-      let game = new Chess();
-      let movesWithAnalysis = [];
-      let currentMoveIndex = -1;
+      var board = null;
+      var game = new Chess();
+      var movesWithAnalysis = [];
+      var currentMoveIndex = -1;
 
-      const classificationStyles = {
+      var classificationStyles = {
         'book': 'text-blue-400','good':'text-green-400','okay':'text-green-400','excellent':'text-teal-400','great':'text-teal-400',
         'brilliant':'text-cyan-300','inaccuracy':'text-yellow-400','mistake':'text-orange-400','blunder':'text-red-500','forced':'text-gray-400','default':'text-gray-400'
       };
-      function getStyleForClassification(c) { return classificationStyles[(c || '').toLowerCase().replace(/\s/g,'')] || classificationStyles['default']; }
-      function formatText(t) { return t ? String(t).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>') : ''; }
+      function getStyleForClassification(c) { return classificationStyles[(c || '').toLowerCase().replace(/\\s/g,'')] || classificationStyles['default']; }
+      function formatText(t) { return t ? String(t).replace(/\\*\\*(.*?)\\*\\*/g,'<strong>$1</strong>') : ''; }
       function showError(m) { $('#error-message').text(m); $('#error-modal').removeClass('hidden'); }
-      $('#close-modal-btn').on('click', () => $('#error-modal').addClass('hidden'));
+      $('#close-modal-btn').on('click', function(){ $('#error-modal').addClass('hidden'); });
 
       function sanitizePgn(pgn) {
-        const lines = pgn.trim().split('\n');
-        let lastHeaderIndex = -1;
-        for (let i = lines.length - 1; i >= 0; i--) {
+        var lines = pgn.trim().split('\\n');
+        var lastHeaderIndex = -1;
+        for (var i = lines.length - 1; i >= 0; i--) {
           if (lines[i].trim().startsWith('[')) { lastHeaderIndex = i; break; }
         }
-        if (lastHeaderIndex === -1) return lines.join(' ').replace(/\s+/g,' ').trim();
-        const headers = lines.slice(0, lastHeaderIndex + 1).join('\n');
-        const movetext = lines.slice(lastHeaderIndex + 1).join(' ').replace(/\s+/g,' ').trim();
-        return headers + '\n\n' + movetext;
+        if (lastHeaderIndex === -1) return lines.join(' ').replace(/\\s+/g,' ').trim();
+        var headers = lines.slice(0, lastHeaderIndex + 1).join('\\n');
+        var movetext = lines.slice(lastHeaderIndex + 1).join(' ').replace(/\\s+/g,' ').trim();
+        return headers + '\\n\\n' + movetext;
       }
 
       function switchStep(step) {
-        ['#step1-section','#step2-section','#step3-section','#review-section'].forEach(s => $(s).addClass('hidden'));
+        ['#step1-section','#step2-section','#step3-section','#review-section'].forEach(function(s){ $(s).addClass('hidden'); });
         $('.step-indicator').removeClass('active');
         $('#indicator-' + step).addClass('active');
         if (step <= 3) $('#step' + step + '-section').removeClass('hidden');
@@ -208,7 +215,7 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
 
       $('#analyze-pgn-btn').on('click', function () {
         if (!engineReady) { showError('Engine still initializing. Try again in a second.'); return; }
-        const pgn = $('#pgn-input').val().trim();
+        var pgn = $('#pgn-input').val().trim();
         if (!pgn) { showError('Please paste a PGN.'); return; }
         if (!game.load_pgn(sanitizePgn(pgn))) { showError('Invalid PGN format.'); return; }
         switchStep(2);
@@ -216,26 +223,29 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
       });
 
       async function runStockfishAnalysis() {
-        const sanMoves = game.history();
-        let annotatedPgn = game.header() ? game.pgn({ maxWidth: 9999 }).split('\n\n')[0] + '\n\n' : '';
-        const temp = new Chess();
+        var sanMoves = game.history();
+        var annotatedPgn = game.header() ? game.pgn({ maxWidth: 9999 }).split('\\n\\n')[0] + '\\n\\n' : '';
+        var temp = new Chess();
 
-        for (let i = 0; i < sanMoves.length; i++) {
-          const moveNumber = Math.floor(i / 2) + 1;
-          const prefix = (i % 2 === 0) ? (moveNumber + '. ') : (moveNumber + '... ');
-          const move = sanMoves[i];
+        for (var i = 0; i < sanMoves.length; i++) {
+          var moveNumber = Math.floor(i / 2) + 1;
+          var prefix = (i % 2 === 0) ? (moveNumber + '. ') : (moveNumber + '... ');
+          var move = sanMoves[i];
 
           temp.move(move);
 
           $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
           $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
 
-          const score = await getScore(temp.fen());
+          var score = await getScore(temp.fen());
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' {' + score + '} ';
         }
 
+        // >>> Combine PROMPT + PGN for single-copy convenience
+        var combined = ANALYSIS_PROMPT + '\\n\\n' + annotatedPgn.trim();
+
         $('#progress-text').text('Analysis Complete!');
-        $('#stockfish-output').val(annotatedPgn.trim());
+        $('#stockfish-output').val(combined);
         $('#goto-step3-btn').prop('disabled', false);
       }
 
@@ -249,36 +259,36 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
       }
 
       $('#copy-stockfish-btn').on('click', function () {
-        navigator.clipboard.writeText($('#stockfish-output').val()).then(() => {
-          $(this).text('Copied!');
-          setTimeout(() => $(this).text('Copy to Clipboard'), 2000);
+        navigator.clipboard.writeText($('#stockfish-output').val()).then(function(){
+          $('#copy-stockfish-btn').text('Copied!');
+          setTimeout(function(){ $('#copy-stockfish-btn').text('Copy to Clipboard'); }, 2000);
         });
       });
 
-      $('#goto-step3-btn').on('click', () => switchStep(3));
+      $('#goto-step3-btn').on('click', function(){ switchStep(3); });
 
       $('#generate-review-btn').on('click', function () {
-        const finalAnalysis = $('#final-analysis-input').val().trim();
+        var finalAnalysis = $('#final-analysis-input').val().trim();
         if (!finalAnalysis) { showError('Please paste the final analysis.'); return; }
 
-        const pgn = sanitizePgn(finalAnalysis);
+        var pgn = sanitizePgn(finalAnalysis);
         if (!game.load_pgn(pgn)) { showError('Could not find a valid PGN in the pasted text.'); return; }
 
         switchStep(4);
 
-        const gameMoves = game.history({ verbose: true });
-        const parsed = parseAnalysis(finalAnalysis);
+        var gameMoves = game.history({ verbose: true });
+        var parsed = parseAnalysis(finalAnalysis);
 
-        let cursor = 0;
+        var cursor = 0;
         movesWithAnalysis = gameMoves.map(function(m) {
-          let analysis = null;
+          var analysis = null;
           if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++];
           return { ...m, analysis: analysis, criticalMoment: parsed.criticalMoments[m.san] };
         });
 
         if (!board) {
           board = Chessboard('board', { position: 'start', draggable: false, pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' });
-          $(window).on('resize', () => board.resize());
+          $(window).on('resize', function(){ board.resize(); });
         }
 
         board.position('start');
@@ -289,32 +299,32 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
       });
 
       function parseAnalysis(text) {
-        const lines = text.split('\n');
-        const parsedMoves = [];
-        const criticalMoments = {};
-        const summaries = {};
-        let currentSummary = null;
-        let lastSan = null;
+        var lines = text.split('\\n');
+        var parsedMoves = [];
+        var criticalMoments = {};
+        var summaries = {};
+        var currentSummary = null;
+        var lastSan = null;
 
-        const moveRegex = /^(?:\d+\.{1,3}\s*)?([^\s–-—]+)\s*[–-—]\s*([^:]+):\s*(.*)/;
-        const criticalMomentRegex = /^Critical Moment:\s*(.*)/i;
-        const summaryHeaderRegex = /^\s*\*\*(Strengths|Recurring Mistakes|Top 3 Takeaways)\*\*/i;
+        var moveRegex = /^(?:\\d+\\.{1,3}\\s*)?([^\\s–—]+)\\s*[–-—]\\s*([^:]+):\\s*(.*)/;
+        var criticalMomentRegex = /^Critical Moment:\\s*(.*)/i;
+        var summaryHeaderRegex = /^\\s*\\*\\*(Strengths|Recurring Mistakes|Top 3 Takeaways)\\*\\*/i;
 
         lines.forEach(function(line) {
-          const m = line.match(moveRegex);
+          var m = line.match(moveRegex);
           if (m) {
-            const san = m[1];
-            const classification = m[2].trim().replace(/\*\*/g,'');
-            const txt = m[3].trim();
+            var san = m[1];
+            var classification = m[2].trim().replace(/\\*\\*/g,'');
+            var txt = m[3].trim();
             parsedMoves.push({ san: san, classification: classification, text: txt });
             lastSan = san;
             currentSummary = null;
             return;
           }
-          const cm = line.match(criticalMomentRegex);
+          var cm = line.match(criticalMomentRegex);
           if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; return; }
-          const sh = line.match(summaryHeaderRegex);
-          if (sh) { const key = sh[1].replace(/\s/g,''); summaries[key] = []; currentSummary = key; return; }
+          var sh = line.match(summaryHeaderRegex);
+          if (sh) { var key = sh[1].replace(/\\s/g,''); summaries[key] = []; currentSummary = key; return; }
           if (line.trim() && line.trim() !== '---' && currentSummary) summaries[currentSummary].push(line.trim());
         });
 
@@ -322,10 +332,10 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
       }
 
       function renderMoveList() {
-        const c = $('#move-analysis-container').empty();
+        var c = $('#move-analysis-container').empty();
         movesWithAnalysis.forEach(function(mv, i) {
-          const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
-          const html =
+          var n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
+          var html =
             '<div class="move-item p-2 cursor-pointer" data-move-index="' + i + '">' +
               '<div class="flex items-baseline gap-3">' +
                 '<span class="text-gray-500 font-mono w-8 text-right">' + n + '</span>' +
@@ -341,15 +351,15 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
       }
 
       function renderSummary(summaries) {
-        const container = $('#move-analysis-container');
-        const order = ['Strengths','RecurringMistakes','Top3Takeaways'];
-        const titles = { Strengths: 'Strengths', RecurringMistakes: 'Recurring Mistakes', Top3Takeaways: 'Top 3 Takeaways' };
-        const blocks = [];
+        var container = $('#move-analysis-container');
+        var order = ['Strengths','RecurringMistakes','Top3Takeaways'];
+        var titles = { Strengths: 'Strengths', RecurringMistakes: 'Recurring Mistakes', Top3Takeaways: 'Top 3 Takeaways' };
+        var blocks = [];
         order.forEach(function(k) {
-          const arr = summaries[k] || [];
+          var arr = summaries[k] || [];
           if (!arr.length) return;
-          let html = '<h3 class="text-lg font-semibold mt-2 mb-1 text-gray-200">' + titles[k] + '</h3><ul class="list-disc list-inside space-y-1 text-sm text-gray-300">';
-          arr.forEach(function(item){ html += '<li>' + formatText(item.replace(/^(\*|-|\d+\.)\s*/,'')) + '</li>'; });
+          var html = '<h3 class="text-lg font-semibold mt-2 mb-1 text-gray-200">' + titles[k] + '</h3><ul class="list-disc list-inside space-y-1 text-sm text-gray-300">';
+          arr.forEach(function(item){ html += '<li>' + formatText(item.replace(/^(\\*|-|\\d+\\.)\\s*/,'')) + '</li>'; });
           html += '</ul>';
           blocks.push(html);
         });
@@ -360,7 +370,7 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
         if (idx < -1 || idx >= movesWithAnalysis.length) return;
         currentMoveIndex = idx;
         game.reset();
-        for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
+        for (var i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
         board.position(game.fen());
         $('.move-item').removeClass('highlight');
         if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
@@ -368,11 +378,11 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
         $('#next-btn').prop('disabled', idx >= movesWithAnalysis.length - 1);
       }
 
-      $('#next-btn').on('click', () => goToMove(currentMoveIndex + 1));
-      $('#prev-btn').on('click', () => goToMove(currentMoveIndex - 1));
-      $('#flip-btn').on('click', () => { if (board) board.flip(); });
-      $('#start-new-btn').on('click', () => location.reload());
-      $(document).on('keydown', (e) => {
+      $('#next-btn').on('click', function(){ goToMove(currentMoveIndex + 1); });
+      $('#prev-btn').on('click', function(){ goToMove(currentMoveIndex - 1); });
+      $('#flip-btn').on('click', function(){ if (board) board.flip(); });
+      $('#start-new-btn').on('click', function(){ location.reload(); });
+      $(document).on('keydown', function(e){
         if (!$('#review-section').is(':visible')) return;
         if (e.key === 'ArrowRight') goToMove(currentMoveIndex + 1);
         if (e.key === 'ArrowLeft') goToMove(currentMoveIndex - 1);
