@@ -137,10 +137,9 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
     
-    <!-- SCRIPT FIX: New dedicated loader script for Stockfish module -->
+    <!-- SCRIPT FIX: Corrected loader script URL -->
     <script type="module">
-        import Stockfish from 'https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish.js';
-        // Assign the loaded module to the global window object so other scripts can see it.
+        import Stockfish from 'https://cdn.jsdelivr.net/npm/stockfish@16.0.0/stockfish.js';
         window.Stockfish = Stockfish;
     </script>
     
@@ -152,10 +151,9 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
             let currentMoveIndex = -1;
             let stockfish;
 
-            // Engine loading check now looks for window.Stockfish
             const engineCheck = setInterval(function() {
                 if (typeof window.Stockfish === 'function') {
-                    clearInterval(engineCheck); // Stop checking
+                    clearInterval(engineCheck);
                     $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
                 }
             }, 200);
@@ -197,8 +195,8 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
                 let annotatedPgn = game.header() ? game.pgn({ maxWidth: 9999 }).split('\n\n')[0] + '\n\n' : '';
                 
                 if (!stockfish) {
-                    const wasmPath = "https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish-nnue-16.wasm";
-                    // It will now correctly find window.Stockfish
+                    // SCRIPT FIX: Corrected WASM file path
+                    const wasmPath = "https://cdn.jsdelivr.net/npm/stockfish@16.0.0/stockfish-nnue-16.wasm";
                     stockfish = await window.Stockfish({ locateFile: () => wasmPath });
                     stockfish.addMessageListener(handleStockfishMessage);
                 }
