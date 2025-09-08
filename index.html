@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>AI Chess Reviewer</title>
 
-  <!-- Tailwind (dev/play CDN). Works fine, but shows a console warning in production. -->
+  <!-- Tailwind Play CDN (fine for now; shows a warning in console) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
@@ -47,7 +47,7 @@
     <div id="indicator-3" class="step-indicator w-8 h-2 rounded-full"></div>
   </div>
 
-  <!-- Step 1: PGN Input -->
+  <!-- Step 1 -->
   <div id="step1-section" class="max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-2xl font-bold text-center">Step 1: Analyze PGN with Stockfish</h2>
     <p class="text-center text-gray-400">Paste your game's PGN below. The engine will run in your browser to add move evaluations.</p>
@@ -60,7 +60,7 @@
     </button>
   </div>
 
-  <!-- Step 2: Stockfish Output & AI Instructions -->
+  <!-- Step 2 -->
   <div id="step2-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-2xl font-bold text-center">Step 2: Get AI Coaching Comments</h2>
     <div id="stockfish-progress" class="text-center p-4 bg-[#252526] rounded-lg">
@@ -76,9 +76,6 @@
     </div>
     <div class="p-4 bg-green-900/50 border border-green-700 rounded-lg">
       <h3 class="font-semibold text-green-300">2. Get textual analysis from an AI</h3>
-      <p class="text-sm text-green-300/80 mt-1">
-        Take the copied text to your favorite AI assistant (like Gemini, Claude, etc.) and give it the following prompt to ensure correct formatting for the final step.
-      </p>
       <div class="mt-2 p-2 bg-black/30 rounded">
         <p class="text-xs text-gray-300 whitespace-pre-wrap font-mono">Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, provide a textual analysis on a new line. Format each line exactly as:
 
@@ -92,7 +89,7 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
     </button>
   </div>
 
-  <!-- Step 3: Final Analysis Input -->
+  <!-- Step 3 -->
   <div id="step3-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-2xl font-bold text-center">Step 3: Paste Your Final AI Review</h2>
     <p class="text-center text-gray-400">Paste the full text from the AI, including the PGN and the new coaching comments.</p>
@@ -108,17 +105,13 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
   <!-- Final Review Section -->
   <main id="review-section" class="hidden flex-1 max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-5 gap-6">
     <div class="lg:col-span-2 flex flex-col items-center">
-      <div class="w-full max-w-md mx-auto">
-        <div id="board" class="chessboard-container"></div>
-      </div>
+      <div class="w-full max-w-md mx-auto"><div id="board" class="chessboard-container"></div></div>
       <div id="controls" class="mt-4 flex flex-wrap items-center justify-center gap-2 w-full">
         <button id="prev-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">‹ Prev</button>
         <button id="next-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Next ›</button>
         <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
       </div>
-      <button id="start-new-btn" class="mt-4 w-full max-w-xs py-2 px-4 text-white font-semibold rounded-lg btn-primary">
-        Analyze Another Game
-      </button>
+      <button id="start-new-btn" class="mt-4 w-full max-w-xs py-2 px-4 text-white font-semibold rounded-lg btn-primary">Analyze Another Game</button>
     </div>
     <div class="lg:col-span-3 bg-[#252526] p-4 rounded-lg flex flex-col h-96 lg:h-auto lg:max-h-[calc(100vh-5rem)]">
       <h2 class="text-xl font-bold border-b border-gray-600 pb-2 mb-3 flex-shrink-0">Game Analysis</h2>
@@ -140,64 +133,70 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
 
   <script>
-    $(document).ready(function () {
+    $(function () {
+      // ====== Stockfish: load as a Web Worker from the correct path ======
+      const STOCKFISH_URL = 'https://unpkg.com/stockfish@16.0.0/src/stockfish-nnue-16-single.js';
+      let engineWorker = new Worker(STOCKFISH_URL);
+      let engineReady = false;
+      let lastInfoMsg = '';
+      let currentScoreResolver = null;
+
+      engineWorker.onmessage = (e) => {
+        const msg = String(e.data || '');
+        if (msg.startsWith('id name')) {
+          // got some UCI output; engine is alive
+          engineReady = true;
+          $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
+        } else if (msg.startsWith('info depth')) {
+          lastInfoMsg = msg;
+        } else if (msg.startsWith('bestmove')) {
+          const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
+          const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
+          if (currentScoreResolver) {
+            if (mt) currentScoreResolver(`#${mt[1]}`);
+            else if (cp) {
+              const s = (parseInt(cp[1], 10) / 100).toFixed(2);
+              currentScoreResolver(parseFloat(s) > 0 ? `+${s}` : s);
+            } else currentScoreResolver('0.00');
+            currentScoreResolver = null;
+          }
+        }
+      };
+      // wake engine
+      engineWorker.postMessage('uci');
+
+      // ====== App logic (unchanged UI) ======
       let board = null;
       let game = new Chess();
       let movesWithAnalysis = [];
       let currentMoveIndex = -1;
 
-      // ---- Stockfish via Web Worker (single-threaded 16.x to avoid CORS issues) ----
-      const STOCKFISH_URL = 'https://unpkg.com/stockfish@16.0.0/src/stockfish-nnue-16-single.js';
-      let engineWorker = null;
-      let engineReady = false;
-      let currentScoreResolver = null;
-      let lastInfoMsg = '';
-
-      function initEngine() {
-        if (engineWorker) return;
-        engineWorker = new Worker(STOCKFISH_URL); // Unpkg sends proper CORS headers
-        engineWorker.onmessage = (e) => handleStockfishMessage(e.data);
-        // When we can send/receive, enable the button
-        // Send a simple "uci" to wake it up
-        engineWorker.postMessage('uci');
-        setTimeout(() => {
-          engineReady = true;
-          $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
-        }, 600); // small grace period so worker initializes
-      }
-      initEngine();
-
-      const classificationStyles = {
-        'book': 'text-blue-400','good': 'text-green-400','okay': 'text-green-400','excellent': 'text-teal-400','great': 'text-teal-400',
-        'brilliant': 'text-cyan-300','inaccuracy': 'text-yellow-400','mistake': 'text-orange-400','blunder': 'text-red-500','forced': 'text-gray-400','default': 'text-gray-400'
-      };
-      function getStyleForClassification(c) { return classificationStyles[(c || '').toLowerCase().replace(/\s/g, '')] || classificationStyles['default']; }
-      function formatText(t) { return t ? t.toString().replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') : ''; }
-      function showError(m) { $('#error-message').text(m); $('#error-modal').removeClass('hidden'); }
+      const classificationStyles = { 'book': 'text-blue-400','good':'text-green-400','okay':'text-green-400','excellent':'text-teal-400','great':'text-teal-400','brilliant':'text-cyan-300','inaccuracy':'text-yellow-400','mistake':'text-orange-400','blunder':'text-red-500','forced':'text-gray-400','default':'text-gray-400' };
+      const getStyleForClassification = c => classificationStyles[(c||'').toLowerCase().replace(/\s/g,'')] || classificationStyles.default;
+      const formatText = t => t ? String(t).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>') : '';
+      const showError = m => { $('#error-message').text(m); $('#error-modal').removeClass('hidden'); };
       $('#close-modal-btn').on('click', () => $('#error-modal').addClass('hidden'));
 
-      function sanitizePgn(pgn) {
+      const sanitizePgn = (pgn) => {
         const lines = pgn.trim().split('\n');
         let lastHeaderIndex = -1;
-        for (let i = lines.length - 1; i >= 0; i--) {
-          if (lines[i].trim().startsWith('[')) { lastHeaderIndex = i; break; }
-        }
+        for (let i = lines.length - 1; i >= 0; i--) if (lines[i].trim().startsWith('[')) { lastHeaderIndex = i; break; }
         if (lastHeaderIndex === -1) return lines.join(' ').replace(/\s+/g, ' ').trim();
         const headers = lines.slice(0, lastHeaderIndex + 1).join('\n');
         const movetext = lines.slice(lastHeaderIndex + 1).join(' ').replace(/\s+/g, ' ').trim();
         return `${headers}\n\n${movetext}`;
-      }
+      };
 
-      function switchStep(step) {
-        ['#step1-section', '#step2-section', '#step3-section', '#review-section'].forEach(s => $(s).addClass('hidden'));
+      const switchStep = (step) => {
+        ['#step1-section','#step2-section','#step3-section','#review-section'].forEach(s => $(s).addClass('hidden'));
         $('.step-indicator').removeClass('active');
         $(`#indicator-${step}`).addClass('active');
         if (step <= 3) $(`#step${step}-section`).removeClass('hidden');
         else $('#review-section').removeClass('hidden').addClass('grid');
-      }
+      };
 
       $('#analyze-pgn-btn').on('click', function () {
-        if (!engineReady) { showError('Engine still initializing. Try again in a second.'); return; }
+        if (!engineReady) { showError('Engine still initializing—try again in a second.'); return; }
         const pgn = $('#pgn-input').val().trim();
         if (!pgn) { showError("Please paste a PGN."); return; }
         if (!game.load_pgn(sanitizePgn(pgn))) { showError("Invalid PGN format."); return; }
@@ -206,23 +205,22 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
       });
 
       async function runStockfishAnalysis() {
-        const sanMoves = game.history(); // SAN list
+        const sanMoves = game.history();
         let annotatedPgn = game.header() ? game.pgn({ maxWidth: 9999 }).split('\n\n')[0] + '\n\n' : '';
-        let tempGame = new Chess();
+        const temp = new Chess();
 
         for (let i = 0; i < sanMoves.length; i++) {
           const moveNumber = Math.floor(i / 2) + 1;
-          // Build prefix BEFORE making the move (white begins at i=0)
-          const movePrefix = (i % 2 === 0) ? `${moveNumber}. ` : `${moveNumber}... `;
+          const prefix = (i % 2 === 0) ? `${moveNumber}. ` : `${moveNumber}... `;
           const move = sanMoves[i];
 
-          tempGame.move(move);
+          temp.move(move);
 
           $('#progress-text').text(`Analyzing move ${i + 1}/${sanMoves.length}: ${move}`);
           $('#progress-bar').css('width', `${((i + 1) / sanMoves.length) * 100}%`);
 
-          const score = await getStockfishScore(tempGame.fen());
-          annotatedPgn += (i % 2 === 0 ? movePrefix : '') + `${move} {${score}} `;
+          const score = await getScore(temp.fen());
+          annotatedPgn += (i % 2 === 0 ? prefix : '') + `${move} {${score}} `;
         }
 
         $('#progress-text').text('Analysis Complete!');
@@ -230,37 +228,13 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
         $('#goto-step3-btn').prop('disabled', false);
       }
 
-      function getStockfishScore(fen) {
-        return new Promise(resolve => {
-          currentScoreResolver = resolve;
+      function getScore(fen) {
+        return new Promise(res => {
+          currentScoreResolver = res;
           lastInfoMsg = '';
-          const depth = 15;
           engineWorker.postMessage(`position fen ${fen}`);
-          engineWorker.postMessage(`go depth ${depth}`);
+          engineWorker.postMessage(`go depth 15`);
         });
-      }
-
-      function handleStockfishMessage(message) {
-        // message is a string from the worker
-        if (typeof message !== 'string') return;
-        if (message.startsWith('info depth')) {
-          lastInfoMsg = message;
-          // we could parse live info here if desired
-        } else if (message.startsWith('bestmove')) {
-          const scoreCp = /score cp (-?\d+)/.exec(lastInfoMsg);
-          const scoreMate = /score mate (-?\d+)/.exec(lastInfoMsg);
-          if (currentScoreResolver) {
-            if (scoreMate) {
-              currentScoreResolver(`#${scoreMate[1]}`);
-            } else if (scoreCp) {
-              const s = (parseInt(scoreCp[1], 10) / 100).toFixed(2);
-              currentScoreResolver(parseFloat(s) > 0 ? `+${s}` : s);
-            } else {
-              currentScoreResolver('0.00');
-            }
-            currentScoreResolver = null;
-          }
-        }
       }
 
       $('#copy-stockfish-btn').on('click', function() {
@@ -284,22 +258,15 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
         const gameMoves = game.history({ verbose: true });
         const parsed = parseAnalysis(finalAnalysis);
 
-        let analysisCursor = 0;
-        movesWithAnalysis = gameMoves.map(move => {
-          let moveAnalysis = null;
-          if (analysisCursor < parsed.moves.length && parsed.moves[analysisCursor].san === move.san) {
-            moveAnalysis = parsed.moves[analysisCursor++];
-          }
-          const criticalMoment = parsed.criticalMoments[move.san];
-          return { ...move, analysis: moveAnalysis, criticalMoment };
+        let cursor = 0;
+        movesWithAnalysis = gameMoves.map(m => {
+          let analysis = null;
+          if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++];
+          return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san] };
         });
 
         if (!board) {
-          board = Chessboard('board', {
-            position: 'start',
-            draggable: false,
-            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
-          });
+          board = Chessboard('board', { position: 'start', draggable: false, pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' });
           $(window).on('resize', () => board.resize());
         }
 
@@ -312,100 +279,84 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
 
       function parseAnalysis(text) {
         const lines = text.split('\n');
-        const parsedMoves = [];
-        const criticalMoments = {};
-        const summaries = {};
-        let currentSummary = null;
-        let lastSan = null;
-
+        const parsedMoves = [], criticalMoments = {}, summaries = {};
+        let currentSummary = null, lastSan = null;
         const moveRegex = /^(?:\d+\.{1,3}\s*)?([^\s–-—]+)\s*[–-—]\s*([^:]+):\s*(.*)/;
         const criticalMomentRegex = /^Critical Moment:\s*(.*)/i;
         const summaryHeaderRegex = /^\s*\*\*(Strengths|Recurring Mistakes|Top 3 Takeaways)\*\*/i;
 
-        lines.forEach(line => {
-          const moveMatch = line.match(moveRegex);
-          const criticalMomentMatch = line.match(criticalMomentRegex);
-          const summaryHeaderMatch = line.match(summaryHeaderRegex);
-
-          if (moveMatch) {
-            const san = moveMatch[1];
-            let classification = moveMatch[2].trim().replace(/\*\*/g, '');
-            const analysisText = moveMatch[3].trim();
-            parsedMoves.push({ san, classification, text: analysisText });
-            lastSan = san;
-            currentSummary = null;
-          } else if (criticalMomentMatch) {
-            if (lastSan) criticalMoments[lastSan] = criticalMomentMatch[1];
-          } else if (summaryHeaderMatch) {
-            const key = summaryHeaderMatch[1].replace(/\s/g, '');
-            summaries[key] = [];
-            currentSummary = key;
-          } else if (line.trim() && line.trim() !== '---' && currentSummary) {
-            summaries[currentSummary].push(line.trim());
+        for (const line of lines) {
+          const m = line.match(moveRegex);
+          if (m) {
+            const san = m[1], classification = m[2].trim().replace(/\*\*/g,''), text = m[3].trim();
+            parsedMoves.push({ san, classification, text });
+            lastSan = san; currentSummary = null;
+            continue;
           }
-        });
-
-        // ✅ Fixed: return all three correctly
+          const cm = line.match(criticalMomentRegex);
+          if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; continue; }
+          const sh = line.match(summaryHeaderRegex);
+          if (sh) { const key = sh[1].replace(/\s/g,''); summaries[key] = []; currentSummary = key; continue; }
+          if (line.trim() && currentSummary) summaries[currentSummary].push(line.trim());
+        }
         return { moves: parsedMoves, criticalMoments, summaries };
       }
 
       function renderMoveList() {
-        const container = $('#move-analysis-container').empty();
-        movesWithAnalysis.forEach((move, index) => {
-          const moveNumberDisplay = move.color === 'w' ? `${Math.floor(index / 2) + 1}.` : '';
-          const moveHtml = `
-            <div class="move-item p-2 cursor-pointer" data-move-index="${index}">
+        const c = $('#move-analysis-container').empty();
+        movesWithAnalysis.forEach((mv, i) => {
+          const n = mv.color === 'w' ? `${Math.floor(i / 2) + 1}.` : '';
+          c.append(`
+            <div class="move-item p-2 cursor-pointer" data-move-index="${i}">
               <div class="flex items-baseline gap-3">
-                <span class="text-gray-500 font-mono w-8 text-right">${moveNumberDisplay}</span>
-                <span class="font-bold text-lg text-white">${move.san}</span>
-                ${move.analysis ? `<span class="font-semibold text-sm ${getStyleForClassification(move.analysis.classification)}">${move.analysis.classification}</span>` : ''}
+                <span class="text-gray-500 font-mono w-8 text-right">${n}</span>
+                <span class="font-bold text-lg text-white">${mv.san}</span>
+                ${mv.analysis ? `<span class="font-semibold text-sm ${getStyleForClassification(mv.analysis.classification)}">${mv.analysis.classification}</span>` : ''}
               </div>
-              ${move.analysis ? `<p class="pl-12 text-gray-300 text-sm">${formatText(move.analysis.text)}</p>` : ''}
-              ${move.criticalMoment ? `<p class="pl-12 mt-1 text-sm text-yellow-300 bg-yellow-900 bg-opacity-40 p-2 rounded">${formatText(`**Critical Moment:** ${move.criticalMoment}`)}</p>` : ''}
-            </div>`;
-          container.append(moveHtml);
+              ${mv.analysis ? `<p class="pl-12 text-gray-300 text-sm">${formatText(mv.analysis.text)}</p>` : ''}
+              ${mv.criticalMoment ? `<p class="pl-12 mt-1 text-sm text-yellow-300 bg-yellow-900 bg-opacity-40 p-2 rounded">${formatText('**Critical Moment:** ' + mv.criticalMoment)}</p>` : ''}
+            </div>
+          `);
         });
-        $('.move-item').on('click', function() { goToMove($(this).data('move-index')); });
+        $('.move-item').on('click', function(){ goToMove($(this).data('move-index')); });
       }
 
       function renderSummary(summaries) {
         const container = $('#move-analysis-container');
-        const summaryContent = [];
-        const summaryOrder = ['Strengths', 'RecurringMistakes', 'Top3Takeaways'];
-        const summaryTitles = { 'Strengths': 'Strengths', 'RecurringMistakes': 'Recurring Mistakes', 'Top3Takeaways': 'Top 3 Takeaways' };
-        summaryOrder.forEach(key => {
-          if (summaries[key] && summaries[key].length > 0) {
-            let html = `<h3 class="text-lg font-semibold mt-2 mb-1 text-gray-200">${summaryTitles[key]}</h3><ul class="list-disc list-inside space-y-1 text-sm text-gray-300">`;
-            summaries[key].forEach(item => { html += `<li>${formatText(item.trim().replace(/^(\*|-|\d+\.)\s*/, ''))}</li>`; });
-            html += '</ul>';
-            summaryContent.push(html);
-          }
+        const order = ['Strengths','RecurringMistakes','Top3Takeaways'];
+        const titles = { Strengths:'Strengths', RecurringMistakes:'Recurring Mistakes', Top3Takeaways:'Top 3 Takeaways' };
+        const blocks = [];
+        order.forEach(k => {
+          const arr = summaries[k] || [];
+          if (!arr.length) return;
+          let html = `<h3 class="text-lg font-semibold mt-2 mb-1 text-gray-200">${titles[k]}</h3><ul class="list-disc list-inside space-y-1 text-sm text-gray-300">`;
+          arr.forEach(it => html += `<li>${formatText(it.replace(/^(\*|-|\d+\.)\s*/,''))}</li>`);
+          html += '</ul>';
+          blocks.push(html);
         });
-        if (summaryContent.length > 0) container.append(`<div class="mt-4 border-t border-gray-600 pt-3">${summaryContent.join('')}</div>`);
+        if (blocks.length) container.append(`<div class="mt-4 border-t border-gray-600 pt-3">${blocks.join('')}</div>`);
       }
 
-      function goToMove(index) {
-        if (index < -1 || index >= movesWithAnalysis.length) return;
-        currentMoveIndex = index;
+      function goToMove(idx) {
+        if (idx < -1 || idx >= movesWithAnalysis.length) return;
+        currentMoveIndex = idx;
         game.reset();
-        for (let i = 0; i <= currentMoveIndex; i++) game.move(movesWithAnalysis[i].san);
+        for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
         board.position(game.fen());
         $('.move-item').removeClass('highlight');
-        if (currentMoveIndex >= 0) $(`.move-item[data-move-index="${currentMoveIndex}"]`).addClass('highlight');
-        $('#prev-btn').prop('disabled', currentMoveIndex < 0);
-        $('#next-btn').prop('disabled', currentMoveIndex >= movesWithAnalysis.length - 1);
+        if (idx >= 0) $(`.move-item[data-move-index="${idx}"]`).addClass('highlight');
+        $('#prev-btn').prop('disabled', idx < 0);
+        $('#next-btn').prop('disabled', idx >= movesWithAnalysis.length - 1);
       }
 
       $('#next-btn').on('click', () => goToMove(currentMoveIndex + 1));
       $('#prev-btn').on('click', () => goToMove(currentMoveIndex - 1));
       $('#flip-btn').on('click', () => { if (board) board.flip(); });
-      $('#start-new-btn').on('click', () => { location.reload(); });
-
+      $('#start-new-btn').on('click', () => location.reload());
       $(document).on('keydown', e => {
-        if ($('#review-section').is(':visible')) {
-          if (e.key === 'ArrowRight') goToMove(currentMoveIndex + 1);
-          else if (e.key === 'ArrowLeft') goToMove(currentMoveIndex - 1);
-        }
+        if (!$('#review-section').is(':visible')) return;
+        if (e.key === 'ArrowRight') goToMove(currentMoveIndex + 1);
+        if (e.key === 'ArrowLeft') goToMove(currentMoveIndex - 1);
       });
     });
   </script>
