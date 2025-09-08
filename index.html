@@ -118,7 +118,7 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
                 Analyze Another Game
             </button>
         </div>
-        <div class="lg:col-span-3 bg-[#252526] p-4 rounded-lg flex flex-col h-96 lg:h-auto lg:max-h-[calc(100vh-5rem)]">
+        <div class="lg-col-span-3 bg-[#252526] p-4 rounded-lg flex flex-col h-96 lg:h-auto lg:max-h-[calc(100vh-5rem)]">
             <h2 class="text-xl font-bold border-b border-gray-600 pb-2 mb-3 flex-shrink-0">Game Analysis</h2>
             <div id="move-analysis-container" class="overflow-y-auto flex-1 pr-2 space-y-1"></div>
         </div>
@@ -136,10 +136,11 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
     <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
-    <!-- Stockfish.js from CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/stockfish/src/stockfish.js"></script>
+    
+    <!-- SCRIPT FIX: The main script is now a module to ensure Stockfish loads first. -->
+    <script type="module">
+        import Stockfish from "https://cdn.jsdelivr.net/npm/stockfish/src/stockfish.js";
 
-    <script>
         $(document).ready(function () {
             let board = null;
             let game = new Chess();
@@ -267,7 +268,6 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
                 if (!game.load_pgn(pgn)) { showError("Could not find a valid PGN in the pasted text."); return; }
 
                 switchStep(4);
-                board.position('start');
                 
                 const gameMoves = game.history({ verbose: true });
                 const parsedAnalysis = parseAnalysis(finalAnalysis);
@@ -286,6 +286,7 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
                     $(window).on('resize', () => board.resize());
                 }
                 
+                board.position('start');
                 renderMoveList();
                 renderSummary(parsedAnalysis.summaries);
                 goToMove(-1);
