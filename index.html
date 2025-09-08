@@ -14,42 +14,43 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <style>
-    body { font-family: 'Inter', sans-serif; background-color: #1a1a1a; color: #e0e0e0; }
+    body { font-family: 'Inter', sans-serif; background-color: #0f1115; color: #e5e7eb; }
     .chessboard-container { width: 100%; margin: 0 auto; aspect-ratio: 1 / 1; }
-    .move-item { transition: background-color: 0.2s ease-in-out; border-radius: 0.5rem; }
-    .move-item.highlight { background-color: #384a6e; }
-    .move-item:hover { background-color: #2c3a57; }
-    #move-analysis-container::-webkit-scrollbar { width: 8px; }
-    #move-analysis-container::-webkit-scrollbar-track { background: #2a2a2a; }
-    #move-analysis-container::-webkit-scrollbar-thumb { background-color: #4a4a4a; border-radius: 10px; border: 2px solid #2a2a2a; }
-    .btn-primary { background-color: #4a90e2; transition: background-color 0.3s; }
-    .btn-primary:hover { background-color: #357abd; }
+    .move-item { transition: background-color 0.2s ease-in-out; border-radius: 0.5rem; }
+    .move-item.highlight { background-color: #243249; }
+    .move-item:hover { background-color: #1c273a; }
+    #move-analysis-scroll::-webkit-scrollbar { width: 8px; }
+    #move-analysis-scroll::-webkit-scrollbar-track { background: #1a1f2a; }
+    #move-analysis-scroll::-webkit-scrollbar-thumb { background-color: #4b5563; border-radius: 10px; border: 2px solid #1a1f2a; }
+    .btn-primary { background-color: #3b82f6; transition: background-color 0.2s; }
+    .btn-primary:hover { background-color: #2563eb; }
     .btn-primary:disabled { background-color: #374151; cursor: not-allowed; }
-    .btn-secondary { background-color: #4a4a4a; transition: background-color: 0.3s; }
-    .btn-secondary:hover { background-color: #5a5a5a; }
-    textarea.form-input { background-color: #252526; border-color: #4a4a4a; }
-    textarea.form-input:focus { border-color: #4a90e2; box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.5); outline: none; }
-    .step-indicator { background-color: #374151; }
-    .step-indicator.active { background-color: #4a90e2; }
+    .btn-secondary { background-color: #374151; transition: background-color: 0.2s; }
+    .btn-secondary:hover { background-color: #4b5563; }
+    textarea.form-input { background-color: #0b0e15; border-color: #364152; color: #e5e7eb; }
+    textarea.form-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35); outline: none; }
+    .step-indicator { background-color: #273043; }
+    .step-indicator.active { background-color: #3b82f6; }
   </style>
 </head>
-<body class="min-h-screen flex flex-col p-4 md:p-6">
+<body class="min-h-screen flex flex-col p-3 sm:p-4">
 
-  <header class="text-center mb-6">
-    <h1 class="text-3xl md:text-4xl font-bold text-white">AI Chess Reviewer</h1>
+  <!-- Header (hidden on final screen) -->
+  <header id="app-header" class="text-center mb-6">
+    <h1 class="text-2xl sm:text-3xl font-bold text-white">AI Chess Reviewer</h1>
     <p class="text-gray-400 mt-2">A new way to get deep, AI-powered analysis of your games.</p>
   </header>
 
   <!-- Step Indicators -->
-  <div class="flex justify-center items-center space-x-4 mb-8">
+  <div id="step-indicators" class="flex justify-center items-center space-x-3 mb-6">
     <div id="indicator-1" class="step-indicator active w-8 h-2 rounded-full"></div>
     <div id="indicator-2" class="step-indicator w-8 h-2 rounded-full"></div>
     <div id="indicator-3" class="step-indicator w-8 h-2 rounded-full"></div>
   </div>
 
   <!-- Step 1: PGN Input -->
-  <div id="step1-section" class="max-w-2xl w-full mx-auto flex flex-col gap-4">
-    <h2 class="text-2xl font-bold text-center">Step 1: Analyze PGN with Stockfish</h2>
+  <section id="step1-section" class="max-w-2xl w-full mx-auto flex flex-col gap-4">
+    <h2 class="text-xl sm:text-2xl font-bold text-center">Step 1: Analyze PGN with Stockfish</h2>
     <p class="text-center text-gray-400">Paste your game's PGN below. The engine will run in your browser to add move evaluations.</p>
     <div>
       <label for="pgn-input" class="block mb-2 font-semibold text-gray-300">Paste PGN here</label>
@@ -58,106 +59,100 @@
     <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
       Loading Engine...
     </button>
-  </div>
+  </section>
 
   <!-- Step 2: Stockfish Output & AI Instructions -->
-  <div id="step2-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
-    <h2 class="text-2xl font-bold text-center">Step 2: Get AI Coaching Comments</h2>
-    <div id="stockfish-progress" class="text-center p-4 bg-[#252526] rounded-lg">
-      <p id="progress-text" class="text-lg text-yellow-400">Initializing Stockfish...</p>
-      <div class="w-full bg-gray-600 rounded-full h-2.5 mt-2">
-        <div id="progress-bar" class="bg-blue-500 h-2.5 rounded-full" style="width: 0%"></div>
+  <section id="step2-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
+    <h2 class="text-xl sm:text-2xl font-bold text-center">Step 2: Get AI Coaching Comments</h2>
+    <div id="stockfish-progress" class="text-center p-4 bg-[#101522] rounded-lg">
+      <p id="progress-text" class="text-base sm:text-lg text-yellow-400">Initializing Stockfish...</p>
+      <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
+        <div id="progress-bar" class="bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
       </div>
     </div>
     <div>
       <label for="stockfish-output" class="block mb-2 font-semibold text-gray-300">1. Copy the prompt + annotated PGN below</label>
-      <textarea id="stockfish-output" rows="14" class="w-full p-3 rounded-lg form-input" readonly></textarea>
+      <textarea id="stockfish-output" rows="14" class="w-full p-3 rounded-lg form-input font-mono text-sm" readonly></textarea>
       <button id="copy-stockfish-btn" class="w-full mt-2 py-2 px-4 font-semibold text-white rounded-lg btn-secondary">Copy to Clipboard</button>
     </div>
-    <div class="p-4 bg-green-900/50 border border-green-700 rounded-lg">
-      <h3 class="font-semibold text-green-300">2. What this button copies</h3>
-      <p class="text-sm text-green-300/80 mt-1">
-        The button above copies the instruction block and your annotated PGN together, ready to paste into an AI.
-      </p>
-      <div class="mt-2 p-2 bg-black/30 rounded">
+    <div class="p-4 bg-emerald-900/40 border border-emerald-700 rounded-lg">
+      <h3 class="font-semibold text-emerald-300">2. What this button copies</h3>
+      <div class="mt-2 p-2 bg-black/40 rounded">
         <p class="text-xs text-gray-300 whitespace-pre-wrap font-mono">
 Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:
 
 move - {Stockfish evaluation} classification: comment
 
 Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.
+
+At the very end, add one line starting with:
+Summary: <a single-sentence overview of the whole game>
         </p>
       </div>
     </div>
     <button id="goto-step3-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
       Continue to Final Step
     </button>
-  </div>
+  </section>
 
   <!-- Step 3: Final Analysis Input -->
-  <div id="step3-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
-    <h2 class="text-2xl font-bold text-center">Step 3: Paste Your Final AI Review</h2>
-    <p class="text-center text-gray-400">Paste the full text from the AI (PGN + comments) or just comments like <em>e4 - {+0.20} Good: ...</em>.</p>
+  <section id="step3-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
+    <h2 class="text-xl sm:text-2xl font-bold text-center">Step 3: Paste Your Final AI Review</h2>
+    <p class="text-center text-gray-400">Paste the full text from the AI (PGN + comments) or just comments like <em>e4 - {+0.20} Good: ...</em>. Include the final line starting with <strong>Summary:</strong>.</p>
     <div>
       <label for="final-analysis-input" class="block mb-2 font-semibold text-gray-300">Paste complete analysis here</label>
-      <textarea id="final-analysis-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="e4 - {+0.10} Good: A classical opening move..."></textarea>
+      <textarea id="final-analysis-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="e4 - {+0.10} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack."></textarea>
     </div>
     <button id="generate-review-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
       Generate Interactive Review
     </button>
-  </div>
+  </section>
 
-  <!-- Final Review Section -->
-  <main id="review-section" class="hidden flex-1 max-w-7xl w-full mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- Left: sticky board + THIN eval bar -->
-    <div class="lg:col-span-1">
-      <div class="sticky top-4">
-        <div class="flex items-start gap-2">
-          <!-- Board column -->
-          <div class="w-full max-w-xl mx-auto">
-            <div id="board" class="chessboard-container"></div>
-            <div id="controls" class="mt-4 flex flex-wrap items-center justify-center gap-2 w-full">
-              <button id="prev-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">‹ Prev</button>
-              <button id="next-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Next ›</button>
-              <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
-              <button id="start-new-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-primary">Analyze Another Game</button>
+  <!-- Final Review Section (mobile-optimized) -->
+  <main id="review-section" class="hidden flex-1 max-w-5xl w-full mx-auto">
+    <div class="w-full grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <!-- Column A: Board + horizontal eval bar (sticky) -->
+      <div class="lg:col-span-1">
+        <div class="sticky top-2">
+          <!-- Horizontal eval bar (white) -->
+          <div id="eval-bar-wrap" class="w-full mb-2">
+            <div class="flex items-center gap-2">
+              <div id="eval-bar" class="relative w-full h-3 rounded-full bg-white">
+                <!-- marker -->
+                <div id="eval-marker" class="absolute top-1/2 -translate-y-1/2 w-1.5 h-4 bg-blue-500 rounded" style="left:50%"></div>
+              </div>
+              <div id="eval-number" class="text-sm font-bold min-w-[3.5rem] text-right">+0.00</div>
             </div>
           </div>
 
-          <!-- Thin eval bar -->
-          <aside id="eval-sidebar" class="hidden sm:block w-8 pl-1">
-            <div class="text-center mb-2">
-              <div class="text-[10px] text-gray-400 uppercase tracking-wide">Eval</div>
-              <div id="eval-number" class="text-lg font-bold">+0.00</div>
+          <!-- Board -->
+          <div class="w-full max-w-xl mx-auto">
+            <div id="board" class="chessboard-container"></div>
+            <div id="controls" class="mt-3 flex items-center justify-center gap-2 w-full">
+              <button id="prev-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">‹ Prev</button>
+              <button id="next-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Next ›</button>
+              <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
             </div>
-            <div id="eval-gauge" class="relative w-2 mx-auto rounded-full overflow-hidden" style="height: 300px;">
-              <!-- vertical gradient track -->
-              <div class="absolute inset-0 bg-gradient-to-b from-white via-gray-400 to-black opacity-30"></div>
-              <!-- center zero line -->
-              <div class="absolute left-1/2 -translate-x-1/2 top-1/2 w-3 h-px bg-gray-500"></div>
-              <!-- marker -->
-              <div id="eval-marker" class="absolute left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-1.5 bg-blue-400 rounded"></div>
-            </div>
-            <div class="mt-1 flex justify-between text-[10px] text-gray-400">
-              <span>Black</span><span>White</span>
-            </div>
-          </aside>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Right: independently scrollable analysis text -->
-    <div class="lg:col-span-1">
-      <div class="bg-[#252526] p-4 rounded-lg h-[calc(100vh-6rem)] overflow-y-auto">
-        <h2 class="text-xl font-bold border-b border-gray-600 pb-2 mb-3">Game Analysis</h2>
-        <div id="move-analysis-container" class="space-y-1"></div>
+      <!-- Column B: Independently scrollable analysis (no titles) -->
+      <div class="lg:col-span-1">
+        <div id="move-analysis-shell" class="bg-[#101522] p-3 rounded-lg">
+          <!-- One-line summary appears here (from "Summary:") -->
+          <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
+          <div id="move-analysis-scroll" class="overflow-y-auto">
+            <div id="move-analysis-container" class="space-y-1"></div>
+          </div>
+        </div>
       </div>
     </div>
   </main>
 
   <!-- Error Modal -->
   <div id="error-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
-    <div class="bg-[#2d2d2d] p-8 rounded-lg shadow-xl max-w-sm w-full text-center">
+    <div class="bg-[#141926] p-8 rounded-lg shadow-xl max-w-sm w-full text-center">
       <h3 class="text-2xl font-bold text-red-400 mb-4">Error</h3>
       <p id="error-message" class="text-gray-300 mb-6">Could not process the input.</p>
       <button id="close-modal-btn" class="py-2 px-6 font-semibold text-white rounded-lg btn-primary">Close</button>
@@ -177,8 +172,8 @@ Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). 
       let lastInfoMsg = '';
       let currentScoreResolver = null;
 
-      // Prompt with REAL newlines and {eval}
-      const ANALYSIS_PROMPT = `Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:\n\nmove - {Stockfish evaluation} classification: comment\n\nKeep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.`;
+      // Prompt (adds one-line Summary at the end)
+      const ANALYSIS_PROMPT = `Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:\n\nmove - {Stockfish evaluation} classification: comment\n\nKeep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.\n\nAt the very end, add one line starting with:\nSummary: <a single-sentence overview of the whole game>`;
 
       engineWorker.onmessage = function(e) {
         const msg = String(e.data || '');
@@ -207,10 +202,10 @@ Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). 
       let game = new Chess();
       let movesWithAnalysis = [];
       let currentMoveIndex = -1;
-      let evalSeries = []; // WHITE-relative centipawns per move (from comments {eval})
+      let evalSeries = []; // WHITE-relative cp per ply (from comments {eval})
 
       const classificationStyles = {
-        'book': 'text-blue-400','good':'text-green-400','okay':'text-green-400','excellent':'text-teal-400','great':'text-teal-400',
+        'book': 'text-blue-400','good':'text-green-400','okay':'text-green-400','excellent':'text-teal-300','great':'text-teal-300',
         'brilliant':'text-cyan-300','inaccuracy':'text-yellow-400','mistake':'text-orange-400','blunder':'text-red-500','forced':'text-gray-400','default':'text-gray-400'
       };
       function getStyleForClassification(c) { return classificationStyles[(c || '').toLowerCase().replace(/\s/g,'')] || classificationStyles['default']; }
@@ -218,30 +213,19 @@ Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). 
       function showError(m) { $('#error-message').text(m); $('#error-modal').removeClass('hidden'); }
       $('#close-modal-btn').on('click', function(){ $('#error-modal').addClass('hidden'); });
 
-      // ---------- Helpers: score normalization ----------
-      // Engine gives side-to-move POV; convert to WHITE-relative cp and back to {+x.xx}
+      // ---------- Score helpers ----------
       function parseEngineScoreToCp(scoreStr){
         if (!scoreStr) return 0;
-        if (scoreStr[0] === '#') {
-          return scoreStr.includes('-') ? -999 : 999; // treat mate as huge advantage
-        }
-        const n = parseFloat(scoreStr);
-        if (isNaN(n)) return 0;
-        return Math.round(n * 100); // "+0.23" -> 23
+        if (scoreStr[0] === '#') return scoreStr.includes('-') ? -999 : 999; // treat mate as huge
+        const n = parseFloat(scoreStr); if (isNaN(n)) return 0; return Math.round(n * 100);
       }
-      function cpToEvalBraced(cp){
-        const pawns = (cp/100).toFixed(2);
-        return `{${cp > 0 ? '+'+pawns : pawns}}`;
-      }
+      function cpToEvalBraced(cp){ const pawns = (cp/100).toFixed(2); return `{${cp > 0 ? '+'+pawns : pawns}}`; }
 
-      // ---------- Robust PGN normalization ----------
+      // ---------- PGN normalization ----------
       function normalizePgn(raw, opts) {
-        opts = opts || {};
-        const keepComments = !!opts.keepComments;
-        let s = String(raw || '').replace(/\r\n?/g, '\n').replace(/^\uFEFF/, '').trim();
-        if (!s) return '';
-        const lines = s.split('\n');
-        const headerLines = []; let i = 0;
+        opts = opts || {}; const keepComments = !!opts.keepComments;
+        let s = String(raw || '').replace(/\r\n?/g, '\n').replace(/^\uFEFF/, '').trim(); if (!s) return '';
+        const lines = s.split('\n'); const headerLines = []; let i = 0;
         while (i < lines.length && /^\s*\[.*\]\s*$/.test(lines[i])) { headerLines.push(lines[i].trim()); i++; }
         let movePart = lines.slice(i).join('\n');
         if (headerLines.length === 0) {
@@ -261,12 +245,11 @@ Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). 
         return headerBlock ? (headerBlock+'\n\n'+movePart) : movePart;
       }
 
-      // Build a neat header block from the loaded game
       function buildHeaderTagBlock(chess) {
         const hdr = chess.header();
-        const preferredOrder = ['Event','Site','Date','Round','White','Black','Result','TimeControl','WhiteElo','BlackElo','Termination','ECO','EndTime','Link','UTCDate','UTCTime','GameId','Variant','Opening','Annotator'];
+        const order = ['Event','Site','Date','Round','White','Black','Result','TimeControl','WhiteElo','BlackElo','Termination','ECO','EndTime','Link','UTCDate','UTCTime','GameId','Variant','Opening','Annotator'];
         const seen = new Set(); const lines = [];
-        preferredOrder.forEach(k => { if (hdr[k]) { lines.push(`[${k} "${hdr[k]}"]`); seen.add(k); } });
+        order.forEach(k => { if (hdr[k]) { lines.push(`[${k} "${hdr[k]}"]`); seen.add(k); } });
         Object.keys(hdr).sort().forEach(k => { if (!seen.has(k)) lines.push(`[${k} "${hdr[k]}"]`); });
         return lines.join('\n');
       }
@@ -276,40 +259,35 @@ Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). 
         $('.step-indicator').removeClass('active');
         $('#indicator-' + step).addClass('active');
         if (step <= 3) $('#step' + step + '-section').removeClass('hidden');
-        else $('#review-section').removeClass('hidden').addClass('grid');
+        else $('#review-section').removeClass('hidden');
+        // Hide header on final screen (no titles)
+        if (step === 4) { $('#app-header, #step-indicators').addClass('hidden'); } else { $('#app-header, #step-indicators').removeClass('hidden'); }
       }
 
       $('#analyze-pgn-btn').on('click', function () {
         if (!engineReady) { showError('Engine still initializing. Try again in a second.'); return; }
-        const pgnRaw = $('#pgn-input').val().trim();
-        if (!pgnRaw) { showError('Please paste a PGN.'); return; }
+        const pgnRaw = $('#pgn-input').val().trim(); if (!pgnRaw) { showError('Please paste a PGN.'); return; }
         const pgn = normalizePgn(pgnRaw);
         if (!game.load_pgn(pgn)) {
           const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm,''));
           if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
         }
-        switchStep(2);
-        runStockfishAnalysis();
+        switchStep(2); runStockfishAnalysis();
       });
 
       async function runStockfishAnalysis() {
-        const sanMoves = game.history();
-        let annotatedPgn = '';
-        const headerBlock = buildHeaderTagBlock(game);
-        if (headerBlock) annotatedPgn = headerBlock + '\n\n';
+        const sanMoves = game.history(); let annotatedPgn = '';
+        const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
         const temp = new Chess();
         for (let i = 0; i < sanMoves.length; i++) {
-          const moveNumber = Math.floor(i / 2) + 1;
-          const prefix = (i % 2 === 0) ? (moveNumber + '. ') : (moveNumber + '... ');
-          const move = sanMoves[i];
-          temp.move(move);
+          const moveNumber = Math.floor(i / 2) + 1; const prefix = (i % 2 === 0) ? (moveNumber + '. ') : (moveNumber + '... ');
+          const move = sanMoves[i]; temp.move(move);
           $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
           $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
           const rawScore = await getScore(temp.fen()); // side-to-move POV
           let cp = parseEngineScoreToCp(rawScore);
           // Convert to WHITE-relative: if it's Black to move, negate
-          const isBlackToMove = (temp.turn() === 'b');
-          if (isBlackToMove) cp = -cp;
+          const isBlackToMove = (temp.turn() === 'b'); if (isBlackToMove) cp = -cp;
           const evalStr = cpToEvalBraced(cp);
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
         }
@@ -321,8 +299,7 @@ Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). 
 
       function getScore(fen) {
         return new Promise(resolve => {
-          currentScoreResolver = resolve;
-          lastInfoMsg = '';
+          currentScoreResolver = resolve; lastInfoMsg = '';
           engineWorker.postMessage('position fen ' + fen);
           engineWorker.postMessage('go depth 15');
         });
@@ -330,8 +307,7 @@ Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). 
 
       $('#copy-stockfish-btn').on('click', function () {
         navigator.clipboard.writeText($('#stockfish-output').val()).then(function(){
-          $('#copy-stockfish-btn').text('Copied!');
-          setTimeout(function(){ $('#copy-stockfish-btn').text('Copy to Clipboard'); }, 2000);
+          $('#copy-stockfish-btn').text('Copied!'); setTimeout(function(){ $('#copy-stockfish-btn').text('Copy to Clipboard'); }, 1600);
         });
       });
 
@@ -339,105 +315,58 @@ Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). 
 
       // ====== Step 3: accept PGN or comments-only and build review ======
       $('#generate-review-btn').on('click', function () {
-        const finalAnalysisRaw = $('#final-analysis-input').val().trim();
-        if (!finalAnalysisRaw) { showError('Please paste the final analysis.'); return; }
-
-        // Try: treat the paste as PGN first
-        let pgn = normalizePgn(finalAnalysisRaw);
-        let loaded = game.load_pgn(pgn);
-
-        // Else: parse analysis lines and reconstruct a PGN from SAN moves
+        const finalAnalysisRaw = $('#final-analysis-input').val().trim(); if (!finalAnalysisRaw) { showError('Please paste the final analysis.'); return; }
+        let pgn = normalizePgn(finalAnalysisRaw); let loaded = game.load_pgn(pgn);
         const parsed = parseAnalysis(finalAnalysisRaw);
         if (!loaded && parsed.moves.length) {
-          let rebuiltPGN = buildPGNFromSAN(parsed.moves.map(m => m.san));
-          game.reset();
-          loaded = game.load_pgn(rebuiltPGN);
-          if (!loaded) {
-            game.reset();
-            let ok = true;
-            parsed.moves.forEach(m => { if (ok) ok = !!game.move(m.san); });
-            if (ok) {
-              rebuiltPGN = game.pgn({ maxWidth: 9999 });
-              game.reset();
-              loaded = game.load_pgn(rebuiltPGN);
-            }
-          }
+          let rebuiltPGN = buildPGNFromSAN(parsed.moves.map(m => m.san)); game.reset(); loaded = game.load_pgn(rebuiltPGN);
+          if (!loaded) { game.reset(); let ok = true; parsed.moves.forEach(m => { if (ok) ok = !!game.move(m.san); }); if (ok) { rebuiltPGN = game.pgn({ maxWidth: 9999 }); game.reset(); loaded = game.load_pgn(rebuiltPGN); } }
           if (loaded) pgn = rebuiltPGN;
         }
-
         if (!loaded) { showError('Could not find or reconstruct a valid PGN from the text you pasted.'); return; }
 
         switchStep(4);
 
-        const gameMoves = game.history({ verbose: true });
-        let cursor = 0;
-        movesWithAnalysis = gameMoves.map(m => {
-          let analysis = null;
-          if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++];
-          return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san] };
-        });
-
-        // Build WHITE-relative evaluation series directly from {eval} in comments
+        const gameMoves = game.history({ verbose: true }); let cursor = 0;
+        movesWithAnalysis = gameMoves.map(m => { let analysis = null; if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++]; return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san] }; });
         evalSeries = movesWithAnalysis.map(m => parseEvalToCp(m.analysis && m.analysis.evaluation));
 
-        if (!board) {
-          board = Chessboard('board', { position: 'start', draggable: false, pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' });
-          $(window).on('resize', function(){ board.resize(); syncEvalGaugeHeight(); });
-        }
+        // Summary text
+        const summary = parsed.summary || '';
+        if (summary) { $('#game-summary').removeClass('hidden').text(summary); } else { $('#game-summary').addClass('hidden').text(''); }
+
+        if (!board) { board = Chessboard('board', { position: 'start', draggable: false, pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' }); $(window).on('resize', function(){ board.resize(); adjustAnalysisHeight(); updateEvalBarForIndex(currentMoveIndex); }); }
 
         board.position('start');
         renderMoveList();
-        renderSummary(parsed.summaries);
-        syncEvalGaugeHeight();
-        renderEvalGauge();
-        goToMove(-1);
+        adjustAnalysisHeight();
+        updateEvalBarForIndex(-1);
         board.resize();
       });
 
       // Build PGN from SAN list
-      function buildPGNFromSAN(sanList) {
-        const parts = [];
-        for (let i = 0; i < sanList.length; i++) {
-          const moveNumber = Math.floor(i / 2) + 1;
-          if (i % 2 === 0) parts.push(moveNumber + '. ' + sanList[i]); else parts.push(sanList[i]);
-        }
-        return parts.join(' ');
-      }
+      function buildPGNFromSAN(sanList) { const parts = []; for (let i = 0; i < sanList.length; i++) { const n = Math.floor(i / 2) + 1; if (i % 2 === 0) parts.push(n + '. ' + sanList[i]); else parts.push(sanList[i]); } return parts.join(' '); }
 
-      // Parse analysis lines (supports optional {eval})
+      // Parse analysis lines with optional {eval} and final Summary:
       function parseAnalysis(text) {
-        const lines = text.split('\n');
-        const parsedMoves = []; const criticalMoments = {}; const summaries = {};
-        let currentSummary = null; let lastSan = null;
+        const lines = text.split('\n'); const parsedMoves = []; const criticalMoments = {}; const summaries = {}; let currentSummary = null; let lastSan = null; let summaryLine = '';
         const moveRegex = /^(?:\d+\.{1,3}\s*)?(\S+)\s*[-–—]\s*(\{[^}]+\})?\s*([A-Za-z]+)\s*:\s*(.*)/;
         const criticalMomentRegex = /^Critical Moment:\s*(.*)/i;
         const summaryHeaderRegex = /^\s*\*\*(Strengths|Recurring Mistakes|Top 3 Takeaways)\*\*/i;
+        const summaryLineRegex = /^Summary:\s*(.*)/i;
         lines.forEach(line => {
+          const sl = line.match(summaryLineRegex); if (sl) { summaryLine = sl[1].trim(); return; }
           const m = line.match(moveRegex);
-          if (m) {
-            const san = m[1]; const evaluation = (m[2] || '').trim() || null; const classification = m[3].trim(); const txt = m[4].trim();
-            parsedMoves.push({ san, evaluation, classification, text: txt }); lastSan = san; currentSummary = null; return;
-          }
+          if (m) { const san = m[1]; const evaluation = (m[2] || '').trim() || null; const classification = m[3].trim(); const txt = m[4].trim(); parsedMoves.push({ san, evaluation, classification, text: txt }); lastSan = san; currentSummary = null; return; }
           const cm = line.match(criticalMomentRegex); if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; return; }
           const sh = line.match(summaryHeaderRegex); if (sh) { const key = sh[1].replace(/\s/g,''); summaries[key] = []; currentSummary = key; return; }
           if (line.trim() && line.trim() !== '---' && currentSummary) summaries[currentSummary].push(line.trim());
         });
-        return { moves: parsedMoves, criticalMoments, summaries };
+        return { moves: parsedMoves, criticalMoments, summaries, summary: summaryLine };
       }
 
       // Convert evaluation string like "{+0.23}", "{-1.10}", "{#3}" (WHITE-relative already)
-      function parseEvalToCp(evalStr) {
-        if (!evalStr) return null;
-        const s = String(evalStr).replace(/[{}\s]/g,'');
-        if (!s) return null;
-        if (s[0] === '#') {
-          const neg = s.includes('-');
-          return neg ? -999 : 999;
-        }
-        const num = parseFloat(s);
-        if (isNaN(num)) return null;
-        return Math.round(num * 100);
-      }
+      function parseEvalToCp(evalStr) { if (!evalStr) return null; const s = String(evalStr).replace(/[{}\s]/g,''); if (!s) return null; if (s[0] === '#') return s.includes('-') ? -999 : 999; const num = parseFloat(s); if (isNaN(num)) return null; return Math.round(num * 100); }
 
       // ====== Rendering ======
       function renderMoveList() {
@@ -454,78 +383,60 @@ Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). 
                 (mv.analysis ? '<span class="font-semibold text-sm ml-2 ' + getStyleForClassification(mv.analysis.classification) + '">' + mv.analysis.classification + '</span>' : '') +
               '</div>' +
               (mv.analysis ? '<p class="pl-12 text-gray-300 text-sm">' + formatText(mv.analysis.text) + '</p>' : '') +
-              (mv.criticalMoment ? '<p class="pl-12 mt-1 text-sm text-yellow-300 bg-yellow-900 bg-opacity-40 p-2 rounded">' + formatText('**Critical Moment:** ' + mv.criticalMoment) + '</p>' : '') +
+              (mv.criticalMoment ? '<p class="pl-12 mt-1 text-xs text-yellow-300 bg-yellow-900/40 p-2 rounded">' + formatText('**Critical Moment:** ' + mv.criticalMoment) + '</p>' : '') +
             '</div>';
           c.append(html);
         });
         $('.move-item').on('click', function(){ goToMove($(this).data('move-index')); });
       }
 
-      function renderSummary(summaries) {
-        const container = $('#move-analysis-container');
-        const order = ['Strengths','RecurringMistakes','Top3Takeaways'];
-        const titles = { Strengths: 'Strengths', RecurringMistakes: 'Recurring Mistakes', Top3Takeaways: 'Top 3 Takeaways' };
-        const blocks = [];
-        order.forEach(k => {
-          const arr = summaries[k] || [];
-          if (!arr.length) return;
-          let html = '<h3 class="text-lg font-semibold mt-2 mb-1 text-gray-200">' + titles[k] + '</h3><ul class="list-disc list-inside space-y-1 text-sm text-gray-300">';
-          arr.forEach(item => { html += '<li>' + formatText(item.replace(/^(\*|-|\d+\.)\s*/,'')) + '</li>'; });
-          html += '</ul>';
-          blocks.push(html);
-        });
-        if (blocks.length) container.append('<div class="mt-4 border-t border-gray-600 pt-3">' + blocks.join('') + '</div>');
-      }
-
-      function renderEvalGauge() {
-        updateEvalGaugeForIndex(-1);
-      }
-
-      function syncEvalGaugeHeight() {
+      function adjustAnalysisHeight() {
+        // Make the analysis pane scrollable and tall enough to show last moves without the board scrolling away
+        const shell = document.getElementById('move-analysis-shell');
+        const scroll = document.getElementById('move-analysis-scroll');
         const boardEl = document.getElementById('board');
-        const gauge = document.getElementById('eval-gauge');
-        if (!boardEl || !gauge) return;
-        // Board is square; height ~= width in pixels
-        const h = boardEl.clientWidth; // approximate board height
-        if (h > 80) gauge.style.height = h + 'px';
+        const controls = document.getElementById('controls');
+        if (!shell || !scroll || !boardEl || !controls) return;
+        // Available viewport height minus some margins
+        const vh = window.innerHeight;
+        const boardH = boardEl.clientWidth; // board is square: height ~ width
+        const controlsH = controls.offsetHeight || 0;
+        const headerHidden = document.getElementById('app-header').classList.contains('hidden');
+        const topPadding = headerHidden ? 8 : 16;
+        // On mobile: place analysis below; give it remaining height
+        let target = vh - (boardH + controlsH + topPadding + 24);
+        if (target < 180) target = 180; // minimum height
+        scroll.style.maxHeight = target + 'px';
+        scroll.style.height = target + 'px';
       }
 
-      function updateEvalGaugeForIndex(idx) {
+      function updateEvalBarForIndex(idx) {
         const marker = document.getElementById('eval-marker');
-        const label = document.getElementById('eval-number');
-        const gauge = document.getElementById('eval-gauge');
-        if (!marker || !label || !gauge) return;
-        let cp = 0; // default 0 at start
-        if (idx >= 0 && idx < evalSeries.length && evalSeries[idx] != null) cp = evalSeries[idx];
-        // clamp and map to marker position inside gauge height
-        const H = gauge.clientHeight || 300;
-        const min = -500, max = 500;
-        const clamped = Math.max(min, Math.min(max, cp));
-        const t = (clamped - min) / (max - min); // 0..1
-        const y = (H) - t * (H); // pixel from top
-        marker.style.top = y + 'px';
+        const number = document.getElementById('eval-number');
+        const bar = document.getElementById('eval-bar');
+        if (!marker || !number || !bar) return;
+        let cp = 0; if (idx >= 0 && idx < evalSeries.length && evalSeries[idx] != null) cp = evalSeries[idx];
+        const W = bar.clientWidth || 100; const min = -500, max = 500; const clamped = Math.max(min, Math.min(max, cp));
+        const t = (clamped - min) / (max - min); // 0..1 left→right
+        marker.style.left = (t * W) + 'px';
         const pawns = (cp / 100).toFixed(2);
-        label.textContent = (cp > 0 ? '+' : (cp < 0 ? '' : '+')) + pawns;
+        number.textContent = (cp > 0 ? '+' : (cp < 0 ? '' : '+')) + pawns;
       }
 
       function goToMove(idx) {
         if (idx < -1 || idx >= movesWithAnalysis.length) return;
-        currentMoveIndex = idx;
-        game.reset();
-        for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
+        currentMoveIndex = idx; game.reset(); for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
         if (board) board.position(game.fen());
-        $('.move-item').removeClass('highlight');
-        if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
-        $('#prev-btn').prop('disabled', idx < 0);
-        $('#next-btn').prop('disabled', idx >= movesWithAnalysis.length - 1);
-        syncEvalGaugeHeight();
-        updateEvalGaugeForIndex(idx);
+        $('.move-item').removeClass('highlight'); if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
+        $('#prev-btn').prop('disabled', idx < 0); $('#next-btn').prop('disabled', idx >= movesWithAnalysis.length - 1);
+        adjustAnalysisHeight(); updateEvalBarForIndex(idx);
       }
 
       $('#next-btn').on('click', function(){ goToMove(currentMoveIndex + 1); });
       $('#prev-btn').on('click', function(){ goToMove(currentMoveIndex - 1); });
       $('#flip-btn').on('click', function(){ if (board) board.flip(); });
-      $('#start-new-btn').on('click', function(){ location.reload(); });
+
+      $(window).on('resize', function(){ adjustAnalysisHeight(); updateEvalBarForIndex(currentMoveIndex); });
       $(document).on('keydown', function(e){ if (!$('#review-section').is(':visible')) return; if (e.key==='ArrowRight') goToMove(currentMoveIndex + 1); if (e.key==='ArrowLeft') goToMove(currentMoveIndex - 1); });
     });
   </script>
