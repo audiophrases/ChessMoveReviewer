@@ -118,9 +118,6 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
         <button id="next-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Next ›</button>
         <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
       </div>
-      <button id="start-new-btn" class="mt-4 w-full max-w-xs py-2 px-4 text-white font-semibold rounded-lg btn-primary">
-        Analyze Another Game
-      </button>
     </div>
     <div class="lg:col-span-3 bg-[#252526] p-4 rounded-lg flex flex-col h-96 lg:h-auto lg:max-h-[calc(100vh-5rem)]">
       <h2 class="text-xl font-bold border-b border-gray-600 pb-2 mb-3 flex-shrink-0">Game Analysis</h2>
@@ -460,7 +457,6 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
       $('#next-btn').on('click', function(){ goToMove(currentMoveIndex + 1); });
       $('#prev-btn').on('click', function(){ goToMove(currentMoveIndex - 1); });
       $('#flip-btn').on('click', function(){ if (board) board.flip(); });
-      $('#start-new-btn').on('click', function(){ location.reload(); });
       $(document).on('keydown', function(e){
         if (!$('#review-section').is(':visible')) return;
         if (e.key === 'ArrowRight') goToMove(currentMoveIndex + 1);
