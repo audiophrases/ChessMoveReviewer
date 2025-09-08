@@ -53,8 +53,9 @@
             <label for="pgn-input" class="block mb-2 font-semibold text-gray-300">Paste PGN here</label>
             <textarea id="pgn-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..."></textarea>
         </div>
-        <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
-            Run Stockfish Analysis
+        <!-- BUTTON IS NOW DISABLED INITIALLY -->
+        <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
+            Loading Engine...
         </button>
     </div>
 
@@ -136,17 +137,24 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
     <script src="https://code.jquery.com/jquery-3.5.1.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
-    <!-- SCRIPT FIX: Load Stockfish.js as a regular script BEFORE the main application script -->
     <script src="https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish.js"></script>
     
     <script>
-        // No longer a module, just a regular script
         $(document).ready(function () {
             let board = null;
             let game = new Chess();
             let movesWithAnalysis = [];
             let currentMoveIndex = -1;
             let stockfish;
+
+            // NEW: Engine loading check
+            const engineCheck = setInterval(function() {
+                // The Stockfish library creates a global function called 'Stockfish'
+                if (typeof Stockfish === 'function') {
+                    clearInterval(engineCheck); // Stop checking
+                    $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
+                }
+            }, 200); // Check every 200 milliseconds
 
             const classificationStyles = { 'book': 'text-blue-400', 'good': 'text-green-400', 'okay': 'text-green-400', 'excellent': 'text-teal-400', 'great': 'text-teal-400', 'brilliant': 'text-cyan-300', 'inaccuracy': 'text-yellow-400', 'mistake': 'text-orange-400', 'blunder': 'text-red-500', 'forced': 'text-gray-400', 'default': 'text-gray-400' };
             function getStyleForClassification(c) { return classificationStyles[c.toLowerCase().replace(' ', '')] || classificationStyles['default']; }
@@ -186,7 +194,6 @@ For the classification, use one word (e.g., Book, Good, Brilliant, Inaccuracy, M
                 
                 if (!stockfish) {
                     const wasmPath = "https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish-nnue-16.wasm";
-                    // Stockfish is now a global function
                     stockfish = await Stockfish({ locateFile: () => wasmPath });
                     stockfish.addMessageListener(handleStockfishMessage);
                 }
