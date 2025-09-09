@@ -369,7 +369,15 @@ Summary: <a single-sentence overview of the whole game>
       }
 
       // Convert evaluation string like "{+0.23}", "{-1.10}", "{#3}" (WHITE-relative already)
-      function parseEvalToCp(evalStr) { if (!evalStr) return null; const s = String(evalStr).replace(/[{}\s]/g,''); if (!s) return null; if (s[0] === '#') return s.includes('-') ? -999 : 999; const num = parseFloat(s); if (isNaN(num)) return null; return Math.round(num * 100); }
+      function parseEvalToCp(evalStr) {
+        if (!evalStr) return null;
+        const s = String(evalStr).replace(/[{}\s]/g, '');
+        if (!s) return null;
+        if (s.includes('#')) return s.includes('-') ? -999 : 999;
+        const num = parseFloat(s);
+        if (isNaN(num)) return null;
+        return Math.round(num * 100);
+      }
 
       // ====== Rendering ======
       function renderMoveList() {
@@ -418,12 +426,28 @@ Summary: <a single-sentence overview of the whole game>
         const number = document.getElementById('eval-number');
         const bar = document.getElementById('eval-bar');
         if (!marker || !number || !bar) return;
-        let cp = 0; if (idx >= 0 && idx < evalSeries.length && evalSeries[idx] != null) cp = evalSeries[idx];
-        const W = bar.clientWidth || 100; const min = -500, max = 500; const clamped = Math.max(min, Math.min(max, cp));
+
+        let cp = 0;
+        let rawEval = null;
+        if (idx >= 0 && idx < evalSeries.length) {
+          if (evalSeries[idx] != null) cp = evalSeries[idx];
+          const mv = movesWithAnalysis[idx];
+          if (mv && mv.analysis) rawEval = mv.analysis.evaluation;
+        }
+
+        const W = bar.clientWidth || 100;
+        const min = -500, max = 500;
+        const clamped = Math.max(min, Math.min(max, cp));
         const t = (clamped - min) / (max - min); // 0..1 left→right
         marker.style.left = (t * W) + 'px';
-        const pawns = (cp / 100).toFixed(2);
-        number.textContent = (cp > 0 ? '+' : (cp < 0 ? '' : '+')) + pawns;
+
+        if (cp === 999 || cp === -999) {
+          const display = rawEval ? String(rawEval).replace(/[{}]/g, '') : (cp > 0 ? '#1' : '#-1');
+          number.textContent = display;
+        } else {
+          const pawns = (cp / 100).toFixed(2);
+          number.textContent = (cp > 0 ? '+' : (cp < 0 ? '' : '+')) + pawns;
+        }
       }
 
       function goToMove(idx) {
