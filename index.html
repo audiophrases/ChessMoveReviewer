@@ -185,7 +185,70 @@ Summary: <a single-sentence overview of the whole game>
       }
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT = `Analyze the following PGN annotated with White's Win probability in braces {}. For each move, write exactly one line using this format:\n\move - {White's Win probability} classification: comment\n\nKeep the evaluation exactly as shown in the PGN (e.g. {48%}, {#2}, {#-7}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.\n\nAt the very end, add one line starting with:\nSummary: <a single-sentence overview of the whole game>`;
+      const ANALYSIS_PROMPT = `Analyze the PGN where each move is followed by an evaluation of White's win probability in braces {}. Produce one line per half-move in this exact format without numbering:
+
+<move> - {<eval>} <classification>: <comment>
+
+Strict rules you MUST follow:
+
+Post-move Eval: The number or mate score in braces {} is the evaluation after the move it follows. All percentage evaluations represent White's win probability.
+
+Mate Sign Semantics:
+
+{#N} means White has a forced mate in N moves.
+
+{#-N} means Black has a forced mate in N moves.
+
+Side-to-move Awareness & Mate Blunders:
+
+If the move was played by Black and the resulting eval is {#N}, Black has allowed a forced mate for White → classify as Blunder.
+
+If the move was played by White and the resulting eval is {#-N}, White has allowed a forced mate for Black → classify as Blunder.
+
+Any move that changes a non-mate position into a forced mate for the opponent is also a Blunder.
+
+Win-Probability Deltas & Classification:
+
+First, calculate the delta: delta = abs(current_eval - previous_eval).
+
+Next, determine if the move was a drop for the player who moved:
+
+For White (as the mover), a drop is when current_eval < previous_eval.
+
+For Black (as the mover), a drop is when current_eval > previous_eval.
+
+If the move was a drop, classify it based on the delta:
+
+Drop of 10–19 points → Inaccuracy
+
+Drop of 20–39 points → Mistake
+
+Drop of ≥40 points → Blunder
+
+Example: If the previous eval was {15%} and Black moves, resulting in a new eval of {60%}, this is a 60 - 15 = 45-point drop for Black and must be classified as a Blunder.
+
+Brilliant Moves: If the mover’s evaluation improves by ≥20 points or they create a forced mate for their side, classify the move as Brilliant (otherwise use Good/Book for normal/theory moves).
+
+Forced Moves: Use the Forced classification only when the move is essentially unique to avoid immediate material loss or mate (e.g., the only legal move, or the only move that doesn't result in a forced mate or a huge drop in evaluation).
+
+Comments:
+
+Your comment must support and explain the classification.
+
+Keep comments consistent with the evaluation.
+
+When discussing mates or a significant advantage, always explicitly name the benefiting side (e.g., "allows White a mate in 3" or "gives Black a winning attack").
+
+Sanity Checks Before Finalizing:
+
+Verify you have toggled the mover (White, Black, White...) correctly for each half-move.
+
+Ensure any move resulting in a forced mate for the opponent is labeled a Blunder.
+
+Never call a move Brilliant if it results in a large evaluation drop or allows a mate for the opponent.
+
+Final Output:
+Output exactly one line per half-move as specified, followed by a final Summary: which should be a single-line summary of the game's overall narrative. Do not use any extra headings, bullet points, or other formatting in your main output.`;
 
       engineWorker.onmessage = function(e) {
         const msg = String(e.data || '');
