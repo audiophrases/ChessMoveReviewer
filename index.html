@@ -98,10 +98,10 @@ Summary: <a single-sentence overview of the whole game>
   <!-- Step 3: Final Analysis Input -->
   <section id="step3-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-xl sm:text-2xl font-bold text-center">Step 3: Paste Your Final AI Review</h2>
-    <p class="text-center text-gray-400">Paste the full text from the AI (PGN + comments) or just comments like <em>e4 - {+0.20} Good: ...</em>. Include the final line starting with <strong>Summary:</strong>.</p>
+    <p class="text-center text-gray-400">Paste the full text from the AI (PGN + comments) or just comments like <em>e4 - {53%} Good: ...</em>. The braces should contain win-probability percentages. Include the final line starting with <strong>Summary:</strong>.</p>
     <div>
       <label for="final-analysis-input" class="block mb-2 font-semibold text-gray-300">Paste complete analysis here</label>
-      <textarea id="final-analysis-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="e4 - {+0.10} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack."></textarea>
+      <textarea id="final-analysis-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="e4 - {53%} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack."></textarea>
     </div>
     <button id="generate-review-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
       Generate Interactive Review
