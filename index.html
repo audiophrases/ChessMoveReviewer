@@ -168,7 +168,7 @@ Summary: <a single-sentence overview of the whole game>
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
       // Configure engine search: set either { depth: N } or { movetime: ms }
-      const ENGINE_GO_OPTIONS = { movetime: 1500 }; // or e.g., { movetime: 3000 }
+      const ENGINE_GO_OPTIONS = { depth: 15 }; // or e.g., { depth: 20 }
       let engineWorker = new Worker(LOCAL_ENGINE);
       let engineReady = false;
       let lastInfoMsg = '';
@@ -340,9 +340,10 @@ Summary: <a single-sentence overview of the whole game>
           currentScoreResolver = resolve; lastInfoMsg = '';
           engineWorker.postMessage('position fen ' + fen);
           const o = opts || ENGINE_GO_OPTIONS || {};
-          let cmd = 'go depth 15';
-          if (o.movetime != null) cmd = 'go movetime ' + o.movetime;
-          else if (o.depth != null) cmd = 'go depth ' + o.depth;
+          let cmd;
+          if (o.depth != null) cmd = 'go depth ' + o.depth;
+          else if (o.movetime != null) cmd = 'go movetime ' + o.movetime;
+          else cmd = 'go depth 15';
           engineWorker.postMessage(cmd);
         });
       }
