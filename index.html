@@ -111,19 +111,11 @@ Summary: <a single-sentence overview of the whole game>
   <!-- Final Review Section (mobile-optimized) -->
   <main id="review-section" class="hidden flex-1 max-w-5xl w-full mx-auto">
     <div class="w-full grid grid-cols-1 lg:grid-cols-2 gap-3">
-      <!-- Column A: Board + horizontal eval bar (sticky) -->
+      <!-- Column A: Board + evaluation graph (sticky) -->
       <div class="lg:col-span-1">
         <div class="sticky top-2">
-          <!-- Horizontal eval bar (white advantage on left) -->
-          <div id="eval-bar-wrap" class="w-full mb-2">
-            <div class="flex items-center gap-2">
-              <div id="eval-bar" class="relative w-full h-3 rounded-full bg-white">
-                <!-- marker -->
-                <div id="eval-marker" class="absolute top-1/2 -translate-y-1/2 w-1.5 h-4 bg-blue-500 rounded" style="left:50%"></div>
-              </div>
-              <div id="eval-number" class="text-sm font-bold min-w-[3.5rem] text-right">50%</div>
-            </div>
-          </div>
+          <!-- Evaluation graph -->
+          <canvas id="eval-graph" class="w-full mb-2"></canvas>
 
           <!-- Board -->
           <div class="w-full max-w-xl mx-auto">
@@ -293,6 +285,8 @@ Output exactly one line per half-move as specified, followed by a final Summary:
       let movesWithAnalysis = [];
       let currentMoveIndex = -1;
       let probSeries = []; // WHITE win probability per ply (0..1)
+      let evalCanvas = null;
+      let evalCtx = null;
 
       const classificationStyles = {
         'book': 'text-blue-400','good':'text-green-400','okay':'text-green-400','excellent':'text-teal-300','great':'text-teal-300',
@@ -456,13 +450,18 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         const summary = parsed.summary || '';
         if (summary) { $('#game-summary').removeClass('hidden').text(summary); } else { $('#game-summary').addClass('hidden').text(''); }
 
-        if (!board) { board = Chessboard('board', { position: 'start', draggable: false, pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' }); $(window).on('resize', function(){ board.resize(); adjustAnalysisHeight(); updateEvalBarForIndex(currentMoveIndex); }); }
+        if (!board) {
+          board = Chessboard('board', { position: 'start', draggable: false, pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' });
+          $(window).on('resize', function(){ board.resize(); adjustAnalysisHeight(); resizeEvalGraph(); });
+          initEvalGraph();
+        }
 
         board.position('start');
         renderMoveList();
         adjustAnalysisHeight();
-        updateEvalBarForIndex(-1);
         board.resize();
+        resizeEvalGraph();
+        renderEvalGraph(-1);
       });
 
       // Build PGN from SAN list
@@ -558,16 +557,70 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         scroll.style.height = target + 'px';
       }
 
-      function updateEvalBarForIndex(idx) {
-        const marker = document.getElementById('eval-marker');
-        const number = document.getElementById('eval-number');
-        const bar = document.getElementById('eval-bar');
-        if (!marker || !number || !bar) return;
-        let p = 0.5; if (idx >= 0 && idx < probSeries.length && probSeries[idx] != null) p = probSeries[idx];
-        const W = bar.clientWidth || 100;
-        const t = 1 - p; // 0..1 left→right (white advantage left)
-        marker.style.left = (t * W) + 'px';
-        number.textContent = formatProbability(p);
+      function initEvalGraph() {
+        evalCanvas = document.getElementById('eval-graph');
+        if (!evalCanvas) return;
+        evalCtx = evalCanvas.getContext('2d');
+        evalCanvas.addEventListener('click', function(e) {
+          const rect = evalCanvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const maxIdx = Math.max(probSeries.length - 1, 0);
+          const idx = Math.round((x / evalCanvas.width) * maxIdx);
+          goToMove(idx);
+        });
+        resizeEvalGraph();
+      }
+
+      function resizeEvalGraph() {
+        if (!evalCanvas) return;
+        const boardEl = document.getElementById('board');
+        if (boardEl) evalCanvas.width = boardEl.clientWidth;
+        evalCanvas.height = 80;
+        renderEvalGraph(currentMoveIndex);
+      }
+
+      function renderEvalGraph(idx) {
+        if (!evalCanvas || !evalCtx) return;
+        const w = evalCanvas.width;
+        const h = evalCanvas.height;
+        evalCtx.clearRect(0, 0, w, h);
+        evalCtx.fillStyle = '#1a1f2a';
+        evalCtx.fillRect(0, 0, w, h);
+        if (probSeries.length > 0) {
+          const maxIdx = Math.max(probSeries.length - 1, 1);
+          evalCtx.lineWidth = 2;
+
+          // White probability line
+          evalCtx.strokeStyle = '#3b82f6';
+          evalCtx.beginPath();
+          probSeries.forEach((p, i) => {
+            if (p == null) p = 0.5;
+            const x = (i / maxIdx) * w;
+            const y = (1 - p) * h;
+            if (i === 0) evalCtx.moveTo(x, y); else evalCtx.lineTo(x, y);
+          });
+          evalCtx.stroke();
+
+          // Black probability line
+          evalCtx.strokeStyle = '#ef4444';
+          evalCtx.beginPath();
+          probSeries.forEach((p, i) => {
+            if (p == null) p = 0.5;
+            const x = (i / maxIdx) * w;
+            const y = p * h;
+            if (i === 0) evalCtx.moveTo(x, y); else evalCtx.lineTo(x, y);
+          });
+          evalCtx.stroke();
+        }
+        if (idx >= 0 && probSeries.length > 0) {
+          const maxIdx = Math.max(probSeries.length - 1, 1);
+          const x = (idx / maxIdx) * w;
+          evalCtx.strokeStyle = '#fbbf24';
+          evalCtx.beginPath();
+          evalCtx.moveTo(x, 0);
+          evalCtx.lineTo(x, h);
+          evalCtx.stroke();
+        }
       }
 
       function ensureMoveVisible(idx) {
@@ -590,14 +643,14 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         if (board) board.position(game.fen());
         $('.move-item').removeClass('highlight'); if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
         $('#prev-btn').prop('disabled', idx < 0); $('#next-btn').prop('disabled', idx >= movesWithAnalysis.length - 1);
-        adjustAnalysisHeight(); updateEvalBarForIndex(idx); ensureMoveVisible(idx);
+        adjustAnalysisHeight(); renderEvalGraph(idx); ensureMoveVisible(idx);
       }
 
       $('#next-btn').on('click', function(){ goToMove(currentMoveIndex + 1); });
       $('#prev-btn').on('click', function(){ goToMove(currentMoveIndex - 1); });
       $('#flip-btn').on('click', function(){ if (board) board.flip(); });
 
-      $(window).on('resize', function(){ adjustAnalysisHeight(); updateEvalBarForIndex(currentMoveIndex); });
+      $(window).on('resize', function(){ adjustAnalysisHeight(); resizeEvalGraph(); });
       $(document).on('keydown', function(e){ if (!$('#review-section').is(':visible')) return; if (e.key==='ArrowRight') goToMove(currentMoveIndex + 1); if (e.key==='ArrowLeft') goToMove(currentMoveIndex - 1); });
     });
   </script>
