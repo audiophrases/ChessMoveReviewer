@@ -171,15 +171,20 @@ Summary: <a single-sentence overview of the whole game>
       let engineReady = false;
       let lastInfoMsg = '';
       let currentScoreResolver = null;
+      let readyOkResolver = null;
+      let uciOkResolver = null;
 
       // Prompt (adds one-line Summary at the end)
       const ANALYSIS_PROMPT = `Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:\n\nmove - {Stockfish evaluation} classification: comment\n\nKeep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.\n\nAt the very end, add one line starting with:\nSummary: <a single-sentence overview of the whole game>`;
 
       engineWorker.onmessage = function(e) {
-        const msg = String(e.data || '');
-        if (msg.startsWith('id name')) {
+        const msg = String(e.data || '').trim();
+        if (msg === 'uciok') {
           engineReady = true;
           $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
+          if (uciOkResolver) { uciOkResolver(); uciOkResolver = null; }
+        } else if (msg === 'readyok') {
+          if (readyOkResolver) { readyOkResolver(); readyOkResolver = null; }
         } else if (msg.startsWith('info depth')) {
           lastInfoMsg = msg;
         } else if (msg.startsWith('bestmove')) {
@@ -197,7 +202,19 @@ Summary: <a single-sentence overview of the whole game>
           }
         }
       };
-      engineWorker.postMessage('uci');
+
+      function initEngine() {
+        return new Promise((resolve, reject) => {
+          let timer = setTimeout(() => {
+            uciOkResolver = null;
+            reject(new Error('uciok not received'));
+          }, 5000);
+          uciOkResolver = () => { clearTimeout(timer); resolve(); };
+          engineWorker.postMessage('uci');
+        });
+      }
+
+      initEngine().catch(() => { showError('Engine failed to initialize.'); });
 
       // ====== App state ======
       let board = null;
@@ -273,6 +290,12 @@ Summary: <a single-sentence overview of the whole game>
       });
 
       async function runStockfishAnalysis() {
+        try {
+          await resetEngineForAnalysis();
+        } catch (e) {
+          showError('Engine not ready for analysis.');
+          return;
+        }
         const sanMoves = game.history(); let annotatedPgn = '';
         const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
         const temp = new Chess();
@@ -298,6 +321,18 @@ Summary: <a single-sentence overview of the whole game>
         $('#progress-text').text('Analysis Complete!');
         $('#stockfish-output').val(combined);
         $('#goto-step3-btn').prop('disabled', false);
+      }
+
+      function resetEngineForAnalysis() {
+        return new Promise((resolve, reject) => {
+          let timer = setTimeout(() => {
+            readyOkResolver = null;
+            reject(new Error('readyok not received'));
+          }, 5000);
+          readyOkResolver = () => { clearTimeout(timer); resolve(); };
+          engineWorker.postMessage('ucinewgame');
+          engineWorker.postMessage('isready');
+        });
       }
 
       function getScore(fen) {
