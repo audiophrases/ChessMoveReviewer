@@ -114,7 +114,7 @@ Summary: <a single-sentence overview of the whole game>
       <!-- Column A: Board + horizontal eval bar (sticky) -->
       <div class="lg:col-span-1">
         <div class="sticky top-2">
-          <!-- Horizontal eval bar (white) -->
+          <!-- Horizontal eval bar (white advantage on left) -->
           <div id="eval-bar-wrap" class="w-full mb-2">
             <div class="flex items-center gap-2">
               <div id="eval-bar" class="relative w-full h-3 rounded-full bg-white">
@@ -420,7 +420,7 @@ Summary: <a single-sentence overview of the whole game>
         if (!marker || !number || !bar) return;
         let cp = 0; if (idx >= 0 && idx < evalSeries.length && evalSeries[idx] != null) cp = evalSeries[idx];
         const W = bar.clientWidth || 100; const min = -500, max = 500; const clamped = Math.max(min, Math.min(max, cp));
-        const t = (clamped - min) / (max - min); // 0..1 left→right
+        const t = 1 - (clamped - min) / (max - min); // 0..1 left→right (white advantage left)
         marker.style.left = (t * W) + 'px';
         const pawns = (cp / 100).toFixed(2);
         number.textContent = (cp > 0 ? '+' : (cp < 0 ? '' : '+')) + pawns;
