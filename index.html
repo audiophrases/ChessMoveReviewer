@@ -225,6 +225,18 @@ Summary: <a single-sentence overview of the whole game>
       configureEngineOptions();
       $('#threads-input, #hash-input').on('change', configureEngineOptions);
 
+      function waitForEngineReady() {
+        return new Promise(resolve => {
+          if (engineReady) { resolve(); return; }
+          const interval = setInterval(() => {
+            if (engineReady) {
+              clearInterval(interval);
+              resolve();
+            }
+          }, 50);
+        });
+      }
+
       // ====== App state ======
       let board = null;
       let game = new Chess();
@@ -287,18 +299,19 @@ Summary: <a single-sentence overview of the whole game>
         if (step === 4) { $('#app-header, #step-indicators').addClass('hidden'); } else { $('#app-header, #step-indicators').removeClass('hidden'); }
       }
 
-      $('#analyze-pgn-btn').on('click', function () {
-        if (!engineReady) { showError('Engine still initializing. Try again in a second.'); return; }
+      $('#analyze-pgn-btn').on('click', async function () {
         const pgnRaw = $('#pgn-input').val().trim(); if (!pgnRaw) { showError('Please paste a PGN.'); return; }
         const pgn = normalizePgn(pgnRaw);
         if (!game.load_pgn(pgn)) {
           const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm,''));
           if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
         }
-        switchStep(2); runStockfishAnalysis();
+        switchStep(2);
+        await runStockfishAnalysis();
       });
 
       async function runStockfishAnalysis() {
+        await waitForEngineReady();
         const sanMoves = game.history(); let annotatedPgn = '';
         const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
         const temp = new Chess();
