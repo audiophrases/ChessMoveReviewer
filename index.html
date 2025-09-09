@@ -302,15 +302,6 @@ Output exactly one line per half-move as specified, followed by a final Summary:
 
       function cpToProbBraced(cp){ const pct = Math.round(cpToProb(cp) * 100); return `{${pct}%}`; }
 
-      function scoreToCheckmateProb(score) {
-        if (!score || typeof score.value !== 'number') return 0.5;
-        if (score.type === 'mate') {
-          const sign = score.value >= 0 ? 1 : -1;
-          return cpToProb(sign * 10000);
-        }
-        return cpToProb(score.value);
-      }
-
       // ---------- PGN normalization ----------
       function normalizePgn(raw, opts) {
         opts = opts || {}; const keepComments = !!opts.keepComments;
@@ -380,24 +371,27 @@ Output exactly one line per half-move as specified, followed by a final Summary:
           // *** FIX STARTS HERE ***
           // The order of operations is changed.
           // 1. Make the move on the temporary board.
-          temp.move(move);
+          const moveObj = temp.move(move);
+          const lastMoveColor = moveObj.color; // 'w' or 'b'
 
           // 2. Get the score for the new position *after* the move has been made.
           const score = await getScore(temp.fen(), ENGINE_GO_OPTIONS);
           // *** FIX ENDS HERE ***
 
           let evalStr = '';
+          let prob = null;
           if (score.type === 'mate') {
             let m = score.value; // mate in N from side to move
             if (temp.turn() === 'b') m = -m; // convert to WHITE-relative
             evalStr = `{#${m}}`;
-            probSeries.push(scoreToCheckmateProb({ type: 'mate', value: m }));
+            prob = (m === 0) ? (lastMoveColor === 'w' ? 1 : 0) : (m > 0 ? 1 : 0);
           } else {
             let cp = score.value; // centipawns from side to move
             if (temp.turn() === 'b') cp = -cp; // convert to WHITE-relative
             evalStr = cpToProbBraced(cp);
-            probSeries.push(scoreToCheckmateProb({ type: 'cp', value: cp }));
+            prob = cpToProb(cp);
           }
+          probSeries.push(prob);
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
         }
         const combined = ANALYSIS_PROMPT + '\n\n' + annotatedPgn.trim();
@@ -442,9 +436,20 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         switchStep(4);
 
         const gameMoves = game.history({ verbose: true }); let cursor = 0;
-        movesWithAnalysis = gameMoves.map(m => { let analysis = null; if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++]; return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san] }; });
-        probSeries = movesWithAnalysis.map(m => (m.analysis ? m.analysis.prob : null));
-        movesWithAnalysis.forEach((mv, i) => { mv.prob = probSeries[i]; });
+        movesWithAnalysis = gameMoves.map(m => {
+          let analysis = null;
+          if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++];
+          let prob = null;
+          if (analysis) {
+            if (analysis.evaluation && analysis.evaluation.includes('#0')) {
+              prob = m.color === 'w' ? 1 : 0;
+            } else {
+              prob = analysis.prob;
+            }
+          }
+          return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san], prob };
+        });
+        probSeries = movesWithAnalysis.map(m => m.prob);
 
         // Summary text
         const summary = parsed.summary || '';
@@ -500,6 +505,12 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         if (!evalStr) return null;
         const s = String(evalStr).replace(/[{}\s]/g, '');
         if (!s) return null;
+        if (s[0] === '#') {
+          const m = parseInt(s.slice(1), 10);
+          if (isNaN(m)) return null;
+          if (m === 0) return null;
+          return m > 0 ? 1 : 0;
+        }
         if (s.endsWith('%')) {
           const num = parseFloat(s.slice(0, -1));
           if (isNaN(num)) return null;
