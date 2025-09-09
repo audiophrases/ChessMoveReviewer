@@ -56,6 +56,16 @@
       <label for="pgn-input" class="block mb-2 font-semibold text-gray-300">Paste PGN here</label>
       <textarea id="pgn-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..."></textarea>
     </div>
+    <div class="flex gap-4">
+      <div class="flex-1">
+        <label for="threads-input" class="block mb-2 font-semibold text-gray-300">Threads</label>
+        <input id="threads-input" type="number" min="1" value="1" class="w-full p-2 rounded-lg form-input" />
+      </div>
+      <div class="flex-1">
+        <label for="hash-input" class="block mb-2 font-semibold text-gray-300">Hash (MB)</label>
+        <input id="hash-input" type="number" min="1" value="16" class="w-full p-2 rounded-lg form-input" />
+      </div>
+    </div>
     <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
       Loading Engine...
     </button>
@@ -167,6 +177,8 @@ Summary: <a single-sentence overview of the whole game>
     $(function () {
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
+      // Configure engine search: set either { depth: N } or { movetime: ms }
+      const ENGINE_GO_OPTIONS = { depth: 15 }; // or e.g., { movetime: 3000 }
       let engineWorker = new Worker(LOCAL_ENGINE);
       let engineReady = false;
       let lastInfoMsg = '';
@@ -174,16 +186,28 @@ Summary: <a single-sentence overview of the whole game>
       let readyOkResolver = null;
       let uciOkResolver = null;
 
+      function configureEngineOptions() {
+        engineReady = false;
+        $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
+        const threads = parseInt($('#threads-input').val(), 10) || 1;
+        const hash = parseInt($('#hash-input').val(), 10) || 16;
+        const options = { Threads: threads, Hash: hash };
+        Object.entries(options).forEach(([name, value]) => {
+          engineWorker.postMessage(`setoption name ${name} value ${value}`);
+        });
+        engineWorker.postMessage('isready');
+      }
+
       // Prompt (adds one-line Summary at the end)
       const ANALYSIS_PROMPT = `Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:\n\nmove - {Stockfish evaluation} classification: comment\n\nKeep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.\n\nAt the very end, add one line starting with:\nSummary: <a single-sentence overview of the whole game>`;
 
       engineWorker.onmessage = function(e) {
         const msg = String(e.data || '').trim();
         if (msg === 'uciok') {
-          engineReady = true;
-          $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
           if (uciOkResolver) { uciOkResolver(); uciOkResolver = null; }
         } else if (msg === 'readyok') {
+          engineReady = true;
+          $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
           if (readyOkResolver) { readyOkResolver(); readyOkResolver = null; }
         } else if (msg.startsWith('info depth')) {
           lastInfoMsg = msg;
@@ -214,7 +238,10 @@ Summary: <a single-sentence overview of the whole game>
         });
       }
 
-      initEngine().catch(() => { showError('Engine failed to initialize.'); });
+      initEngine().then(() => {
+        configureEngineOptions();
+        $('#threads-input, #hash-input').on('change', configureEngineOptions);
+      }).catch(() => { showError('Engine failed to initialize.'); });
 
       // ====== App state ======
       let board = null;
@@ -304,7 +331,7 @@ Summary: <a single-sentence overview of the whole game>
           const move = sanMoves[i]; temp.move(move);
           $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
           $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
-          const score = await getScore(temp.fen());
+          const score = await getScore(temp.fen(), ENGINE_GO_OPTIONS);
           let evalStr = '';
           if (score.type === 'mate') {
             let m = score.value; // mate in N from side to move
@@ -335,11 +362,15 @@ Summary: <a single-sentence overview of the whole game>
         });
       }
 
-      function getScore(fen) {
+      function getScore(fen, opts) {
         return new Promise(resolve => {
           currentScoreResolver = resolve; lastInfoMsg = '';
           engineWorker.postMessage('position fen ' + fen);
-          engineWorker.postMessage('go depth 15');
+          const o = opts || ENGINE_GO_OPTIONS || {};
+          let cmd = 'go depth 15';
+          if (o.movetime != null) cmd = 'go movetime ' + o.movetime;
+          else if (o.depth != null) cmd = 'go depth ' + o.depth;
+          engineWorker.postMessage(cmd);
         });
       }
 
