@@ -56,16 +56,6 @@
       <label for="pgn-input" class="block mb-2 font-semibold text-gray-300">Paste PGN here</label>
       <textarea id="pgn-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..."></textarea>
     </div>
-      <div class="flex gap-4">
-        <div class="flex-1">
-        <label for="threads-input" class="block mb-2 font-semibold text-gray-300">Threads</label>
-        <input id="threads-input" type="number" min="1" value="3" class="w-full p-2 rounded-lg form-input" disabled />
-      </div>
-      <div class="flex-1">
-        <label for="hash-input" class="block mb-2 font-semibold text-gray-300">Hash (MB)</label>
-        <input id="hash-input" type="number" min="1" value="64" class="w-full p-2 rounded-lg form-input" disabled />
-      </div>
-    </div>
     <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
       Loading Engine...
     </button>
@@ -187,9 +177,7 @@ Summary: <a single-sentence overview of the whole game>
       function configureEngineOptions() {
         engineReady = false;
         $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
-        const threads = parseInt($('#threads-input').val(), 10) || 3;
-        const hash = parseInt($('#hash-input').val(), 10) || 64;
-        const options = { Threads: threads, Hash: hash };
+        const options = { Threads: 3, Hash: 64 };
         Object.entries(options).forEach(([name, value]) => {
           engineWorker.postMessage(`setoption name ${name} value ${value}`);
         });
