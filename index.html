@@ -79,11 +79,11 @@
       <h3 class="font-semibold text-emerald-300">2. What this button copies</h3>
       <div class="mt-2 p-2 bg-black/40 rounded">
         <p class="text-xs text-gray-300 whitespace-pre-wrap font-mono">
-Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:
+Analyze the following PGN, which includes Stockfish win-probability evaluations in braces {} (percentage is White's chance of winning). For each move, write exactly one line using this format:
 
-move - {Stockfish evaluation} classification: comment
+move - {Stockfish win probability} classification: comment
 
-Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.
+Keep the evaluation exactly as shown in the PGN (e.g., {52%}, {78%}, {0%}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.
 
 At the very end, add one line starting with:
 Summary: <a single-sentence overview of the whole game>
