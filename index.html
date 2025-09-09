@@ -83,7 +83,7 @@ Analyze the following PGN, which includes Stockfish evaluations in braces {}. Fo
 
 move - {Stockfish evaluation} classification: comment
 
-Keep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.
+Keep the evaluation exactly as shown in the PGN (e.g., {75%}, {0.25}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.
 
 At the very end, add one line starting with:
 Summary: <a single-sentence overview of the whole game>
@@ -98,10 +98,10 @@ Summary: <a single-sentence overview of the whole game>
   <!-- Step 3: Final Analysis Input -->
   <section id="step3-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-xl sm:text-2xl font-bold text-center">Step 3: Paste Your Final AI Review</h2>
-    <p class="text-center text-gray-400">Paste the full text from the AI (PGN + comments) or just comments like <em>e4 - {+0.20} Good: ...</em>. Include the final line starting with <strong>Summary:</strong>.</p>
+    <p class="text-center text-gray-400">Paste the full text from the AI (PGN + comments) or just comments like <em>e4 - {75%} Good: ...</em>. Include the final line starting with <strong>Summary:</strong>.</p>
     <div>
       <label for="final-analysis-input" class="block mb-2 font-semibold text-gray-300">Paste complete analysis here</label>
-      <textarea id="final-analysis-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="e4 - {+0.10} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack."></textarea>
+      <textarea id="final-analysis-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="e4 - {75%} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack."></textarea>
     </div>
     <button id="generate-review-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
       Generate Interactive Review
@@ -121,7 +121,7 @@ Summary: <a single-sentence overview of the whole game>
                 <!-- marker -->
                 <div id="eval-marker" class="absolute top-1/2 -translate-y-1/2 w-1.5 h-4 bg-blue-500 rounded" style="left:50%"></div>
               </div>
-              <div id="eval-number" class="text-sm font-bold min-w-[3.5rem] text-right">+0.00</div>
+              <div id="eval-number" class="text-sm font-bold min-w-[3.5rem] text-right">50%</div>
             </div>
           </div>
 
@@ -185,7 +185,7 @@ Summary: <a single-sentence overview of the whole game>
       }
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT = `Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:\n\move - {Stockfish evaluation} classification: comment\n\nKeep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.\n\nAt the very end, add one line starting with:\nSummary: <a single-sentence overview of the whole game>`;
+      const ANALYSIS_PROMPT = `Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:\n\move - {Stockfish evaluation} classification: comment\n\nKeep the evaluation exactly as shown in the PGN (e.g., {75%}, {0.25}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.\n\nAt the very end, add one line starting with:\nSummary: <a single-sentence overview of the whole game>`;
 
       engineWorker.onmessage = function(e) {
         const msg = String(e.data || '');
@@ -229,7 +229,7 @@ Summary: <a single-sentence overview of the whole game>
       let game = new Chess();
       let movesWithAnalysis = [];
       let currentMoveIndex = -1;
-      let evalSeries = []; // WHITE-relative cp per ply (from comments {eval})
+      let evalSeries = []; // WHITE win probability per ply (from comments {eval})
 
       const classificationStyles = {
         'book': 'text-blue-400','good':'text-green-400','okay':'text-green-400','excellent':'text-teal-300','great':'text-teal-300',
@@ -241,7 +241,8 @@ Summary: <a single-sentence overview of the whole game>
       $('#close-modal-btn').on('click', function(){ $('#error-modal').addClass('hidden'); });
 
       // ---------- Score helpers ----------
-      function cpToEvalBraced(cp){ const pawns = (cp/100).toFixed(2); return `{${cp > 0 ? '+'+pawns : pawns}}`; }
+      function cpToWinProb(cp){ return 1 / (1 + Math.exp(-cp / 400)); }
+      function cpToProbBraced(cp){ const pct = Math.round(cpToWinProb(cp) * 100); return `{${pct}%}`; }
 
       // ---------- PGN normalization ----------
       function normalizePgn(raw, opts) {
@@ -321,11 +322,11 @@ Summary: <a single-sentence overview of the whole game>
           if (score.type === 'mate') {
             let m = score.value; // mate in N from side to move
             if (temp.turn() === 'b') m = -m; // convert to WHITE-relative
-            evalStr = `{#${m}}`;
+            evalStr = m > 0 ? '{100%}' : '{0%}';
           } else {
             let cp = score.value; // centipawns from side to move
             if (temp.turn() === 'b') cp = -cp; // convert to WHITE-relative
-            evalStr = cpToEvalBraced(cp);
+            evalStr = cpToProbBraced(cp);
           }
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
         }
@@ -371,8 +372,13 @@ Summary: <a single-sentence overview of the whole game>
         switchStep(4);
 
         const gameMoves = game.history({ verbose: true }); let cursor = 0;
-        movesWithAnalysis = gameMoves.map(m => { let analysis = null; if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++]; return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san] }; });
-        evalSeries = movesWithAnalysis.map(m => parseEvalToCp(m.analysis && m.analysis.evaluation));
+        movesWithAnalysis = gameMoves.map(m => {
+          let analysis = null;
+          if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++];
+          const probability = analysis ? analysis.probability : null;
+          return { ...m, analysis, probability, criticalMoment: parsed.criticalMoments[m.san] };
+        });
+        evalSeries = movesWithAnalysis.map(m => m.probability);
 
         // Summary text
         const summary = parsed.summary || '';
@@ -400,7 +406,17 @@ Summary: <a single-sentence overview of the whole game>
         lines.forEach(line => {
           const sl = line.match(summaryLineRegex); if (sl) { summaryLine = sl[1].trim(); return; }
           const m = line.match(moveRegex);
-          if (m) { const san = m[1]; const evaluation = (m[2] || '').trim() || null; const classification = m[3].trim(); const txt = m[4].trim(); parsedMoves.push({ san, evaluation, classification, text: txt }); lastSan = san; currentSummary = null; return; }
+          if (m) {
+            const san = m[1];
+            const evaluation = (m[2] || '').trim() || null;
+            const classification = m[3].trim();
+            const txt = m[4].trim();
+            const probability = evaluation ? parseEvalToProb(evaluation) : null;
+            parsedMoves.push({ san, evaluation, probability, classification, text: txt });
+            lastSan = san;
+            currentSummary = null;
+            return;
+          }
           const cm = line.match(criticalMomentRegex); if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; return; }
           const sh = line.match(summaryHeaderRegex); if (sh) { const key = sh[1].replace(/\s/g,''); summaries[key] = []; currentSummary = key; return; }
           if (line.trim() && line.trim() !== '---' && currentSummary) summaries[currentSummary].push(line.trim());
@@ -408,8 +424,21 @@ Summary: <a single-sentence overview of the whole game>
         return { moves: parsedMoves, criticalMoments, summaries, summary: summaryLine };
       }
 
-      // Convert evaluation string like "{+0.23}", "{-1.10}", "{#3}" (WHITE-relative already)
-      function parseEvalToCp(evalStr) { if (!evalStr) return null; const s = String(evalStr).replace(/[{}\s]/g,''); if (!s) return null; if (s[0] === '#') return s.includes('-') ? -999 : 999; const num = parseFloat(s); if (isNaN(num)) return null; return Math.round(num * 100); }
+      // Convert evaluation string like "{75%}", "{0.25}", "{#3}" to WHITE win probability
+      function parseEvalToProb(evalStr) {
+        if (!evalStr) return null;
+        const s = String(evalStr).replace(/[{}\s]/g,'');
+        if (!s) return null;
+        if (s[0] === '#') return s.includes('-') ? 0 : 1;
+        let num = parseFloat(s.replace('%',''));
+        if (isNaN(num)) return null;
+        if (s.endsWith('%')) {
+          num = num / 100;
+        } else if (num < 0 || num > 1) {
+          num = cpToWinProb(num * 100);
+        }
+        return Math.max(0, Math.min(1, num));
+      }
 
       // ====== Rendering ======
       function renderMoveList() {
@@ -458,12 +487,11 @@ Summary: <a single-sentence overview of the whole game>
         const number = document.getElementById('eval-number');
         const bar = document.getElementById('eval-bar');
         if (!marker || !number || !bar) return;
-        let cp = 0; if (idx >= 0 && idx < evalSeries.length && evalSeries[idx] != null) cp = evalSeries[idx];
-        const W = bar.clientWidth || 100; const min = -500, max = 500; const clamped = Math.max(min, Math.min(max, cp));
-        const t = 1 - (clamped - min) / (max - min); // 0..1 left→right (white advantage left)
+        let prob = 0.5; if (idx >= 0 && idx < evalSeries.length && evalSeries[idx] != null) prob = evalSeries[idx];
+        const W = bar.clientWidth || 100;
+        const t = 1 - prob; // 0..1 left→right (white advantage left)
         marker.style.left = (t * W) + 'px';
-        const pawns = (cp / 100).toFixed(2);
-        number.textContent = (cp > 0 ? '+' : (cp < 0 ? '' : '+')) + pawns;
+        number.textContent = Math.round(prob * 100) + '%';
       }
 
       function goToMove(idx) {
