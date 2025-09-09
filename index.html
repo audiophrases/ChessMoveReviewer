@@ -177,6 +177,8 @@ Summary: <a single-sentence overview of the whole game>
     $(function () {
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
+      // Configure engine search: set either { depth: N } or { movetime: ms }
+      const ENGINE_GO_OPTIONS = { depth: 15 }; // or e.g., { movetime: 3000 }
       let engineWorker = new Worker(LOCAL_ENGINE);
       let engineReady = false;
       let lastInfoMsg = '';
@@ -305,7 +307,7 @@ Summary: <a single-sentence overview of the whole game>
           const move = sanMoves[i]; temp.move(move);
           $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
           $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
-          const score = await getScore(temp.fen());
+          const score = await getScore(temp.fen(), ENGINE_GO_OPTIONS);
           let evalStr = '';
           if (score.type === 'mate') {
             let m = score.value; // mate in N from side to move
@@ -324,11 +326,15 @@ Summary: <a single-sentence overview of the whole game>
         $('#goto-step3-btn').prop('disabled', false);
       }
 
-      function getScore(fen) {
+      function getScore(fen, opts) {
         return new Promise(resolve => {
           currentScoreResolver = resolve; lastInfoMsg = '';
           engineWorker.postMessage('position fen ' + fen);
-          engineWorker.postMessage('go depth 15');
+          const o = opts || ENGINE_GO_OPTIONS || {};
+          let cmd = 'go depth 15';
+          if (o.movetime != null) cmd = 'go movetime ' + o.movetime;
+          else if (o.depth != null) cmd = 'go depth ' + o.depth;
+          engineWorker.postMessage(cmd);
         });
       }
 
