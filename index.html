@@ -304,9 +304,10 @@ Summary: <a single-sentence overview of the whole game>
         const temp = new Chess();
         for (let i = 0; i < sanMoves.length; i++) {
           const moveNumber = Math.floor(i / 2) + 1; const prefix = (i % 2 === 0) ? (moveNumber + '. ') : (moveNumber + '... ');
-          const move = sanMoves[i]; temp.move(move);
+          const move = sanMoves[i];
           $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
           $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
+
           const score = await getScore(temp.fen(), ENGINE_GO_OPTIONS);
           let evalStr = '';
           if (score.type === 'mate') {
@@ -319,6 +320,7 @@ Summary: <a single-sentence overview of the whole game>
             evalStr = cpToEvalBraced(cp);
           }
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
+          temp.move(move);
         }
         const combined = ANALYSIS_PROMPT + '\n\n' + annotatedPgn.trim();
         $('#progress-text').text('Analysis Complete!');
