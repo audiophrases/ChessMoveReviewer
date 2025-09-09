@@ -241,9 +241,9 @@ Summary: <a single-sentence overview of the whole game>
       $('#close-modal-btn').on('click', function(){ $('#error-modal').addClass('hidden'); });
 
       // ---------- Score helpers ----------
-      function cpToEvalBraced(cp){ const pawns = (cp/100).toFixed(2); return `{${cp > 0 ? '+'+pawns : pawns}}`; }
-
       function cpToProb(cp){ return 1 / (1 + Math.exp(-cp / 173)); }
+
+      function cpToProbBraced(cp){ const pct = Math.round(cpToProb(cp) * 100); return `{${pct}%}`; }
 
       function scoreToCheckmateProb(score) {
         if (!score || typeof score.value !== 'number') return 0.5;
@@ -338,7 +338,7 @@ Summary: <a single-sentence overview of the whole game>
           } else {
             let cp = score.value; // centipawns from side to move
             if (temp.turn() === 'b') cp = -cp; // convert to WHITE-relative
-            evalStr = cpToEvalBraced(cp);
+            evalStr = cpToProbBraced(cp);
             probSeries.push(scoreToCheckmateProb({ type: 'cp', value: cp }));
           }
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
@@ -386,7 +386,7 @@ Summary: <a single-sentence overview of the whole game>
 
         const gameMoves = game.history({ verbose: true }); let cursor = 0;
         movesWithAnalysis = gameMoves.map(m => { let analysis = null; if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++]; return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san] }; });
-        probSeries = movesWithAnalysis.map(m => parseEvalToProb(m.analysis && m.analysis.evaluation));
+        probSeries = movesWithAnalysis.map(m => (m.analysis ? m.analysis.prob : null));
         movesWithAnalysis.forEach((mv, i) => { mv.prob = probSeries[i]; });
 
         // Summary text
@@ -415,7 +415,15 @@ Summary: <a single-sentence overview of the whole game>
         lines.forEach(line => {
           const sl = line.match(summaryLineRegex); if (sl) { summaryLine = sl[1].trim(); return; }
           const m = line.match(moveRegex);
-          if (m) { const san = m[1]; const evaluation = (m[2] || '').trim() || null; const classification = m[3].trim(); const txt = m[4].trim(); parsedMoves.push({ san, evaluation, classification, text: txt }); lastSan = san; currentSummary = null; return; }
+          if (m) {
+            const san = m[1];
+            const evaluation = (m[2] || '').trim() || null;
+            const classification = m[3].trim();
+            const txt = m[4].trim();
+            const prob = parseEvalToProb(evaluation);
+            parsedMoves.push({ san, evaluation, classification, prob, text: txt });
+            lastSan = san; currentSummary = null; return;
+          }
           const cm = line.match(criticalMomentRegex); if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; return; }
           const sh = line.match(summaryHeaderRegex); if (sh) { const key = sh[1].replace(/\s/g,''); summaries[key] = []; currentSummary = key; return; }
           if (line.trim() && line.trim() !== '---' && currentSummary) summaries[currentSummary].push(line.trim());
@@ -427,6 +435,14 @@ Summary: <a single-sentence overview of the whole game>
       function parseEvalToCp(evalStr) { if (!evalStr) return null; const s = String(evalStr).replace(/[{}\s]/g,''); if (!s) return null; if (s[0] === '#') return s.includes('-') ? -999 : 999; const num = parseFloat(s); if (isNaN(num)) return null; return Math.round(num * 100); }
 
       function parseEvalToProb(evalStr) {
+        if (!evalStr) return null;
+        const s = String(evalStr).replace(/[{}\s]/g, '');
+        if (!s) return null;
+        if (s.endsWith('%')) {
+          const num = parseFloat(s.slice(0, -1));
+          if (isNaN(num)) return null;
+          return num / 100;
+        }
         const cp = parseEvalToCp(evalStr);
         if (cp == null) return null;
         return cpToProb(cp);
