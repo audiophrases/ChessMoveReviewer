@@ -575,7 +575,7 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         if (!evalCanvas) return;
         const boardEl = document.getElementById('board');
         if (boardEl) evalCanvas.width = boardEl.clientWidth;
-        evalCanvas.height = 80;
+        evalCanvas.height = 60;
         renderEvalGraph(currentMoveIndex);
       }
 
@@ -584,14 +584,14 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         const w = evalCanvas.width;
         const h = evalCanvas.height;
         evalCtx.clearRect(0, 0, w, h);
-        evalCtx.fillStyle = '#1a1f2a';
+        evalCtx.fillStyle = '#000';
         evalCtx.fillRect(0, 0, w, h);
         if (probSeries.length > 0) {
           const maxIdx = Math.max(probSeries.length - 1, 1);
-          evalCtx.lineWidth = 2;
+          evalCtx.lineWidth = 1;
 
           // White probability line
-          evalCtx.strokeStyle = '#3b82f6';
+          evalCtx.strokeStyle = '#fbbf24';
           evalCtx.beginPath();
           probSeries.forEach((p, i) => {
             if (p == null) p = 0.5;
@@ -601,20 +601,18 @@ Output exactly one line per half-move as specified, followed by a final Summary:
           });
           evalCtx.stroke();
 
-          // Black probability line
-          evalCtx.strokeStyle = '#ef4444';
+          // Midline at 50%
+          evalCtx.strokeStyle = '#ffffff';
+          evalCtx.lineWidth = 0.5;
           evalCtx.beginPath();
-          probSeries.forEach((p, i) => {
-            if (p == null) p = 0.5;
-            const x = (i / maxIdx) * w;
-            const y = p * h;
-            if (i === 0) evalCtx.moveTo(x, y); else evalCtx.lineTo(x, y);
-          });
+          evalCtx.moveTo(0, h / 2);
+          evalCtx.lineTo(w, h / 2);
           evalCtx.stroke();
         }
         if (idx >= 0 && probSeries.length > 0) {
           const maxIdx = Math.max(probSeries.length - 1, 1);
           const x = (idx / maxIdx) * w;
+          evalCtx.lineWidth = 1;
           evalCtx.strokeStyle = '#fbbf24';
           evalCtx.beginPath();
           evalCtx.moveTo(x, 0);
