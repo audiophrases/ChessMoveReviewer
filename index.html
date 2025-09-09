@@ -507,13 +507,27 @@ Summary: <a single-sentence overview of the whole game>
         number.textContent = formatProbability(p);
       }
 
+      function ensureMoveVisible(idx) {
+        const container = document.getElementById('move-analysis-scroll');
+        const item = document.querySelector('.move-item[data-move-index="' + idx + '"]');
+        if (!container || !item) return;
+        const itemRect = item.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        if (itemRect.top < containerRect.top || itemRect.bottom > containerRect.bottom) {
+          item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        if (window.innerWidth < 1024) {
+          document.getElementById('move-analysis-shell').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }
+
       function goToMove(idx) {
         if (idx < -1 || idx >= movesWithAnalysis.length) return;
         currentMoveIndex = idx; game.reset(); for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
         if (board) board.position(game.fen());
         $('.move-item').removeClass('highlight'); if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
         $('#prev-btn').prop('disabled', idx < 0); $('#next-btn').prop('disabled', idx >= movesWithAnalysis.length - 1);
-        adjustAnalysisHeight(); updateEvalBarForIndex(idx);
+        adjustAnalysisHeight(); updateEvalBarForIndex(idx); ensureMoveVisible(idx);
       }
 
       $('#next-btn').on('click', function(){ goToMove(currentMoveIndex + 1); });
