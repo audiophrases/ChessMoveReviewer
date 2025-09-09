@@ -56,6 +56,16 @@
       <label for="pgn-input" class="block mb-2 font-semibold text-gray-300">Paste PGN here</label>
       <textarea id="pgn-input" rows="12" class="w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..."></textarea>
     </div>
+    <div class="flex gap-4">
+      <div class="flex-1">
+        <label for="threads-input" class="block mb-2 font-semibold text-gray-300">Threads</label>
+        <input id="threads-input" type="number" min="1" value="1" class="w-full p-2 rounded-lg form-input" />
+      </div>
+      <div class="flex-1">
+        <label for="hash-input" class="block mb-2 font-semibold text-gray-300">Hash (MB)</label>
+        <input id="hash-input" type="number" min="1" value="16" class="w-full p-2 rounded-lg form-input" />
+      </div>
+    </div>
     <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
       Loading Engine...
     </button>
@@ -172,12 +182,24 @@ Summary: <a single-sentence overview of the whole game>
       let lastInfoMsg = '';
       let currentScoreResolver = null;
 
+      function configureEngineOptions() {
+        engineReady = false;
+        $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
+        const threads = parseInt($('#threads-input').val(), 10) || 1;
+        const hash = parseInt($('#hash-input').val(), 10) || 16;
+        const options = { Threads: threads, Hash: hash };
+        Object.entries(options).forEach(([name, value]) => {
+          engineWorker.postMessage(`setoption name ${name} value ${value}`);
+        });
+        engineWorker.postMessage('isready');
+      }
+
       // Prompt (adds one-line Summary at the end)
       const ANALYSIS_PROMPT = `Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:\n\nmove - {Stockfish evaluation} classification: comment\n\nKeep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.\n\nAt the very end, add one line starting with:\nSummary: <a single-sentence overview of the whole game>`;
 
       engineWorker.onmessage = function(e) {
         const msg = String(e.data || '');
-        if (msg.startsWith('id name')) {
+        if (msg === 'readyok') {
           engineReady = true;
           $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
         } else if (msg.startsWith('info depth')) {
@@ -198,6 +220,8 @@ Summary: <a single-sentence overview of the whole game>
         }
       };
       engineWorker.postMessage('uci');
+      configureEngineOptions();
+      $('#threads-input, #hash-input').on('change', configureEngineOptions);
 
       // ====== App state ======
       let board = null;
