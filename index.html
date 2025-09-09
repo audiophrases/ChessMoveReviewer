@@ -185,7 +185,7 @@ Summary: <a single-sentence overview of the whole game>
       }
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT = `Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:\n\nmove - {Stockfish evaluation} classification: comment\n\nKeep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.\n\nAt the very end, add one line starting with:\nSummary: <a single-sentence overview of the whole game>`;
+      const ANALYSIS_PROMPT = `Analyze the following PGN, which includes Stockfish evaluations in braces {}. For each move, write exactly one line using this format:\n\move - {Stockfish evaluation} classification: comment\n\nKeep the evaluation exactly as shown in the PGN (e.g., {+0.23}, {-1.10}, {#3}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.\n\nAt the very end, add one line starting with:\nSummary: <a single-sentence overview of the whole game>`;
 
       engineWorker.onmessage = function(e) {
         const msg = String(e.data || '');
@@ -303,12 +303,20 @@ Summary: <a single-sentence overview of the whole game>
         const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
         const temp = new Chess();
         for (let i = 0; i < sanMoves.length; i++) {
-          const moveNumber = Math.floor(i / 2) + 1; const prefix = (i % 2 === 0) ? (moveNumber + '. ') : (moveNumber + '... ');
+          const moveNumber = Math.floor(i / 2) + 1; const prefix = (i % 2 === 0) ? (moveNumber + '. ') : '';
           const move = sanMoves[i];
           $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
           $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
 
+          // *** FIX STARTS HERE ***
+          // The order of operations is changed.
+          // 1. Make the move on the temporary board.
+          temp.move(move);
+
+          // 2. Get the score for the new position *after* the move has been made.
           const score = await getScore(temp.fen(), ENGINE_GO_OPTIONS);
+          // *** FIX ENDS HERE ***
+
           let evalStr = '';
           if (score.type === 'mate') {
             let m = score.value; // mate in N from side to move
@@ -320,7 +328,6 @@ Summary: <a single-sentence overview of the whole game>
             evalStr = cpToEvalBraced(cp);
           }
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
-          temp.move(move);
         }
         const combined = ANALYSIS_PROMPT + '\n\n' + annotatedPgn.trim();
         $('#progress-text').text('Analysis Complete!');
