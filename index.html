@@ -612,6 +612,8 @@ Output exactly one line per half-move as specified, followed by a final Summary:
           evalCtx.beginPath();
           probSeries.forEach((p, i) => {
             if (p == null) p = 0.5;
+            // Clamp to [0,1] so mate scores render at the extreme edges
+            p = Math.min(Math.max(p, 0), 1);
             const x = (i / maxIdx) * w;
             const y = (1 - p) * h;
             if (i === 0) evalCtx.moveTo(x, y); else evalCtx.lineTo(x, y);
