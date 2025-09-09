@@ -531,7 +531,12 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         const c = $('#move-analysis-container').empty();
         movesWithAnalysis.forEach((mv, i) => {
           const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
-          const evalHtml = mv.prob != null ? '<span class="font-mono text-xs text-gray-400 ml-2">' + formatProbability(mv.prob) + '</span>' : '';
+          let evalHtml = '';
+          if (mv.analysis && mv.analysis.evaluation && mv.analysis.evaluation.includes('#')) {
+            evalHtml = '<span class="font-mono text-xs text-gray-400 ml-2">' + mv.analysis.evaluation + '</span>';
+          } else if (mv.prob != null) {
+            evalHtml = '<span class="font-mono text-xs text-gray-400 ml-2">' + formatProbability(mv.prob) + '</span>';
+          }
           const html =
             '<div class="move-item p-2 cursor-pointer" data-move-index="' + i + '">' +
               '<div class="flex items-baseline gap-3">' +
