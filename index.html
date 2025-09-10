@@ -169,7 +169,8 @@ Summary: <a single-sentence overview of the whole game>
       function configureEngineOptions() {
         engineReady = false;
         $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
-        const options = { Threads: 3, Hash: 64 };
+        const threadCount = navigator.hardwareConcurrency || 3;
+        const options = { Threads: threadCount, Hash: 64 };
         Object.entries(options).forEach(([name, value]) => {
           engineWorker.postMessage(`setoption name ${name} value ${value}`);
         });
