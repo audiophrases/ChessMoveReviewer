@@ -421,8 +421,9 @@ Output exactly one line per half-move as specified, followed by a final Summary:
           });
           const review = result.choices[0].message.content;
           $('#final-analysis-input').val(review);
-          switchStep(3);
-          $('#generate-review-btn').click();
+          if (generateReviewFromText(review)) {
+            switchStep(4);
+          }
         } else {
           $('#progress-text').text('Analysis Complete!');
           $('#goto-step3-btn').prop('disabled', false);
@@ -451,8 +452,9 @@ Output exactly one line per half-move as specified, followed by a final Summary:
       $('#goto-step3-btn').on('click', function(){ switchStep(3); });
 
       // ====== Step 3: accept PGN or comments-only and build review ======
-      $('#generate-review-btn').on('click', function () {
-        const finalAnalysisRaw = $('#final-analysis-input').val().trim(); if (!finalAnalysisRaw) { showError('Please paste the final analysis.'); return; }
+      function generateReviewFromText(text) {
+        const finalAnalysisRaw = (text || '').trim();
+        if (!finalAnalysisRaw) { showError('Please paste the final analysis.'); return false; }
         let pgn = normalizePgn(finalAnalysisRaw); let loaded = game.load_pgn(pgn);
         const parsed = parseAnalysis(finalAnalysisRaw);
         if (!loaded && parsed.moves.length) {
@@ -460,9 +462,7 @@ Output exactly one line per half-move as specified, followed by a final Summary:
           if (!loaded) { game.reset(); let ok = true; parsed.moves.forEach(m => { if (ok) ok = !!game.move(m.san); }); if (ok) { rebuiltPGN = game.pgn({ maxWidth: 9999 }); game.reset(); loaded = game.load_pgn(rebuiltPGN); } }
           if (loaded) pgn = rebuiltPGN;
         }
-        if (!loaded) { showError('Could not find or reconstruct a valid PGN from the text you pasted.'); return; }
-
-        switchStep(4);
+        if (!loaded) { showError('Could not find or reconstruct a valid PGN from the text you pasted.'); return false; }
 
         const gameMoves = game.history({ verbose: true }); let cursor = 0;
         movesWithAnalysis = gameMoves.map(m => {
@@ -496,6 +496,14 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         board.resize();
         resizeEvalGraph();
         renderEvalGraph(-1);
+        return true;
+      }
+
+      $('#generate-review-btn').on('click', function () {
+        const finalAnalysisRaw = $('#final-analysis-input').val();
+        if (generateReviewFromText(finalAnalysisRaw)) {
+          switchStep(4);
+        }
       });
 
       // Build PGN from SAN list
