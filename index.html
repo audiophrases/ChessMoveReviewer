@@ -7,6 +7,7 @@
 
   <!-- Tailwind Play CDN (ok for prototypes) -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/dist/web-llm.min.js"></script>
 
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" crossorigin="anonymous">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -64,18 +65,19 @@
   <!-- Step 2: Stockfish Output & AI Instructions -->
   <section id="step2-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-xl sm:text-2xl font-bold text-center">Step 2: Get AI Coaching Comments</h2>
+    <p id="step2-auto-text" class="text-center text-gray-400">Please wait—coaching comments will be generated automatically.</p>
     <div id="stockfish-progress" class="text-center p-4 bg-[#101522] rounded-lg">
       <p id="progress-text" class="text-base sm:text-lg text-yellow-400">Initializing Stockfish...</p>
       <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
         <div id="progress-bar" class="bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
       </div>
     </div>
-    <div>
+    <div id="stockfish-output-container" class="hidden">
       <label for="stockfish-output" class="block mb-2 font-semibold text-gray-300">1. Copy the prompt + annotated PGN below</label>
       <textarea id="stockfish-output" rows="14" class="w-full p-3 rounded-lg form-input font-mono text-sm" readonly></textarea>
-      <button id="copy-stockfish-btn" class="w-full mt-2 py-2 px-4 font-semibold text-white rounded-lg btn-secondary">Copy to Clipboard</button>
+      <button id="copy-stockfish-btn" class="hidden w-full mt-2 py-2 px-4 font-semibold text-white rounded-lg btn-secondary">Copy to Clipboard</button>
     </div>
-    <div class="p-4 bg-emerald-900/40 border border-emerald-700 rounded-lg">
+    <div id="manual-copy-info" class="hidden p-4 bg-emerald-900/40 border border-emerald-700 rounded-lg">
       <h3 class="font-semibold text-emerald-300">2. What this button copies</h3>
       <div class="mt-2 p-2 bg-black/40 rounded">
         <p class="text-xs text-gray-300 whitespace-pre-wrap font-mono">
@@ -90,7 +92,7 @@ Summary: <a single-sentence overview of the whole game>
         </p>
       </div>
     </div>
-    <button id="goto-step3-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
+    <button id="goto-step3-btn" class="hidden w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
       Continue to Final Step
     </button>
   </section>
@@ -156,6 +158,22 @@ Summary: <a single-sentence overview of the whole game>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.js"></script>
 
   <script>
+    let llmEngine;
+    async function initLlm() {
+      try {
+        llmEngine = await CreateMLCEngine("TinyLlama-1.1B-Chat-q4f16_1", {
+          temperature: 0.6,
+          context_window_size: 4096
+        });
+      } catch (err) {
+        console.warn('Web LLM unavailable, using manual copy mode.', err);
+        $('#stockfish-output-container, #manual-copy-info').removeClass('hidden');
+        $('#copy-stockfish-btn, #goto-step3-btn').removeClass('hidden');
+        $('#step2-auto-text').addClass('hidden');
+      }
+    }
+    initLlm();
+
     $(function () {
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
@@ -395,9 +413,20 @@ Output exactly one line per half-move as specified, followed by a final Summary:
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
         }
         const combined = ANALYSIS_PROMPT + '\n\n' + annotatedPgn.trim();
-        $('#progress-text').text('Analysis Complete!');
         $('#stockfish-output').val(combined);
-        $('#goto-step3-btn').prop('disabled', false);
+        if (llmEngine) {
+          $('#progress-text').text('Generating coaching comments…');
+          const result = await llmEngine.chat.completions.create({
+            messages: [{ role: 'user', content: combined }]
+          });
+          const review = result.choices[0].message.content;
+          $('#final-analysis-input').val(review);
+          switchStep(3);
+          $('#generate-review-btn').click();
+        } else {
+          $('#progress-text').text('Analysis Complete!');
+          $('#goto-step3-btn').prop('disabled', false);
+        }
       }
 
       function getScore(fen, opts) {
