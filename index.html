@@ -160,7 +160,7 @@ Summary: <a single-sentence overview of the whole game>
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
       // Configure engine search: set either { depth: N } or { movetime: ms }
-      const ENGINE_GO_OPTIONS = { depth: 20 }; // or e.g., { depth: 20 }
+      const ENGINE_GO_OPTIONS = { depth: 12 }; // or e.g., { depth: 20 }
       let engineWorker = new Worker(LOCAL_ENGINE);
       let engineReady = false;
       let lastInfoMsg = '';
