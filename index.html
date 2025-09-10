@@ -290,7 +290,7 @@ Output exactly one line per half-move as specified, followed by a final Summary:
       let evalCtx = null;
 
       const classificationStyles = {
-{
+
     # Best Moves
     'brilliant': 'text-cyan-300',
     'great': 'text-teal-300',
@@ -308,7 +308,7 @@ Output exactly one line per half-move as specified, followed by a final Summary:
     'mistake': 'text-orange-400',
     'blunder': 'text-red-500',
     'misclick??': 'text-fuchsia-500', # The most extreme error 😵
-}
+
       };
       function getStyleForClassification(c) { return classificationStyles[(c || '').toLowerCase().replace(/\s/g,'')] || classificationStyles['default']; }
       function formatText(t) { return t ? String(t).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>') : ''; }
