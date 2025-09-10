@@ -71,6 +71,7 @@
       <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
         <div id="progress-bar" class="bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
       </div>
+      <div id="llm-spinner" class="hidden mt-4 w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
     </div>
     <div id="stockfish-output-container" class="hidden">
       <label for="stockfish-output" class="block mb-2 font-semibold text-gray-300">1. Copy the prompt + annotated PGN below</label>
@@ -416,13 +417,20 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         $('#stockfish-output').val(combined);
         if (llmEngine) {
           $('#progress-text').text('Generating coaching comments…');
-          const result = await llmEngine.chat.completions.create({
-            messages: [{ role: 'user', content: combined }]
-          });
-          const review = result.choices[0].message.content;
-          $('#final-analysis-input').val(review);
-          if (generateReviewFromText(review)) {
-            switchStep(4);
+          $('#progress-bar').parent().addClass('hidden');
+          $('#llm-spinner').removeClass('hidden');
+          try {
+            const result = await llmEngine.chat.completions.create({
+              messages: [{ role: 'user', content: combined }]
+            });
+            $('#progress-text').text('Comments complete.');
+            const review = result.choices[0].message.content;
+            $('#final-analysis-input').val(review);
+            if (generateReviewFromText(review)) {
+              switchStep(4);
+            }
+          } finally {
+            $('#llm-spinner').addClass('hidden');
           }
         } else {
           $('#progress-text').text('Analysis Complete!');
