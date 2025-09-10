@@ -499,7 +499,7 @@ Output exactly one line per half-move as specified, followed by a final Summary:
       // Parse analysis lines with optional {eval} and final Summary:
       function parseAnalysis(text) {
         const lines = text.split('\n'); const parsedMoves = []; const criticalMoments = {}; const summaries = {}; let currentSummary = null; let lastSan = null; let summaryLine = '';
-        const moveRegex = /^(?:\d+\.{1,3}\s*)?(\S+)\s*[-–—]\s*(\{[^}]+\})?\s*([A-Za-z]+)\s*:\s*(.*)/;
+        const moveRegex = /^(?:\d+\.{1,3}\s*)?(\S+)\s*[-–—]\s*(\{[^}]+\})?\s*([A-Za-z?]+)\s*:\s*(.*)/;
         const criticalMomentRegex = /^Critical Moment:\s*(.*)/i;
         const summaryHeaderRegex = /^\s*\*\*(Strengths|Recurring Mistakes|Top 3 Takeaways)\*\*/i;
         const summaryLineRegex = /^Summary:\s*(.*)/i;
