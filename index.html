@@ -291,7 +291,7 @@ Output exactly one line per half-move as specified, followed by a final Summary:
 
       const classificationStyles = {
 
-    # Best Moves
+  
     'brilliant': 'text-cyan-300',
     'great': 'text-teal-300',
     'excellent': 'text-teal-300',
@@ -299,15 +299,15 @@ Output exactly one line per half-move as specified, followed by a final Summary:
     'okay': 'text-green-400',
     'book': 'text-blue-400',
 
-    # Neutral Moves
+   
     'forced': 'text-gray-400',
     'default': 'text-gray-400',
 
-    # Bad Moves
+
     'inaccuracy': 'text-yellow-400',
     'mistake': 'text-orange-400',
     'blunder': 'text-red-500',
-    'misclick??': 'text-fuchsia-500', # The most extreme error 😵
+    'misclick??': 'text-fuchsia-500',
 
       };
       function getStyleForClassification(c) { return classificationStyles[(c || '').toLowerCase().replace(/\s/g,'')] || classificationStyles['default']; }
