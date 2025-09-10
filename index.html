@@ -218,6 +218,8 @@ Drop of 20–39 points → Mistake
 
 Drop of ≥40 points → Blunder
 
+Drop of >80 points → Missclick??
+
 Example: If the previous eval was {15%} and Black moves, resulting in a new eval of {60%}, this is a 60 - 15 = 45-point drop for Black and must be classified as a Blunder.
 
 Brilliant Moves: If the eval is improved involving a sacrifice or it creates a forced mate for their side, classify the move as Brilliant (otherwise use Good/Book for normal/theory moves).
@@ -237,8 +239,6 @@ Sanity Checks Before Finalizing:
 Verify you have toggled the mover (White, Black, White...) correctly for each half-move.
 
 Ensure any move resulting in a forced mate for the opponent is labeled a Blunder.
-
-Never call a move Brilliant if it results in a large evaluation drop or allows a mate for the opponent.
 
 Final Output:
 Output exactly one line per half-move as specified, followed by a final Summary: which should be a single-line summary of the game's overall narrative. Do not use any extra headings, bullet points, or other formatting in your main output.`;
@@ -290,8 +290,25 @@ Output exactly one line per half-move as specified, followed by a final Summary:
       let evalCtx = null;
 
       const classificationStyles = {
-        'book': 'text-blue-400','good':'text-green-400','okay':'text-green-400','excellent':'text-teal-300','great':'text-teal-300',
-        'brilliant':'text-cyan-300','inaccuracy':'text-yellow-400','mistake':'text-orange-400','blunder':'text-red-500','forced':'text-gray-400','default':'text-gray-400'
+{
+    # Best Moves
+    'brilliant': 'text-cyan-300',
+    'great': 'text-teal-300',
+    'excellent': 'text-teal-300',
+    'good': 'text-green-400',
+    'okay': 'text-green-400',
+    'book': 'text-blue-400',
+
+    # Neutral Moves
+    'forced': 'text-gray-400',
+    'default': 'text-gray-400',
+
+    # Bad Moves
+    'inaccuracy': 'text-yellow-400',
+    'mistake': 'text-orange-400',
+    'blunder': 'text-red-500',
+    'misclick??': 'text-fuchsia-500', # The most extreme error 😵
+}
       };
       function getStyleForClassification(c) { return classificationStyles[(c || '').toLowerCase().replace(/\s/g,'')] || classificationStyles['default']; }
       function formatText(t) { return t ? String(t).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>') : ''; }
