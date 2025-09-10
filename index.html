@@ -416,26 +416,34 @@ Output exactly one line per half-move as specified, followed by a final Summary:
         const combined = ANALYSIS_PROMPT + '\n\n' + annotatedPgn.trim();
         $('#stockfish-output').val(combined);
         if (llmEngine) {
-          $('#progress-text').text('Generating coaching comments…');
-          $('#progress-bar').parent().addClass('hidden');
-          $('#llm-spinner').removeClass('hidden');
-          try {
-            const result = await llmEngine.chat.completions.create({
-              messages: [{ role: 'user', content: combined }]
-            });
-            $('#progress-text').text('Comments complete.');
-            const review = result.choices[0].message.content;
-            $('#final-analysis-input').val(review);
-            if (generateReviewFromText(review)) {
-              switchStep(4);
+            $('#progress-text').text('Generating coaching comments…');
+            $('#progress-bar').parent().addClass('hidden');
+            $('#llm-spinner').removeClass('hidden');
+            try {
+              const result = await llmEngine.chat.completions.create({
+                messages: [{ role: 'user', content: combined }]
+              });
+              $('#progress-text').text('Comments complete.');
+              const review = result.choices[0].message.content;
+              $('#final-analysis-input').val(review);
+              if (generateReviewFromText(review)) {
+                switchStep(4);
+              }
+            } catch (err) {
+              console.error('LLM comment generation failed:', err);
+              $('#progress-text').text('Automatic comment generation failed. You can continue manually.');
+              $('#stockfish-output-container, #manual-copy-info').removeClass('hidden');
+              $('#copy-stockfish-btn, #goto-step3-btn').removeClass('hidden');
+              $('#step2-auto-text').addClass('hidden');
+              $('#goto-step3-btn').prop('disabled', false);
+              llmEngine = null;
+            } finally {
+              $('#llm-spinner').addClass('hidden');
             }
-          } finally {
-            $('#llm-spinner').addClass('hidden');
+          } else {
+            $('#progress-text').text('Analysis Complete!');
+            $('#goto-step3-btn').prop('disabled', false);
           }
-        } else {
-          $('#progress-text').text('Analysis Complete!');
-          $('#goto-step3-btn').prop('disabled', false);
-        }
       }
 
       function getScore(fen, opts) {
