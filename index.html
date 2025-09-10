@@ -83,7 +83,7 @@ Analyze the following PGN, which includes Stockfish win-probability evaluations 
 
 move - {Stockfish win probability} classification: comment
 
-Keep the evaluation exactly as shown in the PGN (e.g., {52%}, {78%}, {0%}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced). Do not add move numbers, markdown, bullet points, or extra formatting.
+Keep the evaluation exactly as shown in the PGN (e.g., {52%}, {78%}, {0%}). For the classification, use a single word (e.g., Book, Good, Brilliant, Inaccuracy, Mistake, Blunder, Forced, Misclick??). Do not add move numbers, markdown, bullet points, or extra formatting.
 
 At the very end, add one line starting with:
 Summary: <a single-sentence overview of the whole game>
@@ -210,6 +210,10 @@ For White (as the mover), a drop is when current_eval < previous_eval.
 
 For Black (as the mover), a drop is when current_eval > previous_eval.
 
+Treat forced mate for Black {#-N} as {0%}.
+
+Treat forced mate for White {#N} as {100%}.
+
 If the move was a drop, classify it based on the delta:
 
 Drop of 10–19 points → Inaccuracy
@@ -218,9 +222,11 @@ Drop of 20–39 points → Mistake
 
 Drop of ≥40 points → Blunder
 
-Drop of >80 points → Missclick??
+Drop of ≥80 points → Misclick??
 
 Example: If the previous eval was {15%} and Black moves, resulting in a new eval of {60%}, this is a 60 - 15 = 45-point drop for Black and must be classified as a Blunder.
+
+Example: If the previous eval was {#3} and White moves, resulting in a {#-4}, this is a 100-point drop for White and must be classified as a Misclick??.
 
 Brilliant Moves: If the eval is improved involving a sacrifice or it creates a forced mate for their side, classify the move as Brilliant (otherwise use Good/Book for normal/theory moves).
 
