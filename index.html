@@ -178,7 +178,7 @@ Summary: <a single-sentence overview of the whole game>
       }
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT = Analyze the PGN where each move is followed by an evaluation of White's win probability in braces {}. Produce one line per half-move in this exact format without numbering:
+      const ANALYSIS_PROMPT = `Analyze the PGN where each move is followed by an evaluation of White's win probability in braces {}. Produce one line per half-move in this exact format without numbering:
 
 <move> - {<eval>} <classification>: <comment>
 
@@ -240,13 +240,16 @@ Keep comments consistent with the evaluation.
 
 When discussing mates or a significant advantage, always explicitly name the benefiting side (e.g., "allows White a mate in 3" or "gives Black a winning attack").
 
-Sanity Checks Before Finalizing:
+​Factual Accuracy: Your comment must be factually accurate according to the board state at the time of the move. Before stating that a move attacks, defends, pins, forks, or has any other direct tactical consequence, you must verify that this is true based on the PGN. Do not make generic comments that might be inaccurate for the specific position.
 
-Verify you have toggled the mover (White, Black, White...) correctly for each half-move.
+​Sanity Checks Before Finalizing:
+​Verify you have toggled the mover (White, Black, White...) correctly for each half-move.
 
-Ensure any move resulting in a forced mate for the opponent is labeled a Blunder.
+​Ensure any move resulting in a forced mate for the opponent is labeled correctly based on the delta rules.
 
-Final Output:
+​Verify Factual Claims: Reread your comments to ensure that any specific claims about the move's function (e.g., "attacks the queen," "defends f7") are explicitly true for the given board state.
+
+​Final Output:
 Output exactly one line per half-move as specified, followed by a final Summary: which should be a single-line summary of the game's overall narrative. Do not use any extra headings, bullet points, or other formatting in your main output.`;
 
       engineWorker.onmessage = function(e) {
