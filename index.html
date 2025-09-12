@@ -210,9 +210,9 @@ For White (as the mover), a drop is when current_eval < previous_eval.
 
 For Black (as the mover), a drop is when current_eval > previous_eval.
 
-Treat forced mate for Black {#-N} as {0%}.
+Forced mate for Black {#-N} equals {0%} probability of mate for White.
 
-Treat forced mate for White {#N} as {100%}.
+Forced mate for White {#N} equals {100%} probability of mate for White.
 
 If the move was a drop, classify it based on the delta:
 
@@ -222,17 +222,17 @@ Drop of 20–39 points → Mistake
 
 Drop of ≥40 points → Blunder
 
-Drop of ≥80 points → Misclick??
+Drop of ≥65 points → Misclick??
 
-Example: If the previous eval was {15%} and Black moves, resulting in a new eval of {60%}, this is a 60 - 15 = 45-point drop for Black and must be classified as a Blunder.
-
-Example: If the previous eval was {#3} and White moves, resulting in a {#-4}, this is a 100-point drop for White and must be classified as a Misclick??.
+Example: If the previous eval was {#3} and White moves, resulting in a {#-4}, 100 - 0 = 100-point drop for White and must be classified as a Misclick??.
 
 Brilliant Moves: If the eval is improved involving a sacrifice or it creates a forced mate for their side, classify the move as Brilliant (otherwise use Good/Book for normal/theory moves).
 
 Forced Moves: Use the Forced classification only when the move is essentially unique to avoid immediate material loss or mate (e.g., the only legal move, or the only move that doesn't result in a forced mate or a huge drop in evaluation).
 
 Comments:
+
+If I am one of the two players, coach me: I am 'eugenime'.
 
 Your comment must support the classification but don't mention eval increase/drop but rather say why that half-move creates an advantage or disadvantage for the player on the board.
 
