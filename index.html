@@ -148,7 +148,7 @@
       const ENGINE_GO_OPTIONS = { depth: 16 }; // or e.g., { depth: 20 }
         let engineWorker = null;
         try {
-          engineWorker = new Worker(LOCAL_ENGINE);
+          engineWorker = new Worker(new URL(LOCAL_ENGINE, location.href));
         } catch (err) {
           console.error('Engine load error', err);
           showError('Failed to load Stockfish engine. See console for details.');
