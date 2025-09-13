@@ -1,3 +1,7 @@
+var Module = {
+  locateFile: () =>
+    new URL('stockfish-nnue-16-single.wasm', self.location.href).toString(),
+};
 /*!
  * Stockfish.js 16 (c) 2023, Chess.com, LLC
  * https://github.com/nmrugg/stockfish.js
