@@ -231,17 +231,26 @@ Keep comments consistent with the evaluation.
 
 When discussing mates or a significant advantage, always explicitly name the benefiting side (e.g., "allows White a mate in 3" or "gives Black a winning attack").
 
-​Factual Accuracy: Your comment must be factually accurate according to the board state at the time of the move. Before stating that a move attacks, defends, pins, forks, or has any other direct tactical consequence, you must verify that this is true based on the PGN. Do not make generic comments that might be inaccurate for the specific position.
-
 ​Sanity Checks Before Finalizing:
 ​Verify you have toggled the mover (White, Black, White...) correctly for each half-move.
 
-​Ensure any move resulting in a forced mate for the opponent is labeled correctly based on the delta rules.
+​Ensure any half-move resulting in a forced mate for the opponent is labeled correctly based on the delta rules.
 
-​Verify Factual Claims: Reread your comments to ensure that any specific claims about the move's function (e.g., "attacks the queen," "defends f7") are explicitly true for the given board state.
+​Verify Factual Claims: Reread your comments to ensure that any specific claims about the half-move's function (e.g., "attacks the queen," "defends f7") are explicitly true for the resulting half-move's chess position of the pieces. If the comment is not compatible with the position please change the comment.
 
 ​Final Output:
-Output exactly one line per half-move as specified, followed by a final Summary: which should be a single-line summary of the game's overall narrative. Do not use any extra headings, bullet points, or other formatting in your main output.`;
+Output exactly one line per half-move as specified. At the very end, add one final line starting with Summary: that is formatted as a single paragraph with three parts, specifically for 'eugenime':
+
+Move Count: Start with a count of all of 'eugenime's' classified moves (e.g., 1 Brilliant, 2 Great, 15 Good, 2 Forced, 3 Inaccuracies, etc.).
+
+Accuracy Score: Calculate and display 'eugenime's' accuracy percentage. This is calculated with the formula: Accuracy = (Sum of Good + Great + Brilliant + Forced moves) / (Total moves - Book moves) * 100, rounded to the nearest whole number.
+
+Narrative Summary: Conclude with a single-sentence overview of the game's overall narrative from 'eugenime's' perspective.
+
+Example of the final output:
+Summary (for eugenime): 1 Brilliant, 1 Great, 18 Good, 2 Forced, 3 Inaccuracies, 1 Blunder. Accuracy: 86%. You capitalized on your opponent's early blunder and converted the advantage perfectly with a brilliant sacrifice.
+
+Do not use any extra headings, bullet points, or other formatting in your main output`;
 
       engineWorker.onmessage = function(e) {
         const msg = String(e.data || '');
