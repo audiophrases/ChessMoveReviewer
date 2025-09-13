@@ -161,6 +161,7 @@
           $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
         };
       let engineReady = false;
+      let engineInitTimeout = null;
       let lastInfoMsg = '';
       let currentScoreResolver = null;
 
@@ -257,6 +258,7 @@ Do not use any extra headings, bullet points, or other formatting in your main o
         const msg = String(e.data || '');
         if (msg === 'readyok') {
           engineReady = true;
+          clearTimeout(engineInitTimeout);
           $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
         } else if (msg.startsWith('info depth')) {
           lastInfoMsg = msg;
@@ -277,6 +279,13 @@ Do not use any extra headings, bullet points, or other formatting in your main o
       };
       engineWorker.postMessage('uci');
       configureEngineOptions();
+      engineInitTimeout = setTimeout(() => {
+        if (!engineReady) {
+          engineWorker.terminate();
+          showError('Stockfish failed to initialize');
+          $('#analyze-pgn-btn').prop('disabled', false).text('Engine Load Error');
+        }
+      }, 10000);
 
       function waitForEngineReady() {
         return new Promise(resolve => {
