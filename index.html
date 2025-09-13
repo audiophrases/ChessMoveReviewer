@@ -177,12 +177,6 @@ Mate Sign Semantics:
 
 {#-N} means Black has a forced mate in N moves.
 
-Side-to-move Awareness & Mate Blunders:
-
-If the move was played by Black and the resulting eval is {#N}, Black has allowed a forced mate for White → classify as Misclick?? or Blunder.
-
-If the move was played by White and the resulting eval is {#-N}, White has allowed a forced mate for Black → classify as Misclick?? or Blunder.
-
 Win-Probability Deltas & Classification:
 
 First, calculate the delta: delta = abs(current_eval - previous_eval).
@@ -207,7 +201,11 @@ Drop of ≥40 points → Blunder
 
 Drop of ≥65 points → Misclick??
 
-Example: If the previous eval was {#3} and White moves, resulting in a {#-4}, 100 - 0 = 100-point drop for White and must be classified as a Misclick??.
+If the move was played by Black and the resulting eval is {#N}, Black has allowed a forced mate for White → classify as Blunder or a Misclick?? if eval drop is ≥65 points.
+
+If the move was played by White and the resulting eval is {#-N}, White has allowed a forced mate for Black → classify as Blunder or a Misclick?? if eval drop is ≥65 points.
+
+Example: If the previous eval was {65%} and White moves, resulting in a {#-4}, 65 - 0 = 65-point drop for White and must be classified as a Misclick??.
 
 Any half-move that classifies as an Inaccuracy or a Mistake and changes a non-mate position into a forced mate for the opponent must be classified as a Blunder.
 
@@ -229,22 +227,18 @@ Your comment must support the classification but don't mention eval increase/dro
 
 Keep comments consistent with the evaluation.
 
-When discussing mates or a significant advantage, always explicitly name the benefiting side (e.g., "allows White a mate in 3" or "gives Black a winning attack").
-
-​Sanity Checks Before Finalizing:
 ​Verify you have toggled the mover (White, Black, White...) correctly for each half-move.
 
 ​Ensure any half-move resulting in a forced mate for the opponent is labeled correctly based on the delta rules.
 
-​Verify Factual Claims: Reread your comments to ensure that any specific claims about the half-move's function (e.g., "attacks the queen," "defends f7") are explicitly true for the resulting half-move's chess position of the pieces. If a comment is not compatible with the position please change the comment.
+When discussing mates or a significant advantage, always explicitly name the benefiting side (e.g., "allows White a mate in 3" or "gives Black a winning attack").
 
-​Final Output:
+​​Final Output:
 Output exactly one line per half-move as specified. At the very end, add one final line starting with Summary: that is formatted as a single paragraph with three parts, specifically for 'eugenime':
 Move Count: Count of all of 'eugenime's' classified moves (e.g., 1 Brilliant, 2 Great, 15 Good, 2 Forced, 3 Inaccuracies, etc.).
 Accuracy Score: Calculate and display 'eugenime's' accuracy percentage. This is calculated with the formula: Accuracy = (Sum of Good + Great + Brilliant + Forced + Book moves) / (Total moves) * 100, rounded to the nearest whole number.
 Narrative Summary: Conclude with a single-sentence overview of the game's overall narrative from 'eugenime's' perspective.
-Example of the final output:
-Summary (for eugenime): 1 Brilliant, 1 Great, 18 Good, 2 Forced, 3 Inaccuracies, 1 Blunder. Accuracy: 86%. You capitalized on your opponent's early blunder and converted the advantage perfectly with a brilliant sacrifice.
+Example of the final output: Summary: 1 Brilliant, 1 Great, 18 Good, 2 Forced, 3 Inaccuracies, 1 Blunder. Accuracy: 86%. You capitalized on your opponent's early blunder and converted the advantage perfectly with a brilliant sacrifice.
 
 ​Verify Factual Claims: Reread all the comments and the Summary to ensure that all specific claims about the half-move's function (e.g., "attacks the queen," "defends f7") are explicitly true for the resulting half-move's chess position of the pieces. If a comment is not compatible with the position please change the comment.
 
