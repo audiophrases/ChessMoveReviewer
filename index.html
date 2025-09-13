@@ -211,6 +211,12 @@ Example: If the previous eval was {#3} and White moves, resulting in a {#-4}, 10
 
 Any half-move that classifies as an Inaccuracy or a Mistake and changes a non-mate position into a forced mate for the opponent must be classified as a Blunder.
 
+Book Moves: This classification applies to standard and well-known moves in the opening phase of the game. A move is classified as Book if it follows established chess theory and does not significantly worsen the position according to the evaluation.
+
+Good Moves: This is the default classification for any solid move that does not qualify for any other category. A move is Good if it is not a theoretical Book move, a decisive Great or Brilliant move, or a quantifiable error (Inaccuracy, Mistake, Blunder). It improves, maintains, or only slightly worsens the position below the defined error thresholds.
+
+Great Moves: This classification is for powerful, often decisive moves that are not sacrifices. A move is Great if it is not a sacrifice AND it meets one of the following criteria: it is the final move of the game delivering checkmate, it creates a new forced mate sequence for the player, or it is a non-sacrificial move that wins a significant amount of material like a queen or a rook.
+
 Brilliant Moves: Only classify as Brilliant if the half-move sacrifices a bishop, rook, knight or queen and eval is improved.
 
 Forced Moves: Use the Forced classification only when the move is essentially unique to avoid immediate material loss or mate (e.g., the only legal move, or the only move that doesn't result in a forced mate or a huge drop in evaluation).
@@ -288,15 +294,10 @@ Output exactly one line per half-move as specified, followed by a final Summary:
   
     'brilliant': 'text-cyan-300',
     'great': 'text-teal-300',
-    'excellent': 'text-teal-300',
     'good': 'text-green-400',
-    'okay': 'text-green-400',
     'book': 'text-blue-400',
 
-   
     'forced': 'text-gray-400',
-    'default': 'text-gray-400',
-
 
     'inaccuracy': 'text-yellow-400',
     'mistake': 'text-orange-400',
