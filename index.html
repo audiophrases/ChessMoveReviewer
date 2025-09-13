@@ -146,18 +146,20 @@
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
       // Configure engine search: set either { depth: N } or { movetime: ms }
       const ENGINE_GO_OPTIONS = { depth: 16 }; // or e.g., { depth: 20 }
-      let engineWorker = null;
-      try {
-        engineWorker = new Worker(LOCAL_ENGINE);
-      } catch (err) {
-        showError('Failed to load Stockfish engine.');
-        $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
-        return;
-      }
-      engineWorker.onerror = function () {
-        showError('Failed to load Stockfish engine.');
-        $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
-      };
+        let engineWorker = null;
+        try {
+          engineWorker = new Worker(LOCAL_ENGINE);
+        } catch (err) {
+          console.error('Engine load error', err);
+          showError('Failed to load Stockfish engine. See console for details.');
+          $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
+          return;
+        }
+        engineWorker.onerror = function (err) {
+          console.error('Engine load error', err);
+          showError('Failed to load Stockfish engine. See console for details.');
+          $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
+        };
       let engineReady = false;
       let lastInfoMsg = '';
       let currentScoreResolver = null;
