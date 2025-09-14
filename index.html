@@ -61,7 +61,7 @@
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
         <label for="depth-input" class="text-gray-300">Depth</label>
-        <input id="depth-input" type="number" min="1" value="14" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="depth-input" type="number" min="1" value="12" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
         <label for="threads-input" class="text-gray-300">Threads</label>
@@ -69,7 +69,7 @@
       </div>
       <div class="flex flex-col items-center">
         <label for="hash-input" class="text-gray-300">Memory</label>
-        <input id="hash-input" type="number" min="1" value="256" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="hash-input" type="number" min="1" value="469" class="w-16 p-1 rounded form-input text-center"/>
       </div>
     </div>
     <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
@@ -162,7 +162,7 @@
 
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
-      const ENGINE_GO_OPTIONS = { depth: 14 };
+      const ENGINE_GO_OPTIONS = { depth: 12 };
       let engineWorker = null;
       let engineReady = false;
       let engineInitTimeout = null;
