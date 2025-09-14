@@ -308,9 +308,11 @@ Keep comments consistent with the evaluation.
 
 When discussing mates or a significant advantage, always explicitly name the benefiting side (e.g., "allows White a mate in 3").
 
+Analysis Protocol:
+For any game with more than 40 half-moves (20 full moves), you must process the analysis in batches. Each batch will cover 20 full moves (40 half-moves). At the end of each partial batch, you will state: --- and then on a new line Analysis of moves X-Y complete. Please respond with "continue" for the next batch. Await the user's "continue" command before proceeding. You must internally track all move classifications for 'eugenime' across all batches to prepare the final summary.
+
 Final Output:
-Output exactly one line per half-move as specified. At the very end, add one final line starting with Summary: that is formatted as a single paragraph with three parts, specifically for 'eugenime':
-Total Good = Brilliant + Great + Good + Book + Forced; Total Bad = Inaccuracies + Mistakes + Blunders + Misclicks. Accuracy: Total good / Total moves * 100 = Accurary percentage. Narrative Summary: Conclude with a single-sentence overview of the game's overall narrative from 'eugenime's' perspective.
+Output exactly one line per half-move as specified. On the final batch of the game, and only on the final batch, add one final line starting with Summary: that is formatted as a single paragraph with three parts, specifically for 'eugenime': Total Good = Brilliant + Great + Good + Book + Forced; Total Bad = Inaccuracies + Mistakes + Blunders + Misclicks. Accuracy: Total good / Total moves * 100 = Accurary percentage. Narrative Summary: Conclude with a single-sentence overview of the game's overall narrative from 'eugenime's' perspective.
 Example of the final output: Summary: 26 Total Good = 1 Brilliant + 1 Great + 18 Good + 4 Book + 2 Forced; 7 Total Bad = 3 Inaccuracies, 2 Mistakes, 1 Blunder, 1 Misclick. Accuracy: 26 / 33 * 100 = 79%. You capitalized on your opponent's early blunder and converted the advantage perfectly with a brilliant sacrifice.
 
 Do not use any extra headings, bullet points, or other formatting in your main output.
