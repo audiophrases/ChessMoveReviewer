@@ -507,12 +507,24 @@ Do not use any extra headings, bullet points, or other formatting in your main o
         const finalAnalysisRaw = $('#final-analysis-input').val().trim(); if (!finalAnalysisRaw) { showError('Please paste the final analysis.'); return; }
         let pgn = normalizePgn(finalAnalysisRaw); let loaded = game.load_pgn(pgn);
         const parsed = parseAnalysis(finalAnalysisRaw);
+        let invalidMove = null;
         if (!loaded && parsed.moves.length) {
           let rebuiltPGN = buildPGNFromSAN(parsed.moves.map(m => m.san)); game.reset(); loaded = game.load_pgn(rebuiltPGN);
-          if (!loaded) { game.reset(); let ok = true; parsed.moves.forEach(m => { if (ok) ok = !!game.move(m.san); }); if (ok) { rebuiltPGN = game.pgn({ maxWidth: 9999 }); game.reset(); loaded = game.load_pgn(rebuiltPGN); } }
+          if (!loaded) {
+            game.reset(); let ok = true;
+            for (let i = 0; i < parsed.moves.length; i++) {
+              const san = parsed.moves[i].san;
+              if (!game.move(san)) { invalidMove = { san, index: i + 1 }; ok = false; break; }
+            }
+            if (ok) { rebuiltPGN = game.pgn({ maxWidth: 9999 }); game.reset(); loaded = game.load_pgn(rebuiltPGN); }
+          }
           if (loaded) pgn = rebuiltPGN;
         }
-        if (!loaded) { showError('Could not find or reconstruct a valid PGN from the text you pasted.'); return; }
+        if (!loaded) {
+          if (invalidMove) showError('Illegal move "' + invalidMove.san + '" at position ' + invalidMove.index + '.');
+          else showError('Could not find or reconstruct a valid PGN from the text you pasted.');
+          return;
+        }
 
         switchStep(4);
 
