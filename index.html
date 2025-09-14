@@ -508,8 +508,21 @@ Do not use any extra headings, bullet points, or other formatting in your main o
         let pgn = normalizePgn(finalAnalysisRaw); let loaded = game.load_pgn(pgn);
         const parsed = parseAnalysis(finalAnalysisRaw);
         if (!loaded && parsed.moves.length) {
-          let rebuiltPGN = buildPGNFromSAN(parsed.moves.map(m => m.san)); game.reset(); loaded = game.load_pgn(rebuiltPGN);
-          if (!loaded) { game.reset(); let ok = true; parsed.moves.forEach(m => { if (ok) ok = !!game.move(m.san); }); if (ok) { rebuiltPGN = game.pgn({ maxWidth: 9999 }); game.reset(); loaded = game.load_pgn(rebuiltPGN); } }
+          let rebuiltPGN = buildPGNFromSAN(parsed.moves.map(m => m.san));
+          game.reset();
+          loaded = game.load_pgn(rebuiltPGN);
+          if (!loaded) {
+            game.reset();
+            for (let i = 0; i < parsed.moves.length; i++) {
+              const san = parsed.moves[i].san;
+              if (!game.move(san)) break;
+            }
+            if (game.history().length === parsed.moves.length) {
+              rebuiltPGN = game.pgn({ maxWidth: 9999 });
+              game.reset();
+              loaded = game.load_pgn(rebuiltPGN);
+            }
+          }
           if (loaded) pgn = rebuiltPGN;
         }
         if (!loaded) { showError('Could not find or reconstruct a valid PGN from the text you pasted.'); return; }
