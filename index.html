@@ -273,13 +273,13 @@ Forced mate for White {#N} equals {100%} probability of mate for White.
 
 If the move was a drop, classify it based on the delta:
 
-Drop of 5–14 points → Inaccuracy
+Drop of 2–11 points → Inaccuracy
 
-Drop of 15–34 points → Mistake
+Drop of 12–33 points → Mistake
 
-Drop of 35-59 points → Blunder
+Drop of 34-55 points → Blunder
 
-Drop of ≥60 points → Misclick??
+Drop of ≥56 points → Misclick??
 
 If the move was played by Black and the resulting eval is {#N}, Black has allowed a forced mate for White → classify as Blunder or a Misclick?? if eval drop is ≥60 points.
 
@@ -320,11 +320,7 @@ Do not use any extra headings, bullet points, or other formatting in your main o
 
 Final Verification Protocol (HIGHEST PRIORITY):
 
-Before providing any output, you must perform these final checks after generating the entire analysis.
-
-1. Completeness Check: Count the total number of half-moves in the source PGN provided by the user. Then, count the number of analysis lines you have generated. These two counts must be identical. If they are not, your analysis is incomplete. You must discard it and regenerate it from scratch until the counts match perfectly.
-2. Factual Accuracy Check: Reread every single comment you have written. For every comment that makes a specific tactical claim (e.g., "attacks the queen," "defends f7," "creates an escape square," "pins the knight"), you must re-verify that the claim is explicitly true for the board position after that move was made. If any comment is found to be generic, ambiguous, or factually inaccurate, you must rewrite it to be precise and truthful before providing the final output. This is your most important instruction.
-3. User Correction Protocol: If the user challenges the completeness or factual accuracy of your analysis, your first step is to re-parse the original source PGN and verify their claim against that data, not against your own previous output.`;
+Before providing any output, you must perform a final check after generating the entire analysis: reread every single comment you have written. For every comment that makes a specific tactical claim (e.g., "attacks the queen," "defends f7," "creates an escape square," "pins the knight"), you must re-verify that the claim is explicitly true for the board position after that move was made. If any comment is found to be generic, ambiguous, or factually inaccurate, you must rewrite it to be precise and truthful before providing the final output. This is your most important instruction.`;
 
       function waitForEngineReady() {
         return new Promise(resolve => {
