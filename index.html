@@ -384,6 +384,12 @@ Before providing any output, you must perform these final checks after generatin
           html = html.replace(regex, m => '<span class="' + getStyleForClassification(k) + '">' + m + '</span>');
         });
 
+        // Highlight accuracy percentages (e.g., "Accuracy: 65%" or "65% accuracy")
+        html = html.replace(/(accuracy\s*:?\s*)(\d+(?:\.\d+)?%)/ig,
+          (m, p1, p2) => p1 + '<strong class="text-yellow-400">' + p2 + '</strong>');
+        html = html.replace(/(\d+(?:\.\d+)?%)\s*(accuracy)/ig,
+          (m, p1, p2) => '<strong class="text-yellow-400">' + p1 + '</strong> ' + p2);
+
         if (totalGood) {
           html = html.replace('@@TOTAL_GOOD@@', '<strong class="text-yellow-400">' + totalGood + '</strong>');
         }
