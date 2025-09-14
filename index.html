@@ -363,7 +363,17 @@ Before providing any output, you must perform a final check after generating the
       }
       function formatSummaryLine(s) {
         if (!s) return '';
-        let html = formatText(s);
+
+        // Split into the portion to format and the portion to leave untouched.
+        const pctIdx = s.lastIndexOf('%');
+        let before = s;
+        let after = '';
+        if (pctIdx !== -1) {
+          before = s.slice(0, pctIdx + 1);
+          after = s.slice(pctIdx + 1);
+        }
+
+        let html = formatText(before);
 
         // Temporarily replace totals so 'Good'/'Bad' aren't recolored inside them.
         let totalGood = null;
@@ -390,7 +400,9 @@ Before providing any output, you must perform a final check after generating the
         if (totalBad) {
           html = html.replace('@@TOTAL_BAD@@', '<strong class="text-yellow-400">' + totalBad + '</strong>');
         }
-        return html;
+
+        // Append untouched portion after the percentage sign.
+        return html + after;
       }
       function showError(m) { $('#error-message').text(m); $('#error-modal').removeClass('hidden'); }
       $('#close-modal-btn').on('click', function(){ $('#error-modal').addClass('hidden'); });
