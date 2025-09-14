@@ -34,6 +34,7 @@
     input[type=number] { -moz-appearance: textfield; }
     .step-indicator { background-color: #273043; }
     .step-indicator.active { background-color: #3b82f6; }
+    #board .square-55d63.selected { background-color: rgba(251, 191, 36, 0.5); }
   </style>
 </head>
 <body class="min-h-screen flex flex-col p-3 sm:p-4">
@@ -358,6 +359,34 @@ Before providing any output, you must perform a final check after generating the
       function getStyleForClassification(c) {
         return classificationStyles[(c || '').toLowerCase().replace(/\s/g,'')] || classificationStyles['default'];
       }
+      let selectedSquare = null;
+      function clearSelected() {
+        $('#board .square-55d63').removeClass('selected');
+        selectedSquare = null;
+      }
+      function handleSquareClick(square) {
+        if (selectedSquare) {
+          if (selectedSquare === square) {
+            clearSelected();
+            return;
+          }
+          const move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
+          if (move) {
+            board.position(game.fen());
+            clearSelected();
+          } else {
+            clearSelected();
+            if (game.get(square)) {
+              selectedSquare = square;
+              $('#board .square-' + square).addClass('selected');
+            }
+          }
+        } else {
+          if (!game.get(square)) return;
+          selectedSquare = square;
+          $('#board .square-' + square).addClass('selected');
+        }
+      }
       function formatText(t) {
         return t ? String(t).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>') : '';
       }
@@ -586,12 +615,19 @@ Before providing any output, you must perform a final check after generating the
         }
 
         if (!board) {
-          board = Chessboard('board', { position: 'start', draggable: false, pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png' });
+          board = Chessboard('board', {
+            position: 'start',
+            draggable: false,
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+          });
+          $('#board').on('click', '.square-55d63', function(){ handleSquareClick($(this).data('square')); });
           $(window).on('resize', function(){ board.resize(); adjustAnalysisHeight(); resizeEvalGraph(); });
           initEvalGraph();
         }
 
         board.position('start');
+        game.reset();
+        currentMoveIndex = -1;
         renderMoveList();
         adjustAnalysisHeight();
         board.resize();
