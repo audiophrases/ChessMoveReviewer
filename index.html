@@ -563,7 +563,9 @@ Do not use any extra headings, bullet points, or other formatting in your main o
         const moveRegex = /^(?:\d+\.{1,3}\s*)?(\S+)\s*[-–—]\s*(\{[^}]+\})?\s*([A-Za-z?]+)\s*:\s*(.*)/;
         const criticalMomentRegex = /^Critical Moment:\s*(.*)/i;
         const summaryHeaderRegex = /^\s*\*\*(Strengths|Recurring Mistakes|Top 3 Takeaways)\*\*/i;
-        const summaryLineRegex = /^Summary[^:]*:\s*(.*)/i;
+        // Allow leading whitespace before "Summary:" to handle AI outputs
+        // that may indent or space the final summary line.
+        const summaryLineRegex = /^\s*Summary[^:]*:\s*(.*)/i;
         lines.forEach(line => {
           if (inSummary) { if (line.trim()) summaryLine += ' ' + line.trim(); return; }
           const sl = line.match(summaryLineRegex); if (sl) { summaryLine = sl[1].trim(); inSummary = true; return; }
