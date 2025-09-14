@@ -348,34 +348,48 @@ Before providing any output, you must perform these final checks after generatin
       let evalCtx = null;
 
       const classificationStyles = {
-
-  
-    'brilliant': 'text-cyan-300',
-    'great': 'text-teal-300',
-    'good': 'text-green-400',
-    'book': 'text-blue-400',
-
-    'forced': 'text-gray-400',
-
-    'inaccuracy': 'text-yellow-400',
-    'mistake': 'text-orange-400',
-    'blunder': 'text-red-500',
-    'misclick??': 'text-fuchsia-500',
-
+        brilliant: 'text-cyan-300',
+        great: 'text-teal-300',
+        good: 'text-green-400',
+        book: 'text-blue-400',
+        forced: 'text-gray-400',
+        inaccuracy: 'text-yellow-400',
+        mistake: 'text-orange-400',
+        blunder: 'text-red-500',
+        misclick: 'text-fuchsia-500',
+        default: ''
       };
-      function getStyleForClassification(c) { return classificationStyles[(c || '').toLowerCase().replace(/\s/g,'')] || classificationStyles['default']; }
-      function formatText(t) { return t ? String(t).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>') : ''; }
+      function getStyleForClassification(c) {
+        return classificationStyles[(c || '').toLowerCase().replace(/\s/g,'')] || classificationStyles['default'];
+      }
+      function formatText(t) {
+        return t ? String(t).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>') : '';
+      }
       function formatSummaryLine(s) {
         if (!s) return '';
         let html = formatText(s);
+
+        // Temporarily replace totals so 'Good'/'Bad' aren't recolored inside them.
+        let totalGood = null;
+        let totalBad = null;
+        html = html.replace(/(\d+\s+Total\s+Good)/i, m => { totalGood = m; return '@@TOTAL_GOOD@@'; });
+        html = html.replace(/(\d+\s+Total\s+Bad)/i, m => { totalBad = m; return '@@TOTAL_BAD@@'; });
+
         Object.keys(classificationStyles).forEach(k => {
           if (k === 'default') return;
-          const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, '\$&');
-          const regex = new RegExp('\\b' + escaped + '\\b', 'gi');
+          let pattern = k;
+          if (k === 'inaccuracy') pattern = 'inaccurac(?:y|ies)';
+          else if (k !== 'forced' && k !== 'good') pattern += 's?';
+          const regex = new RegExp('\\b' + pattern + '\\b', 'gi');
           html = html.replace(regex, m => '<span class="' + getStyleForClassification(k) + '">' + m + '</span>');
         });
-        html = html.replace(/(Total\s+Good[^,|]*)/gi, '<strong>$1</strong>');
-        html = html.replace(/(Total\s+Bad[^,|]*)/gi, '<strong>$1</strong>');
+
+        if (totalGood) {
+          html = html.replace('@@TOTAL_GOOD@@', '<strong class="text-yellow-400">' + totalGood + '</strong>');
+        }
+        if (totalBad) {
+          html = html.replace('@@TOTAL_BAD@@', '<strong class="text-yellow-400">' + totalBad + '</strong>');
+        }
         return html;
       }
       function showError(m) { $('#error-message').text(m); $('#error-modal').removeClass('hidden'); }
