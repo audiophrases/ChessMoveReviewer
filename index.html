@@ -513,9 +513,14 @@ Do not use any extra headings, bullet points, or other formatting in your main o
           loaded = game.load_pgn(rebuiltPGN);
           if (!loaded) {
             game.reset();
+            let illegal = null;
             for (let i = 0; i < parsed.moves.length; i++) {
               const san = parsed.moves[i].san;
-              if (!game.move(san)) break;
+              if (!game.move(san)) { illegal = { san, idx: i }; break; }
+            }
+            if (illegal) {
+              showError(`Illegal move "${illegal.san}" at position ${illegal.idx + 1}.`);
+              return;
             }
             if (game.history().length === parsed.moves.length) {
               rebuiltPGN = game.pgn({ maxWidth: 9999 });
