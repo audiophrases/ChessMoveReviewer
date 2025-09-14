@@ -331,7 +331,7 @@ Do not use any extra headings, bullet points, or other formatting in your main o
         let html = formatText(s);
         Object.keys(classificationStyles).forEach(k => {
           if (k === 'default') return;
-          const escaped = k.replace(/[.*+?^${}()|[\]\]/g, '\\$&');
+          const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, '\$&');
           const regex = new RegExp('\\b' + escaped + '\\b', 'gi');
           html = html.replace(regex, m => '<span class="' + getStyleForClassification(k) + '">' + m + '</span>');
         });
