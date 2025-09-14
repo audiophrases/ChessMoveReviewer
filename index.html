@@ -27,10 +27,13 @@
     .btn-primary:disabled { background-color: #374151; cursor: not-allowed; }
     .btn-secondary { background-color: #374151; transition: background-color: 0.2s; }
     .btn-secondary:hover { background-color: #4b5563; }
-    textarea.form-input { background-color: #2d2d2d; border-color: #364152; color: #e5e7eb; }
-    textarea.form-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35); outline: none; }
+    textarea.form-input, input.form-input { background-color: #2d2d2d; border-color: #364152; color: #e5e7eb; }
+    textarea.form-input:focus, input.form-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35); outline: none; }
     .step-indicator { background-color: #273043; }
     .step-indicator.active { background-color: #3b82f6; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
   </style>
 </head>
 <body class="min-h-screen flex flex-col p-3 sm:p-4">
@@ -38,7 +41,6 @@
   <!-- Header (hidden on final screen) -->
   <header id="app-header" class="text-center mb-6">
     <h1 class="text-2xl sm:text-3xl font-bold text-white">AI Chess Reviewer</h1>
-    <p class="text-gray-400 mt-2">A new way to get deep, AI-powered analysis of your games.</p>
   </header>
 
   <!-- Step Indicators -->
@@ -55,6 +57,20 @@
     <div>
       <label for="pgn-input" class="block mb-2 font-semibold text-gray-300">Paste PGN here</label>
       <textarea id="pgn-input" rows="6" class="w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..."></textarea>
+    </div>
+    <div class="flex justify-center gap-2 text-sm">
+      <div class="flex flex-col items-center">
+        <label for="depth-input" class="text-gray-300">Depth</label>
+        <input id="depth-input" type="number" min="1" value="14" class="w-16 p-1 rounded form-input text-center"/>
+      </div>
+      <div class="flex flex-col items-center">
+        <label for="threads-input" class="text-gray-300">Threads</label>
+        <input id="threads-input" type="number" min="1" value="3" class="w-16 p-1 rounded form-input text-center"/>
+      </div>
+      <div class="flex flex-col items-center">
+        <label for="hash-input" class="text-gray-300">Memory</label>
+        <input id="hash-input" type="number" min="1" value="256" class="w-16 p-1 rounded form-input text-center"/>
+      </div>
     </div>
     <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
       Loading Engine...
@@ -145,31 +161,76 @@
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
       // Configure engine search: set either { depth: N } or { movetime: ms }
-      const ENGINE_GO_OPTIONS = { depth: 20 }; // or e.g., { depth: 20 }
-        let engineWorker = null;
-        try {
-          engineWorker = new Worker(new URL(LOCAL_ENGINE, location.href));
-        } catch (err) {
-          console.error('Engine load error', err);
-          showError('Failed to load Stockfish engine. See console for details.');
-          $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
-          return;
-        }
-        engineWorker.onerror = function (err) {
-          console.error('Engine load error', err);
-          showError('Failed to load Stockfish engine. See console for details.');
-          $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
-        };
+      const ENGINE_GO_OPTIONS = { depth: 14 }; // default depth
+      let engineWorker = null;
       let engineReady = false;
       let engineInitTimeout = null;
       let lastInfoMsg = '';
       let currentScoreResolver = null;
 
-      function configureEngineOptions() {
+      function handleEngineMessage(e) {
+        const msg = String(e.data || '');
+        if (msg === 'readyok') {
+          engineReady = true;
+          clearTimeout(engineInitTimeout);
+          $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
+        } else if (msg.startsWith('info depth')) {
+          lastInfoMsg = msg;
+        } else if (msg.startsWith('bestmove')) {
+          const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
+          const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
+          if (currentScoreResolver) {
+            if (mt) {
+              currentScoreResolver({ type: 'mate', value: parseInt(mt[1], 10) });
+            } else if (cp) {
+              currentScoreResolver({ type: 'cp', value: parseInt(cp[1], 10) });
+            } else {
+              currentScoreResolver({ type: 'cp', value: 0 });
+            }
+            currentScoreResolver = null;
+          }
+        }
+      }
+
+      function initEngine() {
+        if (engineWorker) engineWorker.terminate();
+        try {
+          engineWorker = new Worker(new URL(LOCAL_ENGINE, location.href));
+        } catch (err) {
+          console.error('Engine load error', err);
+          showError('Failed to load Stockfish engine. Change the settings and try again.');
+          $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
+          return;
+        }
+        engineWorker.onerror = function (err) {
+          console.error('Engine load error', err);
+          showError('Failed to load Stockfish engine. Change the settings and try again.');
+          $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
+        };
+        engineWorker.onmessage = handleEngineMessage;
+        engineWorker.postMessage('uci');
+        configureEngineOptions(true);
+        engineInitTimeout = setTimeout(() => {
+          if (!engineReady) {
+            engineWorker.terminate();
+            showError('Engine failed to initialize. Please change the settings.');
+            $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
+          }
+        }, 10000);
+      }
+
+      function configureEngineOptions(initial = false) {
         engineReady = false;
-        $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
-        const threadCount = navigator.hardwareConcurrency || 3;
-        const options = { Threads: threadCount , Hash: 256 };
+        if (initial) {
+          $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
+        } else {
+          $('#analyze-pgn-btn').prop('disabled', true);
+        }
+        const depthVal = parseInt($('#depth-input').val(), 10) || 14;
+        const threadVal = parseInt($('#threads-input').val(), 10) || 3;
+        const hashVal = parseInt($('#hash-input').val(), 10) || 256;
+        ENGINE_GO_OPTIONS.depth = depthVal;
+        const options = { Threads: threadVal, Hash: hashVal };
         Object.entries(options).forEach(([name, value]) => {
           engineWorker.postMessage(`setoption name ${name} value ${value}`);
         });
@@ -254,38 +315,8 @@ Example of the final output: Summary: 26 Total Good = 1 Brilliant + 1 Great + 18
 
 Do not use any extra headings, bullet points, or other formatting in your main output`;
 
-      engineWorker.onmessage = function(e) {
-        const msg = String(e.data || '');
-        if (msg === 'readyok') {
-          engineReady = true;
-          clearTimeout(engineInitTimeout);
-          $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
-        } else if (msg.startsWith('info depth')) {
-          lastInfoMsg = msg;
-        } else if (msg.startsWith('bestmove')) {
-          const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
-          const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
-          if (currentScoreResolver) {
-            if (mt) {
-              currentScoreResolver({ type: 'mate', value: parseInt(mt[1], 10) });
-            } else if (cp) {
-              currentScoreResolver({ type: 'cp', value: parseInt(cp[1], 10) });
-            } else {
-              currentScoreResolver({ type: 'cp', value: 0 });
-            }
-            currentScoreResolver = null;
-          }
-        }
-      };
-      engineWorker.postMessage('uci');
-      configureEngineOptions();
-      engineInitTimeout = setTimeout(() => {
-        if (!engineReady) {
-          engineWorker.terminate();
-          showError('Stockfish failed to initialize');
-          $('#analyze-pgn-btn').prop('disabled', false).text('Engine Load Error');
-        }
-      }, 10000);
+      initEngine();
+      $('#depth-input, #threads-input, #hash-input').on('change', initEngine);
 
       function waitForEngineReady() {
         return new Promise(resolve => {
@@ -397,6 +428,7 @@ Do not use any extra headings, bullet points, or other formatting in your main o
           const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm,''));
           if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
         }
+        if (!engineReady) { showError('Engine failed to load. Please adjust the settings.'); return; }
         switchStep(2);
         await runStockfishAnalysis();
       });
