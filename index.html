@@ -509,16 +509,14 @@ Do not use any extra headings, bullet points, or other formatting in your main o
         const parsed = parseAnalysis(finalAnalysisRaw);
         let invalidMove = null;
         if (!loaded && parsed.moves.length) {
-          let rebuiltPGN = buildPGNFromSAN(parsed.moves.map(m => m.san)); game.reset(); loaded = game.load_pgn(rebuiltPGN);
+          const sanList = parsed.moves.map(m => m.san);
+          let rebuiltPGN = buildPGNFromSAN(sanList) + ' *';
+          game.reset(); loaded = game.load_pgn(rebuiltPGN);
           if (!loaded) {
-            game.reset(); let ok = true;
-            for (let i = 0; i < parsed.moves.length; i++) {
-              const san = parsed.moves[i].san;
-              if (!game.move(san)) { invalidMove = { san, index: i + 1 }; ok = false; break; }
-            }
-            if (ok) { rebuiltPGN = game.pgn({ maxWidth: 9999 }); game.reset(); loaded = game.load_pgn(rebuiltPGN); }
+            invalidMove = findInvalidMove(sanList);
+          } else {
+            pgn = rebuiltPGN;
           }
-          if (loaded) pgn = rebuiltPGN;
         }
         if (!loaded) {
           if (invalidMove) showError('Illegal move "' + invalidMove.san + '" at position ' + invalidMove.index + '.');
@@ -568,6 +566,17 @@ Do not use any extra headings, bullet points, or other formatting in your main o
 
       // Build PGN from SAN list
       function buildPGNFromSAN(sanList) { const parts = []; for (let i = 0; i < sanList.length; i++) { const n = Math.floor(i / 2) + 1; if (i % 2 === 0) parts.push(n + '. ' + sanList[i]); else parts.push(sanList[i]); } return parts.join(' '); }
+
+      // Find first illegal move using PGN loading to avoid strict per-move checks
+      function findInvalidMove(sanList) {
+        const temp = new Chess();
+        for (let i = 0; i < sanList.length; i++) {
+          const prefix = buildPGNFromSAN(sanList.slice(0, i + 1)) + ' *';
+          temp.reset();
+          if (!temp.load_pgn(prefix)) return { san: sanList[i], index: i + 1 };
+        }
+        return null;
+      }
 
       // Parse analysis lines with optional {eval} and final Summary:
       function parseAnalysis(text) {
