@@ -126,6 +126,7 @@
               <button id="prev-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">‹ Prev</button>
               <button id="next-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Next ›</button>
               <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
+              <button id="toggle-eval-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Eval</button>
             </div>
           </div>
         </div>
@@ -163,12 +164,14 @@
 
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
-      const ENGINE_GO_OPTIONS = { depth: 12 };
-      let engineWorker = null;
-      let engineReady = false;
-      let engineInitTimeout = null;
-      let lastInfoMsg = '';
-      let currentScoreResolver = null;
+        const ENGINE_GO_OPTIONS = { depth: 12 };
+        let engineWorker = null;
+        let engineReady = false;
+        let engineInitTimeout = null;
+        let lastInfoMsg = '';
+        let currentScoreResolver = null;
+        let showBestMove = false;
+        let bestMoveSquares = null;
 
       function configureEngineOptions() {
         engineReady = false;
@@ -216,13 +219,15 @@
           } else if (msg.startsWith('bestmove')) {
             const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
             const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
+            const bmMatch = /bestmove\s(\S+)/.exec(msg);
+            const bm = bmMatch ? bmMatch[1] : null;
             if (currentScoreResolver) {
               if (mt) {
-                currentScoreResolver({ type: 'mate', value: parseInt(mt[1], 10) });
+                currentScoreResolver({ type: 'mate', value: parseInt(mt[1], 10), bestmove: bm });
               } else if (cp) {
-                currentScoreResolver({ type: 'cp', value: parseInt(cp[1], 10) });
+                currentScoreResolver({ type: 'cp', value: parseInt(cp[1], 10), bestmove: bm });
               } else {
-                currentScoreResolver({ type: 'cp', value: 0 });
+                currentScoreResolver({ type: 'cp', value: 0, bestmove: bm });
               }
               currentScoreResolver = null;
             }
@@ -547,18 +552,40 @@ Before providing any output, you must perform a final check after generating the
         $('#goto-step3-btn').prop('disabled', false);
       }
 
-      function getScore(fen, opts) {
-        return new Promise(resolve => {
-          currentScoreResolver = resolve; lastInfoMsg = '';
-          engineWorker.postMessage('position fen ' + fen);
-          const o = opts || ENGINE_GO_OPTIONS || {};
-          let cmd;
-          if (o.depth != null) cmd = 'go depth ' + o.depth;
-          else if (o.movetime != null) cmd = 'go movetime ' + o.movetime;
-          else cmd = 'go depth 15';
-          engineWorker.postMessage(cmd);
-        });
-      }
+        function getScore(fen, opts) {
+          return new Promise(resolve => {
+            currentScoreResolver = resolve; lastInfoMsg = '';
+            engineWorker.postMessage('position fen ' + fen);
+            const o = opts || ENGINE_GO_OPTIONS || {};
+            let cmd;
+            if (o.depth != null) cmd = 'go depth ' + o.depth;
+            else if (o.movetime != null) cmd = 'go movetime ' + o.movetime;
+            else cmd = 'go depth 15';
+            engineWorker.postMessage(cmd);
+          });
+        }
+
+        function clearBestMoveHighlight() {
+          if (bestMoveSquares) {
+            bestMoveSquares.forEach(sq => $('#board .square-' + sq).removeClass('selected'));
+            bestMoveSquares = null;
+          }
+        }
+
+        function showBestMoveForCurrentPosition() {
+          if (!showBestMove || !engineReady) return;
+          const fen = game ? game.fen() : null;
+          if (!fen) return;
+          getScore(fen).then(res => {
+            if (!showBestMove || !res || !res.bestmove) return;
+            const from = res.bestmove.substring(0, 2);
+            const to = res.bestmove.substring(2, 4);
+            clearBestMoveHighlight();
+            $('#board .square-' + from).addClass('selected');
+            $('#board .square-' + to).addClass('selected');
+            bestMoveSquares = [from, to];
+          });
+        }
 
       $('#copy-stockfish-btn').on('click', function () {
         navigator.clipboard.writeText($('#stockfish-output').val()).then(function(){
@@ -836,22 +863,34 @@ Before providing any output, you must perform a final check after generating the
         }
       }
 
-      function goToMove(idx) {
-        if (idx < -1 || idx >= movesWithAnalysis.length) return;
-        currentMoveIndex = idx; game.reset(); for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
-        if (board) board.position(game.fen());
-        $('.move-item').removeClass('highlight'); if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
-        $('#prev-btn').prop('disabled', idx < 0); $('#next-btn').prop('disabled', idx >= movesWithAnalysis.length - 1);
-        adjustAnalysisHeight(); renderEvalGraph(idx); ensureMoveVisible(idx);
-      }
+        function goToMove(idx) {
+          if (idx < -1 || idx >= movesWithAnalysis.length) return;
+          currentMoveIndex = idx; game.reset(); for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
+          if (board) board.position(game.fen());
+          $('.move-item').removeClass('highlight'); if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
+          $('#prev-btn').prop('disabled', idx < 0); $('#next-btn').prop('disabled', idx >= movesWithAnalysis.length - 1);
+          adjustAnalysisHeight(); renderEvalGraph(idx); ensureMoveVisible(idx);
+          clearBestMoveHighlight();
+          if (showBestMove) showBestMoveForCurrentPosition();
+        }
 
-      $('#next-btn').on('click', function(){ goToMove(currentMoveIndex + 1); });
-      $('#prev-btn').on('click', function(){ goToMove(currentMoveIndex - 1); });
-      $('#flip-btn').on('click', function(){ if (board) board.flip(); });
+        $('#next-btn').on('click', function(){ goToMove(currentMoveIndex + 1); });
+        $('#prev-btn').on('click', function(){ goToMove(currentMoveIndex - 1); });
+        $('#flip-btn').on('click', function(){ if (board) board.flip(); });
+        $('#toggle-eval-btn').on('click', function(){
+          showBestMove = !showBestMove;
+          if (showBestMove) {
+            $('#toggle-eval-btn').text('Hide Eval');
+            showBestMoveForCurrentPosition();
+          } else {
+            $('#toggle-eval-btn').text('Eval');
+            clearBestMoveHighlight();
+          }
+        });
 
-      $(window).on('resize', function(){ adjustAnalysisHeight(); resizeEvalGraph(); });
-      $(document).on('keydown', function(e){ if (!$('#review-section').is(':visible')) return; if (e.key==='ArrowRight') goToMove(currentMoveIndex + 1); if (e.key==='ArrowLeft') goToMove(currentMoveIndex - 1); });
-    });
-  </script>
+        $(window).on('resize', function(){ adjustAnalysisHeight(); resizeEvalGraph(); });
+        $(document).on('keydown', function(e){ if (!$('#review-section').is(':visible')) return; if (e.key==='ArrowRight') goToMove(currentMoveIndex + 1); if (e.key==='ArrowLeft') goToMove(currentMoveIndex - 1); });
+      });
+    </script>
 </body>
 </html>
