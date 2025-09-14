@@ -386,8 +386,11 @@ Before providing any output, you must perform a final check after generating the
           let pattern = k;
           if (k === 'inaccuracy') pattern = 'inaccurac(?:y|ies)';
           else if (k !== 'forced' && k !== 'good') pattern += 's?';
-          const regex = new RegExp('\\b' + pattern + '\\b', 'gi');
-          html = html.replace(regex, m => '<span class="' + getStyleForClassification(k) + '">' + m + '</span>');
+          const regex = new RegExp('(?:\\b(\\d+)\\s+)?\\b' + pattern + '\\b', 'gi');
+          html = html.replace(regex, (match, num) => {
+            if (num && parseInt(num, 10) === 0) return match;
+            return '<span class="' + getStyleForClassification(k) + '">' + match + '</span>';
+          });
         });
 
         // Highlight any percentages (e.g., "Accuracy: 65%" or "65% accuracy")
