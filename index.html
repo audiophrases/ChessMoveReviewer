@@ -168,8 +168,8 @@
       function configureEngineOptions() {
         engineReady = false;
         $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
-        const threadCount = navigator.hardwareConcurrency || 8;
-        const options = { Threads: threadCount , Hash: 500 };
+        const threadCount = navigator.hardwareConcurrency || 4;
+        const options = { Threads: threadCount , Hash: 499 };
         Object.entries(options).forEach(([name, value]) => {
           engineWorker.postMessage(`setoption name ${name} value ${value}`);
         });
