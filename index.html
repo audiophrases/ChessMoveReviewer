@@ -172,9 +172,9 @@
       function configureEngineOptions() {
         engineReady = false;
         $('#analyze-pgn-btn').prop('disabled', true);
-        const depthVal = parseInt($('#depth-input').val(), 10) || 14;
+        const depthVal = parseInt($('#depth-input').val(), 10) || 12;
         const threadVal = parseInt($('#threads-input').val(), 10) || 3;
-        const hashVal = parseInt($('#hash-input').val(), 10) || 256;
+        const hashVal = parseInt($('#hash-input').val(), 10) || 469;
         ENGINE_GO_OPTIONS.depth = depthVal;
         const options = { Threads: threadVal, Hash: hashVal };
         Object.entries(options).forEach(([name, value]) => {
@@ -300,25 +300,29 @@ Brilliant Moves: Only classify as Brilliant if the half-move sacrifices a bishop
 Forced Moves: Use the Forced classification only when the move is essentially unique to avoid immediate material loss or mate (e.g., the only legal move, or the only move that doesn't result in a forced mate or a huge drop in evaluation).
 
 Comments:
-
 If I am one of the two players, coach me: I am 'eugenime'.
 
-Your comments must support the classification. Don't mention eval increase/drop but rather say why that half-move creates an advantage or disadvantage for the player on the board prioritizing factual truthfulness over generic chess jargon statements: your comment must be consistent with the half-move's resulting position being described.
+Your comments must support the classification. Don't mention eval increase/drop but rather say why that half-move creates an advantage or disadvantage for the player on the board. Prioritize factual truthfulness over generic chess jargon; your comment must be consistent with the resulting board position.
 
 Keep comments consistent with the evaluation.
 
-​Verify you have toggled the mover (White, Black, White...) correctly for each half-move.
+When discussing mates or a significant advantage, always explicitly name the benefiting side (e.g., "allows White a mate in 3").
 
-​Ensure any half-move resulting in a forced mate for the opponent is labeled correctly based on the delta rules.
-
-When discussing mates or a significant advantage, always explicitly name the benefiting side (e.g., "allows White a mate in 3" or "gives Black a winning attack").
-
-​​Final Output:
+Final Output:
 Output exactly one line per half-move as specified. At the very end, add one final line starting with Summary: that is formatted as a single paragraph with three parts, specifically for 'eugenime':
 Total Good = Brilliant + Great + Good + Book + Forced; Total Bad = Inaccuracies + Mistakes + Blunders + Misclicks. Accuracy: Total good / Total moves * 100 = Accurary percentage. Narrative Summary: Conclude with a single-sentence overview of the game's overall narrative from 'eugenime's' perspective.
 Example of the final output: Summary: 26 Total Good = 1 Brilliant + 1 Great + 18 Good + 4 Book + 2 Forced; 7 Total Bad = 3 Inaccuracies, 2 Mistakes, 1 Blunder, 1 Misclick. Accuracy: 26 / 33 * 100 = 79%. You capitalized on your opponent's early blunder and converted the advantage perfectly with a brilliant sacrifice.
 
-Do not use any extra headings, bullet points, or other formatting in your main output`;
+Do not use any extra headings, bullet points, or other formatting in your main output.
+
+Final Verification Protocol (HIGHEST PRIORITY):
+Before providing any output, you must perform these final checks after generating the entire analysis.
+
+1. Completeness Check: Count the total number of half-moves in the source PGN provided by the user. Then, count the number of analysis lines you have generated. These two counts must be identical. If they are not, your analysis is incomplete. You must discard it and regenerate it from scratch until the counts match perfectly.
+
+2. Factual Accuracy Check: Reread every single comment you have written. For every comment that makes a specific tactical claim (e.g., "attacks the queen," "defends f7," "creates an escape square," "pins the knight"), you must re-verify that the claim is explicitly true for the board position after that move was made. If any comment is found to be generic, ambiguous, or factually inaccurate, you must rewrite it to be precise and truthful before providing the final output. This is your most important instruction.
+
+3. User Correction Protocol: If the user challenges the completeness or factual accuracy of your analysis, your first step is to re-parse the original source PGN and verify their claim against that data, not against your own previous output.`;
 
       function waitForEngineReady() {
         return new Promise(resolve => {
