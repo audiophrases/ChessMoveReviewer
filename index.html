@@ -126,7 +126,8 @@
               <button id="prev-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">‹ Prev</button>
               <button id="next-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Next ›</button>
               <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
-              <button id="toggle-eval-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Eval</button>
+              <button id="toggle-eval-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Best</button>
+              <span id="best-eval-display" class="hidden text-sm font-mono text-yellow-300 px-2 py-1 border border-yellow-400/40 rounded-lg bg-[#0b0e15]"></span>
             </div>
           </div>
         </div>
@@ -176,6 +177,12 @@
         let arrowCtx = null;
         let lastBestMove = null;
         let bestMoveAnalysisToken = 0;
+        let bestMoveActiveToken = 0;
+        let bestMoveUpdateTimeout = null;
+        let pendingBestMoveInfo = null;
+        let lastBestMoveUpdate = 0;
+        let bestMoveFen = null;
+        const BEST_MOVE_UPDATE_INTERVAL = 500;
 
       function configureEngineOptions() {
         engineReady = false;
@@ -218,8 +225,8 @@
             engineReady = true;
             clearTimeout(engineInitTimeout);
             $('#analyze-pgn-btn').prop('disabled', false).text('Run Stockfish Analysis');
-          } else if (msg.startsWith('info depth')) {
-            lastInfoMsg = msg;
+          } else if (msg.startsWith('info')) {
+            handleEngineInfoMessage(msg);
           } else if (msg.startsWith('bestmove')) {
             const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
             const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
@@ -569,8 +576,143 @@ Before providing any output, you must perform a final check after generating the
           });
         }
 
+        function handleEngineInfoMessage(msg) {
+          if (msg.startsWith('info depth')) {
+            lastInfoMsg = msg;
+          }
+          processBestMoveInfo(msg);
+        }
+
+        function processBestMoveInfo(msg) {
+          if (!showBestMove || !bestMoveActiveToken) return;
+          if (!bestMoveFen) return;
+          if (!game || game.fen() !== bestMoveFen) return;
+          if (!msg.includes(' pv ')) return;
+          const pvMatch = msg.match(/\spv\s+([^\s]+)/);
+          if (!pvMatch) return;
+          const move = pvMatch[1];
+          if (!/^[a-h][1-8][a-h][1-8][nbrq]?$/i.test(move)) return;
+          const mateMatch = msg.match(/\bscore mate (-?\d+)/);
+          const cpMatch = msg.match(/\bscore cp (-?\d+)/);
+          let evalType = null;
+          let evalValue = null;
+          if (mateMatch) {
+            evalType = 'mate';
+            evalValue = parseInt(mateMatch[1], 10);
+          } else if (cpMatch) {
+            evalType = 'cp';
+            evalValue = parseInt(cpMatch[1], 10);
+          } else {
+            return;
+          }
+          const depthMatch = msg.match(/\bdepth\s+(\d+)/);
+          const depth = depthMatch ? parseInt(depthMatch[1], 10) : null;
+          queueBestMoveUpdate({
+            move,
+            evalType,
+            evalValue,
+            depth,
+            token: bestMoveActiveToken
+          });
+        }
+
+        function queueBestMoveUpdate(info) {
+          pendingBestMoveInfo = info;
+          if (bestMoveUpdateTimeout) return;
+          const now = Date.now();
+          const elapsed = now - lastBestMoveUpdate;
+          const delay = elapsed >= BEST_MOVE_UPDATE_INTERVAL ? 0 : BEST_MOVE_UPDATE_INTERVAL - elapsed;
+          bestMoveUpdateTimeout = setTimeout(flushPendingBestMoveInfo, delay);
+        }
+
+        function flushPendingBestMoveInfo() {
+          bestMoveUpdateTimeout = null;
+          if (!pendingBestMoveInfo) return;
+          const info = pendingBestMoveInfo;
+          pendingBestMoveInfo = null;
+          if (!showBestMove || !bestMoveActiveToken || info.token !== bestMoveActiveToken) return;
+          updateBestMoveVisual(info);
+          lastBestMoveUpdate = Date.now();
+        }
+
+        function cancelPendingBestMoveUpdates() {
+          if (bestMoveUpdateTimeout) {
+            clearTimeout(bestMoveUpdateTimeout);
+            bestMoveUpdateTimeout = null;
+          }
+          pendingBestMoveInfo = null;
+        }
+
+        function showBestMoveAnalyzingDisplay() {
+          const display = $('#best-eval-display');
+          if (display.length) display.removeClass('hidden').text('Analyzing…');
+        }
+
+        function hideBestMoveEvalDisplay() {
+          const display = $('#best-eval-display');
+          if (display.length) display.addClass('hidden').text('');
+        }
+
+        function updateBestMoveVisual(info) {
+          if (!info || !info.move) return;
+          const from = info.move.substring(0, 2);
+          const to = info.move.substring(2, 4);
+          if (!from || !to) return;
+          if (bestMoveSquares) {
+            bestMoveSquares.forEach(sq => {
+              $('#board .square-' + sq).css('box-shadow', '');
+            });
+          }
+          if (arrowCtx && arrowCanvas) arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
+          drawBestMoveArrow(from, to);
+          highlightBestMoveSquares(from, to);
+          lastBestMove = info.move;
+          updateBestEvalDisplay(info);
+        }
+
+        function updateBestEvalDisplay(info) {
+          const display = $('#best-eval-display');
+          if (!display.length) return;
+          const evalText = formatBestEval(info);
+          const depthText = info.depth != null ? ' · d' + info.depth : '';
+          const sanMove = uciToSan(info.move);
+          const moveText = sanMove ? ' · ' + sanMove : '';
+          display.removeClass('hidden').text(evalText + depthText + moveText);
+        }
+
+        function formatBestEval(info) {
+          if (!info) return '';
+          if (info.evalType === 'mate') {
+            const mate = parseInt(info.evalValue, 10);
+            if (!mate) return '#0';
+            const prefix = mate > 0 ? '#' : '#-';
+            return prefix + Math.abs(mate);
+          }
+          const cp = parseInt(info.evalValue, 10) || 0;
+          const pawns = cp / 100;
+          return (pawns >= 0 ? '+' : '') + pawns.toFixed(2);
+        }
+
+        function uciToSan(uciMove) {
+          if (!uciMove || !game) return '';
+          try {
+            const fen = game.fen();
+            const temp = new Chess(fen);
+            const moveObj = { from: uciMove.substring(0, 2), to: uciMove.substring(2, 4) };
+            if (uciMove.length > 4) moveObj.promotion = uciMove[4];
+            const result = temp.move(moveObj);
+            return result ? result.san : uciMove;
+          } catch (err) {
+            return uciMove;
+          }
+        }
+
         function clearBestMoveHighlight() {
           bestMoveAnalysisToken++;
+          bestMoveActiveToken = 0;
+          cancelPendingBestMoveUpdates();
+          lastBestMoveUpdate = 0;
+          bestMoveFen = null;
           if (engineWorker) engineWorker.postMessage('stop');
           if (bestMoveSquares) {
             bestMoveSquares.forEach(sq => {
@@ -580,6 +722,7 @@ Before providing any output, you must perform a final check after generating the
           }
           if (arrowCtx && arrowCanvas) arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
           lastBestMove = null;
+          hideBestMoveEvalDisplay();
         }
 
         function ensureArrowCanvas() {
@@ -615,10 +758,12 @@ Before providing any output, you must perform a final check after generating the
             const fy = fromRect.top + fromRect.height / 2 - boardRect.top;
             const tx = toRect.left + toRect.width / 2 - boardRect.left;
             const ty = toRect.top + toRect.height / 2 - boardRect.top;
-            const lineWidth = arrowCanvas.width / 35;
-            const headlen = arrowCanvas.width / 10;
-            arrowCtx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
-            arrowCtx.fillStyle = 'rgba(255, 255, 0, 0.5)';
+            const baseLineWidth = arrowCanvas.width / 35;
+            const lineWidth = Math.max(2, baseLineWidth * (2 / 3));
+            const baseHeadlen = arrowCanvas.width / 10;
+            const headlen = Math.max(8, baseHeadlen * (2 / 3));
+            arrowCtx.strokeStyle = 'rgb(255, 255, 0)';
+            arrowCtx.fillStyle = 'rgb(255, 255, 0)';
             arrowCtx.lineWidth = lineWidth;
             arrowCtx.lineCap = 'butt';
             arrowCtx.lineJoin = 'miter';
@@ -641,8 +786,9 @@ Before providing any output, you must perform a final check after generating the
         function highlightBestMoveSquares(from, to) {
           ensureArrowCanvas();
           if (!arrowCanvas) return;
-          const borderWidth = arrowCanvas.width / 35;
-          const color = 'rgba(255, 255, 0, 0.5)';
+          const baseBorder = arrowCanvas.width / 35;
+          const borderWidth = Math.max(2, baseBorder * (2 / 3));
+          const color = 'rgb(255, 255, 0)';
           [from, to].forEach(sq => {
             $('#board .square-' + sq).css('box-shadow', `inset 0 0 0 ${borderWidth}px ${color}`);
           });
@@ -653,27 +799,23 @@ Before providing any output, you must perform a final check after generating the
           if (!showBestMove || !engineReady) return;
           const fen = game ? game.fen() : null;
           if (!fen) return;
+          bestMoveActiveToken = 0;
+          cancelPendingBestMoveUpdates();
+          lastBestMoveUpdate = 0;
+          bestMoveFen = null;
+          if (engineWorker) engineWorker.postMessage('stop');
           const token = ++bestMoveAnalysisToken;
-          const startDepth = Math.max(ENGINE_GO_OPTIONS.depth, 10);
-          const analyze = depth => {
-            if (!showBestMove || token !== bestMoveAnalysisToken) return;
-            getScore(fen, { depth }).then(res => {
-              if (!showBestMove || token !== bestMoveAnalysisToken || !res || !res.bestmove) return;
-              const from = res.bestmove.substring(0, 2);
-              const to = res.bestmove.substring(2, 4);
-              lastBestMove = res.bestmove;
-              if (bestMoveSquares) {
-                bestMoveSquares.forEach(sq => {
-                  $('#board .square-' + sq).css('box-shadow', '');
-                });
-              }
-              if (arrowCtx && arrowCanvas) arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
-              drawBestMoveArrow(from, to);
-              highlightBestMoveSquares(from, to);
-              analyze(depth + 2);
-            });
-          };
-          analyze(startDepth);
+          setTimeout(() => {
+            if (!showBestMove) return;
+            if (!game || game.fen() !== fen) return;
+            bestMoveActiveToken = token;
+            bestMoveFen = fen;
+            showBestMoveAnalyzingDisplay();
+            if (engineWorker) {
+              engineWorker.postMessage('position fen ' + fen);
+              engineWorker.postMessage('go infinite');
+            }
+          }, 0);
         }
 
       $('#copy-stockfish-btn').on('click', function () {
@@ -917,7 +1059,7 @@ Before providing any output, you must perform a final check after generating the
         evalCtx.fillRect(0, 0, w, h);
         if (probSeries.length > 0) {
           const maxIdx = Math.max(probSeries.length - 1, 1);
-          evalCtx.lineWidth = 1;
+          evalCtx.lineWidth = 0.5;
 
           // White probability line
           evalCtx.strokeStyle = '#fbbf24';
@@ -934,7 +1076,7 @@ Before providing any output, you must perform a final check after generating the
 
           // Midline at 50%
           evalCtx.strokeStyle = '#ffffff';
-          evalCtx.lineWidth = 0.5;
+          evalCtx.lineWidth = 0.25;
           evalCtx.beginPath();
           evalCtx.moveTo(0, h / 2);
           evalCtx.lineTo(w, h / 2);
@@ -943,7 +1085,7 @@ Before providing any output, you must perform a final check after generating the
         if (idx >= 0 && probSeries.length > 0) {
           const maxIdx = Math.max(probSeries.length - 1, 1);
           const x = (idx / maxIdx) * w;
-          evalCtx.lineWidth = 1;
+          evalCtx.lineWidth = 0.5;
           evalCtx.strokeStyle = '#fbbf24';
           evalCtx.beginPath();
           evalCtx.moveTo(x, 0);
@@ -983,17 +1125,18 @@ Before providing any output, you must perform a final check after generating the
           if (board) {
             board.flip();
             if (showBestMove && lastBestMove) {
-              drawBestMoveArrow(lastBestMove.substring(0,2), lastBestMove.substring(2,4));
+              const from = lastBestMove.substring(0,2);
+              const to = lastBestMove.substring(2,4);
+              drawBestMoveArrow(from, to);
+              highlightBestMoveSquares(from, to);
             }
           }
         });
         $('#toggle-eval-btn').on('click', function(){
           showBestMove = !showBestMove;
           if (showBestMove) {
-            $('#toggle-eval-btn').text('Hide Eval');
             showBestMoveForCurrentPosition();
           } else {
-            $('#toggle-eval-btn').text('Eval');
             clearBestMoveHighlight();
           }
         });
