@@ -674,10 +674,9 @@ Before providing any output, you must perform a final check after generating the
           const display = $('#best-eval-display');
           if (!display.length) return;
           const evalText = formatBestEval(info);
-          const depthText = info.depth != null ? ' · d' + info.depth : '';
           const sanMove = uciToSan(info.move);
           const moveText = sanMove ? ' · ' + sanMove : '';
-          display.removeClass('hidden').text(evalText + depthText + moveText);
+          display.removeClass('hidden').text(evalText + moveText);
         }
 
         function formatBestEval(info) {
