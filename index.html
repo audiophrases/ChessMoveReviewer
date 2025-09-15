@@ -612,16 +612,19 @@ Before providing any output, you must perform a final check after generating the
             const ty = toRect.top + toRect.height / 2 - boardRect.top;
             const lineWidth = arrowCanvas.width / 35;
             const headlen = arrowCanvas.width / 10;
-            arrowCtx.strokeStyle = 'rgba(156, 163, 175, 0.5)';
-            arrowCtx.fillStyle = 'rgba(156, 163, 175, 0.5)';
+            arrowCtx.strokeStyle = 'rgba(255, 255, 0, 0.5)';
+            arrowCtx.fillStyle = 'rgba(255, 255, 0, 0.5)';
             arrowCtx.lineWidth = lineWidth;
             arrowCtx.lineCap = 'butt';
             arrowCtx.lineJoin = 'miter';
+            const angle = Math.atan2(ty - fy, tx - fx);
             arrowCtx.beginPath();
             arrowCtx.moveTo(fx, fy);
-            arrowCtx.lineTo(tx, ty);
+            arrowCtx.lineTo(
+                tx - headlen * Math.cos(angle),
+                ty - headlen * Math.sin(angle)
+            );
             arrowCtx.stroke();
-            const angle = Math.atan2(ty - fy, tx - fx);
             arrowCtx.beginPath();
             arrowCtx.moveTo(tx, ty);
             arrowCtx.lineTo(tx - headlen * Math.cos(angle - Math.PI / 6), ty - headlen * Math.sin(angle - Math.PI / 6));
