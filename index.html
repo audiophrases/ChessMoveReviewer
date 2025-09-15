@@ -611,11 +611,11 @@ Before providing any output, you must perform a final check after generating the
             const tx = toRect.left + toRect.width / 2 - boardRect.left;
             const ty = toRect.top + toRect.height / 2 - boardRect.top;
             const lineWidth = arrowCanvas.width / 35;
-            const headlen = arrowCanvas.width / 15;
-            arrowCtx.strokeStyle = '#9ca3af';
-            arrowCtx.fillStyle = '#9ca3af';
+            const headlen = arrowCanvas.width / 10;
+            arrowCtx.strokeStyle = 'rgba(156, 163, 175, 0.5)';
+            arrowCtx.fillStyle = 'rgba(156, 163, 175, 0.5)';
             arrowCtx.lineWidth = lineWidth;
-            arrowCtx.lineCap = 'square';
+            arrowCtx.lineCap = 'butt';
             arrowCtx.lineJoin = 'miter';
             arrowCtx.beginPath();
             arrowCtx.moveTo(fx, fy);
