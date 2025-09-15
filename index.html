@@ -175,6 +175,7 @@
         let arrowCanvas = null;
         let arrowCtx = null;
         let lastBestMove = null;
+        let bestMoveAnalysisToken = 0;
 
       function configureEngineOptions() {
         engineReady = false;
@@ -569,8 +570,12 @@ Before providing any output, you must perform a final check after generating the
         }
 
         function clearBestMoveHighlight() {
+          bestMoveAnalysisToken++;
+          if (engineWorker) engineWorker.postMessage('stop');
           if (bestMoveSquares) {
-            bestMoveSquares.forEach(sq => $('#board .square-' + sq).removeClass('selected'));
+            bestMoveSquares.forEach(sq => {
+              $('#board .square-' + sq).css('box-shadow', '');
+            });
             bestMoveSquares = null;
           }
           if (arrowCtx && arrowCanvas) arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
@@ -633,21 +638,42 @@ Before providing any output, you must perform a final check after generating the
             arrowCtx.fill();
         }
 
+        function highlightBestMoveSquares(from, to) {
+          ensureArrowCanvas();
+          if (!arrowCanvas) return;
+          const borderWidth = arrowCanvas.width / 35;
+          const color = 'rgba(255, 255, 0, 0.5)';
+          [from, to].forEach(sq => {
+            $('#board .square-' + sq).css('box-shadow', `inset 0 0 0 ${borderWidth}px ${color}`);
+          });
+          bestMoveSquares = [from, to];
+        }
+
         function showBestMoveForCurrentPosition() {
           if (!showBestMove || !engineReady) return;
           const fen = game ? game.fen() : null;
           if (!fen) return;
-          getScore(fen, { depth: Math.max(ENGINE_GO_OPTIONS.depth, 18), movetime: 2000 }).then(res => {
-            if (!showBestMove || !res || !res.bestmove) return;
-            const from = res.bestmove.substring(0, 2);
-            const to = res.bestmove.substring(2, 4);
-            lastBestMove = res.bestmove;
-            clearBestMoveHighlight();
-            $('#board .square-' + from).addClass('selected');
-            $('#board .square-' + to).addClass('selected');
-            drawBestMoveArrow(from, to);
-            bestMoveSquares = [from, to];
-          });
+          const token = ++bestMoveAnalysisToken;
+          const startDepth = Math.max(ENGINE_GO_OPTIONS.depth, 10);
+          const analyze = depth => {
+            if (!showBestMove || token !== bestMoveAnalysisToken) return;
+            getScore(fen, { depth }).then(res => {
+              if (!showBestMove || token !== bestMoveAnalysisToken || !res || !res.bestmove) return;
+              const from = res.bestmove.substring(0, 2);
+              const to = res.bestmove.substring(2, 4);
+              lastBestMove = res.bestmove;
+              if (bestMoveSquares) {
+                bestMoveSquares.forEach(sq => {
+                  $('#board .square-' + sq).css('box-shadow', '');
+                });
+              }
+              if (arrowCtx && arrowCanvas) arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
+              drawBestMoveArrow(from, to);
+              highlightBestMoveSquares(from, to);
+              analyze(depth + 2);
+            });
+          };
+          analyze(startDepth);
         }
 
       $('#copy-stockfish-btn').on('click', function () {
@@ -722,7 +748,10 @@ Before providing any output, you must perform a final check after generating the
             adjustAnalysisHeight();
             resizeEvalGraph();
             if (showBestMove && lastBestMove) {
-              drawBestMoveArrow(lastBestMove.substring(0,2), lastBestMove.substring(2,4));
+              const from = lastBestMove.substring(0,2);
+              const to = lastBestMove.substring(2,4);
+              drawBestMoveArrow(from, to);
+              highlightBestMoveSquares(from, to);
             }
           });
           initEvalGraph();
@@ -973,7 +1002,10 @@ Before providing any output, you must perform a final check after generating the
           adjustAnalysisHeight();
           resizeEvalGraph();
           if (showBestMove && lastBestMove) {
-            drawBestMoveArrow(lastBestMove.substring(0,2), lastBestMove.substring(2,4));
+            const from = lastBestMove.substring(0,2);
+            const to = lastBestMove.substring(2,4);
+            drawBestMoveArrow(from, to);
+            highlightBestMoveSquares(from, to);
           }
         });
         $(document).on('keydown', function(e){ if (!$('#review-section').is(':visible')) return; if (e.key==='ArrowRight') goToMove(currentMoveIndex + 1); if (e.key==='ArrowLeft') goToMove(currentMoveIndex - 1); });
