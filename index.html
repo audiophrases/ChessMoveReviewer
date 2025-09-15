@@ -675,7 +675,7 @@ Before providing any output, you must perform a final check after generating the
           if (!display.length) return;
           const evalText = formatBestEval(info);
           const sanMove = uciToSan(info.move);
-          const moveText = sanMove ? ' · ' + sanMove : '';
+          const moveText = sanMove ? ' ' + sanMove : '';
           display.removeClass('hidden').text(evalText + moveText);
         }
 
