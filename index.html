@@ -628,6 +628,7 @@ Before providing any output, you must perform a final check after generating the
             arrowCtx.lineTo(tx - headlen * Math.cos(angle + Math.PI / 6), ty - headlen * Math.sin(angle + Math.PI / 6));
             arrowCtx.closePath();
             arrowCtx.fill();
+        }
 
         function showBestMoveForCurrentPosition() {
           if (!showBestMove || !engineReady) return;
