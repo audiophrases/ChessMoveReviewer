@@ -853,14 +853,20 @@ Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Befo
             if (found !== -1) cursor = found;
           }
           if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++];
+
+          const baseProb = runningProb == null ? 0.5 : runningProb;
           let prob = null;
-          let delta = null;
+          let moverDelta = null;
+          let whiteDelta = null;
+
           if (analysis) {
             if (analysis.delta != null) {
               const swing = analysis.delta * (m.color === 'w' ? 1 : -1);
-              runningProb = clampProb((runningProb == null ? 0.5 : runningProb) + swing / 100);
-              prob = runningProb;
-              delta = analysis.delta;
+              whiteDelta = swing;
+              const newProb = clampProb(baseProb + swing / 100);
+              runningProb = newProb;
+              prob = newProb;
+              moverDelta = analysis.delta;
             } else {
               let targetProb = analysis.prob;
               if (targetProb == null && analysis.mate != null) {
@@ -869,18 +875,43 @@ Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Befo
               }
               if (targetProb != null) {
                 targetProb = clampProb(targetProb);
-                const baseProb = runningProb == null ? 0.5 : runningProb;
-                const swing = (targetProb - baseProb) * 100;
-                delta = swing * (m.color === 'w' ? 1 : -1);
+                whiteDelta = (targetProb - baseProb) * 100;
+                moverDelta = whiteDelta * (m.color === 'w' ? 1 : -1);
                 runningProb = targetProb;
                 prob = targetProb;
               }
             }
           }
+
           if (prob == null) {
-            prob = runningProb == null ? null : runningProb;
+            prob = runningProb == null ? baseProb : runningProb;
           }
-          return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san], prob, delta };
+
+          let displayEvaluation = null;
+          if (analysis) {
+            const evalKind = analysis.kind;
+            const originalEval = analysis.evaluation;
+            if (evalKind === 'mate') {
+              if (originalEval) displayEvaluation = originalEval;
+              else if (analysis.mate != null) displayEvaluation = `{#${analysis.mate}}`;
+            } else if (analysis.delta != null && originalEval) {
+              displayEvaluation = formatDeltaBraced(analysis.delta);
+            } else if ((evalKind === 'percent' || evalKind === 'cp') && whiteDelta != null) {
+              displayEvaluation = formatDeltaBraced(whiteDelta);
+            }
+
+            if (!displayEvaluation) {
+              if (originalEval) displayEvaluation = originalEval;
+              else if (analysis.delta != null) displayEvaluation = formatDeltaBraced(analysis.delta);
+              else if (whiteDelta != null) displayEvaluation = formatDeltaBraced(whiteDelta);
+            }
+
+            analysis.displayEvaluation = displayEvaluation;
+          } else if (whiteDelta != null) {
+            displayEvaluation = formatDeltaBraced(whiteDelta);
+          }
+
+          return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san], prob, delta: moverDelta, displayEvaluation };
         });
         probSeries = movesWithAnalysis.map(m => m.prob);
 
@@ -970,7 +1001,7 @@ Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Befo
       function parseEvalToCp(evalStr) { if (!evalStr) return null; const s = String(evalStr).replace(/[{}\s]/g,''); if (!s) return null; if (s[0] === '#') return s.includes('-') ? -999 : 999; const num = parseFloat(s); if (isNaN(num)) return null; return Math.round(num * 100); }
 
       function parseEvaluationToken(evalStr) {
-        const info = { prob: null, delta: null, mate: null };
+        const info = { prob: null, delta: null, mate: null, kind: null };
         if (!evalStr) return info;
         const s = String(evalStr).replace(/[{}\s]/g, '');
         if (!s) return info;
@@ -981,21 +1012,29 @@ Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Befo
             if (mateNum > 0) info.prob = 1;
             else if (mateNum < 0) info.prob = 0;
             else info.prob = null;
+            info.kind = 'mate';
           }
           return info;
         }
         if (s.endsWith('%')) {
           const num = parseFloat(s.slice(0, -1));
-          if (!Number.isNaN(num)) info.prob = num / 100;
+          if (!Number.isNaN(num)) {
+            info.prob = num / 100;
+            info.kind = 'percent';
+          }
           return info;
         }
         const num = parseFloat(s);
         if (!Number.isNaN(num)) {
           info.delta = num;
+          info.kind = 'delta';
           return info;
         }
         const cp = parseEvalToCp(evalStr);
-        if (cp != null) info.prob = cpToProb(cp);
+        if (cp != null) {
+          info.prob = cpToProb(cp);
+          info.kind = 'cp';
+        }
         return info;
       }
 
@@ -1005,11 +1044,16 @@ Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Befo
         movesWithAnalysis.forEach((mv, i) => {
           const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
           let evalHtml = '';
-          let evalDisplay = null;
-          if (mv.analysis && mv.analysis.evaluation) {
-            evalDisplay = mv.analysis.evaluation;
-          } else if (mv.delta != null) {
-            evalDisplay = formatDeltaBraced(mv.delta);
+          let evalDisplay = mv.displayEvaluation;
+          if (!evalDisplay && mv.analysis && mv.analysis.displayEvaluation) {
+            evalDisplay = mv.analysis.displayEvaluation;
+          }
+          if (!evalDisplay) {
+            if (mv.analysis && mv.analysis.evaluation) {
+              evalDisplay = mv.analysis.evaluation;
+            } else if (mv.delta != null) {
+              evalDisplay = formatDeltaBraced(mv.delta);
+            }
           }
           if (evalDisplay) {
             evalHtml = '<span class="font-mono text-xs text-gray-400 ml-2">' + evalDisplay + '</span>';
