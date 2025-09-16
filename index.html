@@ -443,6 +443,13 @@ Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Befo
         return `{${formatted}}`;
       }
 
+      function formatProbBraced(prob) {
+        const clamped = clampProb(prob);
+        if (clamped == null) return '';
+        const percent = Math.round(clamped * 100);
+        return `{${percent}%}`;
+      }
+
       // ---------- PGN normalization ----------
       function normalizePgn(raw, opts) {
         opts = opts || {}; const keepComments = !!opts.keepComments;
@@ -894,21 +901,22 @@ Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Befo
             if (evalKind === 'mate') {
               if (originalEval) displayEvaluation = originalEval;
               else if (analysis.mate != null) displayEvaluation = `{#${analysis.mate}}`;
-            } else if (analysis.delta != null && originalEval) {
-              displayEvaluation = formatDeltaBraced(analysis.delta);
-            } else if ((evalKind === 'percent' || evalKind === 'cp') && whiteDelta != null) {
-              displayEvaluation = formatDeltaBraced(whiteDelta);
+            } else if (analysis.delta != null || evalKind === 'percent' || evalKind === 'cp') {
+              const probForDisplay = prob != null ? prob : (analysis.prob != null ? clampProb(analysis.prob) : null);
+              if (probForDisplay != null) {
+                displayEvaluation = formatProbBraced(probForDisplay);
+              }
             }
 
-            if (!displayEvaluation) {
-              if (originalEval) displayEvaluation = originalEval;
-              else if (analysis.delta != null) displayEvaluation = formatDeltaBraced(analysis.delta);
-              else if (whiteDelta != null) displayEvaluation = formatDeltaBraced(whiteDelta);
+            if (!displayEvaluation && originalEval) {
+              displayEvaluation = originalEval;
+            } else if (!displayEvaluation && whiteDelta != null) {
+              displayEvaluation = formatDeltaBraced(whiteDelta);
+            } else if (!displayEvaluation && analysis.delta != null) {
+              displayEvaluation = formatDeltaBraced(analysis.delta);
             }
 
             analysis.displayEvaluation = displayEvaluation;
-          } else if (whiteDelta != null) {
-            displayEvaluation = formatDeltaBraced(whiteDelta);
           }
 
           return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san], prob, delta: moverDelta, displayEvaluation };
