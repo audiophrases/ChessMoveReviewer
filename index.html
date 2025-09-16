@@ -460,7 +460,30 @@ Before providing any output, you must perform a final check after generating the
       // ---------- Score helpers ----------
       function cpToProb(cp){ return 1 / (1 + Math.exp(-cp / 173)); }
 
-      function cpToProbBraced(cp){ const pct = Math.round(cpToProb(cp) * 100); return `{${pct}%}`; }
+      function clampProb(p) {
+        if (p == null || Number.isNaN(p)) return null;
+        if (p < 0) return 0;
+        if (p > 1) return 1;
+        return p;
+      }
+
+      function formatDeltaNumber(delta) {
+        if (delta == null || !isFinite(delta)) return null;
+        let rounded = Math.round(delta * 10) / 10;
+        if (Object.is(rounded, -0)) rounded = 0;
+        if (Math.abs(rounded) < 0.05) rounded = 0;
+        let str = rounded.toFixed(1);
+        if (str.endsWith('.0')) str = str.slice(0, -2);
+        if (rounded > 0) return '+' + str;
+        if (rounded < 0) return str;
+        return '0';
+      }
+
+      function formatDeltaBraced(delta) {
+        const formatted = formatDeltaNumber(delta);
+        if (!formatted) return '';
+        return `{${formatted}}`;
+      }
 
       // ---------- PGN normalization ----------
       function normalizePgn(raw, opts) {
@@ -525,6 +548,7 @@ Before providing any output, you must perform a final check after generating the
         const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
         const temp = new Chess();
         probSeries = [];
+        let prevProb = 0.5;
         for (let i = 0; i < sanMoves.length; i++) {
           const moveNumber = Math.floor(i / 2) + 1; const prefix = (i % 2 === 0) ? (moveNumber + '. ') : '';
           const move = sanMoves[i];
@@ -543,16 +567,29 @@ Before providing any output, you must perform a final check after generating the
 
           let evalStr = '';
           let prob = null;
+          let mateScore = null;
           if (score.type === 'mate') {
-            let m = score.value; // mate in N from side to move
-            if (temp.turn() === 'b') m = -m; // convert to WHITE-relative
-            evalStr = `{#${m}}`;
-            prob = (m === 0) ? (lastMoveColor === 'w' ? 1 : 0) : (m > 0 ? 1 : 0);
+            mateScore = score.value; // mate in N from side to move
+            if (temp.turn() === 'b') mateScore = -mateScore; // convert to WHITE-relative
+            prob = (mateScore === 0) ? (lastMoveColor === 'w' ? 1 : 0) : (mateScore > 0 ? 1 : 0);
           } else {
             let cp = score.value; // centipawns from side to move
             if (temp.turn() === 'b') cp = -cp; // convert to WHITE-relative
-            evalStr = cpToProbBraced(cp);
             prob = cpToProb(cp);
+          }
+          prob = clampProb(prob);
+          let moverDelta = null;
+          if (prob != null && prevProb != null) {
+            const diff = (prob - prevProb) * 100;
+            const moverSign = lastMoveColor === 'w' ? 1 : -1;
+            moverDelta = diff * moverSign;
+            prevProb = prob;
+          }
+          const deltaStr = formatDeltaBraced(moverDelta);
+          if (mateScore != null && !deltaStr) {
+            evalStr = `{#${mateScore}}`;
+          } else {
+            evalStr = deltaStr || '{0}';
           }
           probSeries.push(prob);
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
@@ -850,6 +887,7 @@ Before providing any output, you must perform a final check after generating the
         switchStep(4);
 
         const gameMoves = game.history({ verbose: true }); let cursor = 0;
+        let runningProb = 0.5;
         movesWithAnalysis = gameMoves.map(m => {
           let analysis = null;
           if (cursor < parsed.moves.length && parsed.moves[cursor].san !== m.san) {
@@ -858,14 +896,33 @@ Before providing any output, you must perform a final check after generating the
           }
           if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++];
           let prob = null;
+          let delta = null;
           if (analysis) {
-            if (analysis.evaluation && analysis.evaluation.includes('#0')) {
-              prob = m.color === 'w' ? 1 : 0;
+            if (analysis.delta != null) {
+              const swing = analysis.delta * (m.color === 'w' ? 1 : -1);
+              runningProb = clampProb((runningProb == null ? 0.5 : runningProb) + swing / 100);
+              prob = runningProb;
+              delta = analysis.delta;
             } else {
-              prob = analysis.prob;
+              let targetProb = analysis.prob;
+              if (targetProb == null && analysis.mate != null) {
+                if (analysis.mate > 0) targetProb = 1;
+                else if (analysis.mate < 0) targetProb = 0;
+              }
+              if (targetProb != null) {
+                targetProb = clampProb(targetProb);
+                const baseProb = runningProb == null ? 0.5 : runningProb;
+                const swing = (targetProb - baseProb) * 100;
+                delta = swing * (m.color === 'w' ? 1 : -1);
+                runningProb = targetProb;
+                prob = targetProb;
+              }
             }
           }
-          return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san], prob };
+          if (prob == null) {
+            prob = runningProb == null ? null : runningProb;
+          }
+          return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san], prob, delta };
         });
         probSeries = movesWithAnalysis.map(m => m.prob);
 
@@ -940,8 +997,8 @@ Before providing any output, you must perform a final check after generating the
             const evaluation = (m[2] || '').trim() || null;
             const classification = m[3].trim();
             const txt = m[4].trim();
-            const prob = parseEvalToProb(evaluation);
-            parsedMoves.push({ san, evaluation, classification, prob, text: txt });
+            const evalInfo = parseEvaluationToken(evaluation);
+            parsedMoves.push({ san, evaluation, classification, ...evalInfo, text: txt });
             lastSan = san; currentSummary = null; return;
           }
           const cm = line.match(criticalMomentRegex); if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; return; }
@@ -954,29 +1011,34 @@ Before providing any output, you must perform a final check after generating the
       // Convert evaluation string like "{+0.23}", "{-1.10}", "{#3}" (WHITE-relative already)
       function parseEvalToCp(evalStr) { if (!evalStr) return null; const s = String(evalStr).replace(/[{}\s]/g,''); if (!s) return null; if (s[0] === '#') return s.includes('-') ? -999 : 999; const num = parseFloat(s); if (isNaN(num)) return null; return Math.round(num * 100); }
 
-      function parseEvalToProb(evalStr) {
-        if (!evalStr) return null;
+      function parseEvaluationToken(evalStr) {
+        const info = { prob: null, delta: null, mate: null };
+        if (!evalStr) return info;
         const s = String(evalStr).replace(/[{}\s]/g, '');
-        if (!s) return null;
+        if (!s) return info;
         if (s[0] === '#') {
-          const m = parseInt(s.slice(1), 10);
-          if (isNaN(m)) return null;
-          if (m === 0) return null;
-          return m > 0 ? 1 : 0;
+          const mateNum = parseInt(s.slice(1), 10);
+          if (!Number.isNaN(mateNum)) {
+            info.mate = mateNum;
+            if (mateNum > 0) info.prob = 1;
+            else if (mateNum < 0) info.prob = 0;
+            else info.prob = null;
+          }
+          return info;
         }
         if (s.endsWith('%')) {
           const num = parseFloat(s.slice(0, -1));
-          if (isNaN(num)) return null;
-          return num / 100;
+          if (!Number.isNaN(num)) info.prob = num / 100;
+          return info;
+        }
+        const num = parseFloat(s);
+        if (!Number.isNaN(num)) {
+          info.delta = num;
+          return info;
         }
         const cp = parseEvalToCp(evalStr);
-        if (cp == null) return null;
-        return cpToProb(cp);
-      }
-
-      function formatProbability(p) {
-        if (p == null) return '';
-        return (p * 100).toFixed(1) + '%';
+        if (cp != null) info.prob = cpToProb(cp);
+        return info;
       }
 
       // ====== Rendering ======
@@ -985,10 +1047,14 @@ Before providing any output, you must perform a final check after generating the
         movesWithAnalysis.forEach((mv, i) => {
           const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
           let evalHtml = '';
-          if (mv.analysis && mv.analysis.evaluation && mv.analysis.evaluation.includes('#')) {
-            evalHtml = '<span class="font-mono text-xs text-gray-400 ml-2">' + mv.analysis.evaluation + '</span>';
-          } else if (mv.prob != null) {
-            evalHtml = '<span class="font-mono text-xs text-gray-400 ml-2">' + formatProbability(mv.prob) + '</span>';
+          let evalDisplay = null;
+          if (mv.analysis && mv.analysis.evaluation) {
+            evalDisplay = mv.analysis.evaluation;
+          } else if (mv.delta != null) {
+            evalDisplay = formatDeltaBraced(mv.delta);
+          }
+          if (evalDisplay) {
+            evalHtml = '<span class="font-mono text-xs text-gray-400 ml-2">' + evalDisplay + '</span>';
           }
           const html =
             '<div class="move-item p-2 cursor-pointer" data-move-index="' + i + '">' +
@@ -1058,22 +1124,30 @@ Before providing any output, you must perform a final check after generating the
         evalCtx.fillRect(0, 0, w, h);
         if (probSeries.length > 0) {
           const maxIdx = Math.max(probSeries.length - 1, 1);
-          evalCtx.lineWidth = 0.5;
+          const values = probSeries.map(p => {
+            if (p == null) return null;
+            const clamped = clampProb(p);
+            if (clamped == null) return null;
+            return (clamped - 0.5) * 100;
+          });
+          const validValues = values.filter(v => v != null);
+          const scale = validValues.length ? Math.max(50, ...validValues.map(v => Math.abs(v))) : 50;
 
-          // White probability line
+          evalCtx.lineWidth = 0.75;
           evalCtx.strokeStyle = '#fbbf24';
           evalCtx.beginPath();
-          probSeries.forEach((p, i) => {
-            if (p == null) p = 0.5;
-            // Clamp to [0,1] so mate scores render at the extreme edges
-            p = Math.min(Math.max(p, 0), 1);
+          let lastVal = 0;
+          values.forEach((val, i) => {
+            if (val == null) val = lastVal;
+            else lastVal = val;
             const x = (i / maxIdx) * w;
-            const y = (1 - p) * h;
-            if (i === 0) evalCtx.moveTo(x, y); else evalCtx.lineTo(x, y);
+            const y = h / 2 - (val / scale) * (h / 2);
+            if (i === 0) evalCtx.moveTo(x, y);
+            else evalCtx.lineTo(x, y);
           });
           evalCtx.stroke();
 
-          // Midline at 50%
+          // Midline at 0 (equal chances)
           evalCtx.strokeStyle = '#ffffff';
           evalCtx.lineWidth = 0.25;
           evalCtx.beginPath();
