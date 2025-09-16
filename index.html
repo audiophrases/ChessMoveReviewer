@@ -544,7 +544,7 @@ Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Befo
             prevProb = prob;
           }
           const deltaStr = formatDeltaBraced(moverDelta);
-          if (mateScore != null && !deltaStr) {
+          if (mateScore != null) {
             evalStr = `{#${mateScore}}`;
           } else {
             evalStr = deltaStr || '{0}';
