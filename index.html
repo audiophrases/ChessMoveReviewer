@@ -260,47 +260,95 @@
       initEngine(true);
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT = `Analyze the PGN where each move is followed by a mover-centric evaluation delta in braces {}. Positive numbers show how many win-probability percentage points the side who just moved gained compared to the previous position; negative numbers show how many points they lost. Example: {1} means the mover improved the eval by one point; {-3} means they worsened it by three points. 
+      const ANALYSIS_PROMPT = `Analyze the PGN where each move is followed by a mover-centric evaluation delta in braces {}.
 
-Mate Sign Semantics: {#N} means White has a forced mate in N moves. {#-N} means Black has a forced mate in N moves.
+Delta Interpretation
 
-Delta-Based Classification:
-Negative 2–11 points → Inaccuracy
-Negative 12–33 points → Mistake
-Negative 34-55 points → Blunder
-Negative ≥56 points → Misclick??
+Positive numbers = the mover improved White’s win probability by that many points.
 
-When a move hands the opponent a forced mate ({#-N} after a White move or {#N} after a Black move), classify it as a Blunder at minimum. Escalate to Misclick?? if the context shows a drop of 56 or more points.
+Negative numbers = the mover worsened White’s win probability by that many points.
 
-Any half-move that classifies as an Inaccuracy or a Mistake and changes a non-mate position into a forced mate for the opponent must be classified as a Blunder.
+{#N} = White has a forced mate in N.
 
-Book Moves: A move is classified as Book if it follows established chess theory and does not significantly worsen the position according to the evaluation.
+{#-N} = Black has a forced mate in N.
 
-Good Moves: Any solid play that isn't a known opening (Book), a decisive action (Great/Brilliant), or a clear error (Inaccuracy or worse).
+Output Format
 
-Great Moves: Powerful, often decisive moves that are not sacrifices and are the final move of the game delivering checkmate, create a forced mate sequence for the player, or win a significant amount of material like a queen or a rook.
+Exactly one line per half-move:
+<move> - {<eval>} <classification>: <comment>
 
-Brilliant Moves: Only classify as Brilliant if the half-move sacrifices a bishop, rook, knight or queen and eval is improved.
+Do not number moves in the output.
 
-Forced Moves: Use the Forced classification only when the move is essentially unique to avoid forced mate or a huge drop in evaluation.
+End with a single Summary line in this format:
+Summary: X Total Good = (Brilliant + Great + Good + Book + Forced); Y Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: X / Total moves * 100 = Accuracy percentage. Narrative Summary: One-sentence overview of the game from eugenime’s perspective.
 
-Final Output:
-Comments: Produce one line break per half-move in this exact format without numbering: <move> - {<eval>} <classification>: <comment>
-If I am one of the two players, coach me: I am 'eugenime'.
+Step 1 – Mandatory Numeric Classification (absolute priority)
+Classify using only the delta or mate token (never override with opinions):
 
-Don't mention eval increase/drop but rather say why that half-move's resulting position creates an advantage or disadvantage. Prioritize being consistent with the board position over using fancy generic chess jargon.
+delta ≥ -2 → Book (only if opening theory; else Good)
 
-When discussing mates or a significant advantage, always explicitly name the benefiting side (e.g., "allows White a mate in 3").
+-3 to -11 → Inaccuracy
 
-At the very end, add one final line starting with Summary: that is formatted as a single paragraph with three parts, specifically for 'eugenime':
+-12 to -33 → Mistake
 
-Total Good = Brilliant + Great + Good + Book + Forced; Total Bad = Inaccuracies + Mistakes + Blunders + Misclicks. Accuracy: Total good / Total moves * 100 = Accurary percentage. Narrative Summary: Conclude with a single-sentence overview of the game's overall narrative from 'eugenime's' perspective.
+-34 to -55 → Blunder
 
-Example: "Summary: 26 Total Good = 1 Brilliant + 1 Great + 18 Good + 4 Book + 2 Forced; 7 Total Bad = 3 Inaccuracies, 2 Mistakes, 1 Blunder, 1 Misclick. Accuracy: 26 / 33 * 100 = 79%. You capitalized on your opponent's early blunder and converted the advantage perfectly with a brilliant sacrifice."
+≤ -56 → Misclick??
 
-Do not use any headings, bullet points, markup or formatting in your output.
+Step 2 – Mate Overrides (apply after Step 1, but cannot reduce severity)
 
-Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Before providing any output, you must re-verify that all tactical claims (e.g., "attacks the queen," "defends f7," "creates an escape square," "pins the knight") are explicitly true for the board position after that half-move was made. If any comment is factually inaccurate, you must rewrite to make consistent with the position.`;
+After a White move: if eval is {#-N}, classify the move as at least Blunder (upgrade to Misclick?? if the numeric delta ≤ -56).
+
+After a Black move: if eval is {#N}, classify the move as at least Blunder (upgrade to Misclick?? if the numeric delta ≤ -56).
+
+Step 3 – Special Categories (only if consistent with Step 1)
+
+Book: only in the opening phase and only if delta ≥ -2.
+Opening phase = first 10 full moves (plies 1–20). If unsure, use Good instead of Book.
+
+Great: non-sacrificial and either (a) delivers checkmate, (b) initiates a forced mate sequence, or (c) wins a queen or rook; also requires delta  0.
+
+Brilliant: sacrifices a bishop, rook, knight, or queen and delta > 0.
+
+Forced: only when it is the sole legal move or the only move avoiding immediate mate / catastrophic collapse; if uncertain, don’t use Forced.
+
+Comments (must never alter classification)
+
+Explain why the move helped or hurt positionally or tactically.
+
+Keep claims strictly verifiable from the SAN and basic implications:
+
+You may reference: checks (+, #), captures (x), promotions (=Q/R/B/N), castling (O-O, O-O-O), and the destination square/piece exchanged.
+
+Do not assert hidden tactics (pins, forks, mate in X, “only move”) unless they are explicit from the token or move.
+
+If I am one of the players, coach eugenime specifically when giving advice.
+
+Avoid mentioning numeric deltas in comments.
+
+Self-audit checklist (use this right before you submit)
+
+ Any line with {-3…-11} says Inaccuracy (no exceptions).
+
+ Any line with {-12…-33} says Mistake.
+
+ Any line with {-34…-55} says Blunder.
+
+ Any line with {≤-56} says Misclick??.
+
+ Book only in plies 1–16 and only with ≥-2; else Good.
+
+ Mate overrides applied (White move → {#-N}; Black move → {#N}) → at least Blunder, upgraded to Misclick?? if delta ≤ -56.
+
+ Great requires non-sacrifice + delta ≥ 0 and wins major material / starts forced mate.
+
+ Brilliant requires a sacrifice + positive delta.
+
+ Forced only if clearly the sole move; if unsure, don’t use it.
+
+ Comments reference only what’s certain from SAN (checks, captures, destinations); no speculative tactics.
+
+ Summary math checks out.`;
 
       function waitForEngineReady() {
         return new Promise(resolve => {
