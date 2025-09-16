@@ -355,6 +355,7 @@ Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Befo
           if (move) {
             board.position(game.fen());
             clearSelected();
+            handleFreePlayAfterMove();
           } else {
             clearSelected();
             if (game.get(square)) {
@@ -817,6 +818,15 @@ Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Befo
               engineWorker.postMessage('go infinite');
             }
           }, 0);
+        }
+
+        function handleFreePlayAfterMove() {
+          $('.move-item').removeClass('highlight');
+          renderEvalGraph(-1);
+          clearBestMoveHighlight();
+          if (showBestMove) {
+            showBestMoveForCurrentPosition();
+          }
         }
 
       $('#copy-stockfish-btn').on('click', function () {
