@@ -165,7 +165,7 @@
 
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
-        const ENGINE_GO_OPTIONS = { depth: 12 };
+        const ENGINE_GO_OPTIONS = { depth: 20 };
         let engineWorker = null;
         let engineReady = false;
         let engineInitTimeout = null;
@@ -187,8 +187,8 @@
       function configureEngineOptions() {
         engineReady = false;
         $('#analyze-pgn-btn').prop('disabled', true);
-        const depthVal = parseInt($('#depth-input').val(), 10) || 12;
-        const threadVal = parseInt($('#threads-input').val(), 10) || 3;
+        const depthVal = parseInt($('#depth-input').val(), 10) || 14;
+        const threadVal = parseInt($('#threads-input').val(), 10) || 4;
         const hashVal = parseInt($('#hash-input').val(), 10) || 469;
         ENGINE_GO_OPTIONS.depth = depthVal;
         const options = { Threads: threadVal, Hash: hashVal };
@@ -260,68 +260,47 @@
       initEngine(true);
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT = `Analyze the PGN where each move is followed by a mover-centric evaluation delta in braces {}. Positive numbers show how many win-probability percentage points the side who just moved gained compared to the previous ply; negative numbers show how many points they lost. Example: {1} means the mover improved the eval by one point; {-3} means they worsened it by three points. Produce one line break per half-move in this exact format without numbering:
+      const ANALYSIS_PROMPT = `Analyze the PGN where each move is followed by a mover-centric evaluation delta in braces {}. Positive numbers show how many win-probability percentage points the side who just moved gained compared to the previous position; negative numbers show how many points they lost. Example: {1} means the mover improved the eval by one point; {-3} means they worsened it by three points. 
 
-<move> - {<eval>} <classification>: <comment>
-
-Strict rules you MUST follow:
-
-Post-move Eval: The number or mate score in braces {} is always relative to the move it follows. For numeric tokens, treat the value as the mover's delta. To reconstruct White's win probability, start at 50 before move 1: for White moves add positive deltas and subtract negative ones; for Black moves subtract positive deltas from White's chance and add the absolute value of negative deltas. Keep the running value between 0 and 100.
-
-Mate Sign Semantics:
-
-{#N} means White has a forced mate in N moves.
-
-{#-N} means Black has a forced mate in N moves.
+Mate Sign Semantics: {#N} means White has a forced mate in N moves. {#-N} means Black has a forced mate in N moves.
 
 Delta-Based Classification:
+Negative 2–11 points → Inaccuracy
+Negative 12–33 points → Mistake
+Negative 34-55 points → Blunder
+Negative ≥56 points → Misclick??
 
-Negative numeric values mean the mover worsened their position by abs(delta) points. Apply these thresholds using abs(delta):
-
-Drop of 2–11 points → Inaccuracy
-
-Drop of 12–33 points → Mistake
-
-Drop of 34-55 points → Blunder
-
-Drop of ≥56 points → Misclick??
-
-When a move hands the opponent a forced mate ({#-N} after a White move or {#N} after a Black move), classify it as a Blunder at minimum. Escalate to Misclick?? if the context shows a drop of 60 or more points.
+When a move hands the opponent a forced mate ({#-N} after a White move or {#N} after a Black move), classify it as a Blunder at minimum. Escalate to Misclick?? if the context shows a drop of 56 or more points.
 
 Any half-move that classifies as an Inaccuracy or a Mistake and changes a non-mate position into a forced mate for the opponent must be classified as a Blunder.
 
-Book Moves: This classification applies to standard and well-known moves in the opening phase of the game. A move is classified as Book if it follows established chess theory and does not significantly worsen the position according to the evaluation.
+Book Moves: A move is classified as Book if it follows established chess theory and does not significantly worsen the position according to the evaluation.
 
-Good Moves: This is the default classification for any solid move that does not qualify for any other category. A move is Good if it is not a theoretical Book move, a decisive Great or Brilliant move, or a quantifiable error (Inaccuracy, Mistake, Blunder). It improves, maintains, or only slightly worsens the position below the defined error thresholds.
+Good Moves: Any solid play that isn't a known opening (Book), a decisive action (Great/Brilliant), or a clear error (Inaccuracy or worse).
 
-Great Moves: This classification is for powerful, often decisive moves that are not sacrifices. A move is Great if it is not a sacrifice AND it meets one of the following criteria: it is the final move of the game delivering checkmate, it creates a new forced mate sequence for the player, or it is a non-sacrificial move that wins a significant amount of material like a queen or a rook.
+Great Moves: Powerful, often decisive moves that are not sacrifices and are the final move of the game delivering checkmate, create a forced mate sequence for the player, or win a significant amount of material like a queen or a rook.
 
 Brilliant Moves: Only classify as Brilliant if the half-move sacrifices a bishop, rook, knight or queen and eval is improved.
 
-Forced Moves: Use the Forced classification only when the move is essentially unique to avoid immediate material loss or mate (e.g., the only legal move, or the only move that doesn't result in a forced mate or a huge drop in evaluation).
+Forced Moves: Use the Forced classification only when the move is essentially unique to avoid forced mate or a huge drop in evaluation.
 
-Comments:
+Final Output:
+Comments: Produce one line break per half-move in this exact format without numbering: <move> - {<eval>} <classification>: <comment>
 If I am one of the two players, coach me: I am 'eugenime'.
 
-Your comments must support the classification. Don't mention eval increase/drop but rather say why that half-move creates an advantage or disadvantage for the player on the board. Prioritize factual truthfulness over generic chess jargon; your comment must be consistent with the resulting board position.
-
-Keep comments consistent with the evaluation.
+Don't mention eval increase/drop but rather say why that half-move's resulting position creates an advantage or disadvantage. Prioritize being consistent with the board position over using fancy generic chess jargon.
 
 When discussing mates or a significant advantage, always explicitly name the benefiting side (e.g., "allows White a mate in 3").
 
-Final Output:
-
-Output exactly one line per half-move as specified. At the very end, add one final line starting with Summary: that is formatted as a single paragraph with three parts, specifically for 'eugenime':
+At the very end, add one final line starting with Summary: that is formatted as a single paragraph with three parts, specifically for 'eugenime':
 
 Total Good = Brilliant + Great + Good + Book + Forced; Total Bad = Inaccuracies + Mistakes + Blunders + Misclicks. Accuracy: Total good / Total moves * 100 = Accurary percentage. Narrative Summary: Conclude with a single-sentence overview of the game's overall narrative from 'eugenime's' perspective.
 
-Example of the final output: Summary: 26 Total Good = 1 Brilliant + 1 Great + 18 Good + 4 Book + 2 Forced; 7 Total Bad = 3 Inaccuracies, 2 Mistakes, 1 Blunder, 1 Misclick. Accuracy: 26 / 33 * 100 = 79%. You capitalized on your opponent's early blunder and converted the advantage perfectly with a brilliant sacrifice.
+Example: "Summary: 26 Total Good = 1 Brilliant + 1 Great + 18 Good + 4 Book + 2 Forced; 7 Total Bad = 3 Inaccuracies, 2 Mistakes, 1 Blunder, 1 Misclick. Accuracy: 26 / 33 * 100 = 79%. You capitalized on your opponent's early blunder and converted the advantage perfectly with a brilliant sacrifice."
 
-Do not use any extra headings, bullet points, or other formatting in your main output.
+Do not use any headings, bullet points, markup or formatting in your output.
 
-Final Verification Protocol (HIGHEST PRIORITY):
-
-Before providing any output, you must perform a final check after generating the entire analysis: reread every single comment you have written. For every comment that makes a specific tactical claim (e.g., "attacks the queen," "defends f7," "creates an escape square," "pins the knight"), you must re-verify that the claim is explicitly true for the board position after that move was made. If any comment is found to be generic, ambiguous, or factually inaccurate, you must rewrite it to be precise and truthful before providing the final output. This is your most important instruction.`;
+Final Verification Protocol (most important instruction: HIGHEST PRIORITY): Before providing any output, you must re-verify that all tactical claims (e.g., "attacks the queen," "defends f7," "creates an escape square," "pins the knight") are explicitly true for the board position after that half-move was made. If any comment is factually inaccurate, you must rewrite to make consistent with the position.`;
 
       function waitForEngineReady() {
         return new Promise(resolve => {
