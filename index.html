@@ -100,10 +100,10 @@
   <!-- Step 3: Final Analysis Input -->
   <section id="step3-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-xl sm:text-2xl font-bold text-center">Step 3: Paste Your Final AI Review</h2>
-    <p class="text-center text-gray-400">Paste the full text from the AI (PGN + comments) or just comments like <em>e4 - {53%} Good: ...</em>. The braces should contain win-probability percentages. Include the final line starting with <strong>Summary:</strong>.</p>
+    <p class="text-center text-gray-400">Paste the full text from the AI (PGN + comments) or just comments like <em>e4 - {3} Good: ...</em>. The braces should contain the mover's evaluation delta in percentage points—positive values mean the mover improved their position, negative values mean they worsened it. Include the final line starting with <strong>Summary:</strong>.</p>
     <div>
       <label for="final-analysis-input" class="block mb-2 font-semibold text-gray-300">Paste complete analysis here</label>
-      <textarea id="final-analysis-input" rows="6" class="w-full p-3 rounded-lg form-input" placeholder="e4 - {53%} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack."></textarea>
+      <textarea id="final-analysis-input" rows="6" class="w-full p-3 rounded-lg form-input" placeholder="e4 - {3} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack."></textarea>
     </div>
     <button id="generate-review-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
       Generate Interactive Review
@@ -260,13 +260,13 @@
       initEngine(true);
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT = `Analyze the PGN where each move is followed by an evaluation of White's win probability in braces {}. Produce one line break per half-move in this exact format without numbering:
+      const ANALYSIS_PROMPT = `Analyze the PGN where each move is followed by a mover-centric evaluation delta in braces {}. Positive numbers show how many win-probability percentage points the side who just moved gained compared to the previous ply; negative numbers show how many points they lost. Example: {1} means the mover improved the eval by one point; {-3} means they worsened it by three points. Produce one line break per half-move in this exact format without numbering:
 
 <move> - {<eval>} <classification>: <comment>
 
 Strict rules you MUST follow:
 
-Post-move Eval: The number or mate score in braces {} is the evaluation after the move it follows. All percentage evaluations represent White's win probability.
+Post-move Eval: The number or mate score in braces {} is always relative to the move it follows. For numeric tokens, treat the value as the mover's delta. To reconstruct White's win probability, start at 50 before move 1: for White moves add positive deltas and subtract negative ones; for Black moves subtract positive deltas from White's chance and add the absolute value of negative deltas. Keep the running value between 0 and 100.
 
 Mate Sign Semantics:
 
@@ -274,21 +274,9 @@ Mate Sign Semantics:
 
 {#-N} means Black has a forced mate in N moves.
 
-Win-Probability Deltas & Classification:
+Delta-Based Classification:
 
-First, calculate the delta: delta = abs(current_eval - previous_eval).
-
-Next, determine if the move was a drop for the player who moved:
-
-For White (as the mover), a drop is when current_eval < previous_eval.
-
-For Black (as the mover), a drop is when current_eval > previous_eval.
-
-Forced mate for Black {#-N} equals {0%} probability of mate for White.
-
-Forced mate for White {#N} equals {100%} probability of mate for White.
-
-If the move was a drop, classify it based on the delta:
+Negative numeric values mean the mover worsened their position by abs(delta) points. Apply these thresholds using abs(delta):
 
 Drop of 2–11 points → Inaccuracy
 
@@ -298,11 +286,7 @@ Drop of 34-55 points → Blunder
 
 Drop of ≥56 points → Misclick??
 
-If the move was played by Black and the resulting eval is {#N}, Black has allowed a forced mate for White → classify as Blunder or a Misclick?? if eval drop is ≥60 points.
-
-If the move was played by White and the resulting eval is {#-N}, White has allowed a forced mate for Black → classify as Blunder or a Misclick?? if eval drop is ≥60 points.
-
-Example: If the previous eval was {65%} and White moves, resulting in a {#-4}, 65 - 0 = 65-point drop for White and must be classified as a Misclick??.
+When a move hands the opponent a forced mate ({#-N} after a White move or {#N} after a Black move), classify it as a Blunder at minimum. Escalate to Misclick?? if the context shows a drop of 60 or more points.
 
 Any half-move that classifies as an Inaccuracy or a Mistake and changes a non-mate position into a forced mate for the opponent must be classified as a Blunder.
 
@@ -469,14 +453,9 @@ Before providing any output, you must perform a final check after generating the
 
       function formatDeltaNumber(delta) {
         if (delta == null || !isFinite(delta)) return null;
-        let rounded = Math.round(delta * 10) / 10;
+        let rounded = Math.round(delta);
         if (Object.is(rounded, -0)) rounded = 0;
-        if (Math.abs(rounded) < 0.05) rounded = 0;
-        let str = rounded.toFixed(1);
-        if (str.endsWith('.0')) str = str.slice(0, -2);
-        if (rounded > 0) return '+' + str;
-        if (rounded < 0) return str;
-        return '0';
+        return String(rounded);
       }
 
       function formatDeltaBraced(delta) {
