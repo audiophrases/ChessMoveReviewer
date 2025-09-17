@@ -547,11 +547,10 @@ Self-audit checklist before output submission:
         if (!Number.isFinite(numeric)) return '';
         let rounded = Math.round(numeric);
         if (Object.is(rounded, -0)) rounded = 0;
-        const suffix = '%';
         if (rounded >= 0) {
-          return '<span class="font-mono text-xs font-bold text-green-400">&uarr;' + rounded + suffix + '</span>';
+          return '<span class="font-mono text-xs font-bold text-green-400">&uarr;' + rounded + '</span>';
         }
-        return '<span class="font-mono text-xs font-bold text-red-400">&darr;' + Math.abs(rounded) + suffix + '</span>';
+        return '<span class="font-mono text-xs font-bold text-red-400">&darr;' + Math.abs(rounded) + '</span>';
       }
 
       // ---------- PGN normalization ----------
@@ -1473,8 +1472,18 @@ Self-audit checklist before output submission:
           const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
           let evalHtml = '';
           const evaluationSegments = [];
+          let mateDisplay = '';
+          if (mv.analysis && mv.analysis.kind === 'mate') {
+            const mateStr = mv.analysis.displayEvaluation || mv.displayEvaluation || mv.analysis.evaluation;
+            if (mateStr) {
+              mateDisplay = '<span class="font-mono text-xs text-yellow-300">' + mateStr + '</span>';
+              evaluationSegments.push(mateDisplay);
+            }
+          }
+
           const whiteProbSource = mv.prob != null ? mv.prob : (mv.analysis ? mv.analysis.prob : null);
-          const whiteProbHtml = formatWhiteWinProbDisplay(whiteProbSource);
+          const includeProb = !mateDisplay;
+          const whiteProbHtml = includeProb ? formatWhiteWinProbDisplay(whiteProbSource) : '';
           if (whiteProbHtml) evaluationSegments.push(whiteProbHtml);
 
           const moverDeltaSource = mv.delta != null
@@ -1482,15 +1491,6 @@ Self-audit checklist before output submission:
             : (mv.analysis && mv.analysis.delta != null ? mv.analysis.delta : null);
           const moverDeltaHtml = formatMoverDeltaIndicator(moverDeltaSource);
           if (moverDeltaHtml) evaluationSegments.push(moverDeltaHtml);
-
-          let mateDisplay = '';
-          if (mv.analysis && mv.analysis.kind === 'mate') {
-            const mateStr = mv.analysis.displayEvaluation || mv.displayEvaluation || mv.analysis.evaluation;
-            if (mateStr) {
-              mateDisplay = '<span class="font-mono text-xs text-yellow-300">' + mateStr + '</span>';
-            }
-          }
-          if (mateDisplay) evaluationSegments.push(mateDisplay);
 
           if (!evaluationSegments.length) {
             let fallbackEval = mv.displayEvaluation;
