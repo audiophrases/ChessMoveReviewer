@@ -183,7 +183,11 @@
         let lastBestMoveUpdate = 0;
         let bestMoveFen = null;
         let bestMoveFenNormalized = null;
+        let pendingBestMoveVisualData = null;
+        let bestMoveVisualRetryHandle = null;
         const BEST_MOVE_UPDATE_INTERVAL = 250;
+        const BEST_MOVE_VISUAL_RETRY_DELAY = 50;
+        const BEST_MOVE_VISUAL_RETRY_LIMIT = 20;
 
       function configureEngineOptions() {
         engineReady = false;
@@ -713,6 +717,56 @@ Self-audit checklist before output submission:
           if (display.length) display.addClass('hidden').text('');
         }
 
+        function cancelBestMoveVisualRetryTimer() {
+          if (bestMoveVisualRetryHandle) {
+            clearTimeout(bestMoveVisualRetryHandle);
+            bestMoveVisualRetryHandle = null;
+          }
+        }
+
+        function resetBestMoveVisualState() {
+          cancelBestMoveVisualRetryTimer();
+          pendingBestMoveVisualData = null;
+        }
+
+        function scheduleBestMoveVisualRetry() {
+          if (bestMoveVisualRetryHandle) return;
+          bestMoveVisualRetryHandle = setTimeout(() => {
+            bestMoveVisualRetryHandle = null;
+            attemptApplyBestMoveVisual();
+          }, BEST_MOVE_VISUAL_RETRY_DELAY);
+        }
+
+        function attemptApplyBestMoveVisual() {
+          if (!pendingBestMoveVisualData) return;
+          const data = pendingBestMoveVisualData;
+          if (!showBestMove || !bestMoveActiveToken || data.token !== bestMoveActiveToken) {
+            pendingBestMoveVisualData = null;
+            return;
+          }
+          const fromSquareEl = $('#board .square-' + data.from);
+          let pieceReady = false;
+          if (fromSquareEl.length) {
+            pieceReady = fromSquareEl.find('[data-piece]').length > 0;
+          }
+          if (!pieceReady && data.attempts < BEST_MOVE_VISUAL_RETRY_LIMIT) {
+            data.attempts += 1;
+            scheduleBestMoveVisualRetry();
+            return;
+          }
+          pendingBestMoveVisualData = null;
+          cancelBestMoveVisualRetryTimer();
+          if (bestMoveSquares) {
+            bestMoveSquares.forEach(sq => {
+              $('#board .square-' + sq).css('box-shadow', '');
+            });
+          }
+          if (arrowCtx && arrowCanvas) arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
+          drawBestMoveArrow(data.from, data.to);
+          highlightBestMoveSquares(data.from, data.to);
+          lastBestMove = data.move;
+        }
+
         function updateBestMoveVisual(info) {
           if (!info || !info.move) return;
           const moveStr = String(info.move).trim();
@@ -721,31 +775,16 @@ Self-audit checklist before output submission:
           if (!from || !to) return;
           const sanMove = uciToSan(moveStr, bestMoveFen);
           if (!sanMove) return;
-          const fromSquareEl = $('#board .square-' + from);
-          const fromPieceEl = fromSquareEl.find('[data-piece]');
-          if (!fromSquareEl.length || fromPieceEl.length === 0) {
-            const attempts = info.retryCount || 0;
-            if (attempts < 5) {
-              info.retryCount = attempts + 1;
-              setTimeout(() => {
-                if (!showBestMove) return;
-                if (!bestMoveActiveToken || info.token !== bestMoveActiveToken) return;
-                updateBestMoveVisual(info);
-              }, 50);
-            }
-            return;
-          }
-          delete info.retryCount;
-          if (bestMoveSquares) {
-            bestMoveSquares.forEach(sq => {
-              $('#board .square-' + sq).css('box-shadow', '');
-            });
-          }
-          if (arrowCtx && arrowCanvas) arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
-          drawBestMoveArrow(from, to);
-          highlightBestMoveSquares(from, to);
-          lastBestMove = moveStr;
           updateBestEvalDisplay(info, sanMove);
+          cancelBestMoveVisualRetryTimer();
+          pendingBestMoveVisualData = {
+            move: moveStr,
+            from,
+            to,
+            token: info.token,
+            attempts: 0
+          };
+          attemptApplyBestMoveVisual();
         }
 
         function updateBestEvalDisplay(info, sanMove) {
@@ -788,6 +827,7 @@ Self-audit checklist before output submission:
           bestMoveAnalysisToken++;
           bestMoveActiveToken = 0;
           cancelPendingBestMoveUpdates();
+          resetBestMoveVisualState();
           lastBestMoveUpdate = 0;
           bestMoveFen = null;
           bestMoveFenNormalized = null;
@@ -876,8 +916,10 @@ Self-audit checklist before output submission:
         function showBestMoveForCurrentPosition() {
           if (!showBestMove || !engineReady) return;
           if (!game) return;
+          resetBestMoveVisualState();
           const legalMoves = game.moves();
           if (!Array.isArray(legalMoves) || legalMoves.length === 0) {
+            resetBestMoveVisualState();
             hideBestMoveEvalDisplay();
             return;
           }
