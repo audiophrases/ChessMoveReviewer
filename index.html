@@ -722,7 +722,8 @@ Self-audit checklist before output submission:
           const sanMove = uciToSan(moveStr, bestMoveFen);
           if (!sanMove) return;
           const fromSquareEl = $('#board .square-' + from);
-          if (!fromSquareEl.length || fromSquareEl.find('.piece').length === 0) {
+          const fromPieceEl = fromSquareEl.find('[data-piece]');
+          if (!fromSquareEl.length || fromPieceEl.length === 0) {
             const attempts = info.retryCount || 0;
             if (attempts < 5) {
               info.retryCount = attempts + 1;
