@@ -217,12 +217,14 @@
         let bestMoveResponseTimer = null;
         let bestMoveResponseAttempts = 0;
         let bestMoveReplayPending = false;
+        let bestMoveStallTimer = null;
         const BEST_MOVE_UPDATE_INTERVAL = 250;
         const BEST_MOVE_VISUAL_RETRY_DELAY = 50;
         const BEST_MOVE_VISUAL_RETRY_LIMIT = 20;
         const BEST_MOVE_NAVIGATION_DELAY = 120;
         const BEST_MOVE_RESPONSE_TIMEOUT = 1500;
         const BEST_MOVE_RESPONSE_RETRY_LIMIT = 2;
+        const BEST_MOVE_STALL_TIMEOUT = 4500;
 
       function configureEngineOptions() {
         engineReady = false;
@@ -921,23 +923,58 @@ Self-audit checklist before output submission:
           }, BEST_MOVE_NAVIGATION_DELAY);
         }
 
+        function cancelBestMoveStallTimer() {
+          if (bestMoveStallTimer) {
+            clearTimeout(bestMoveStallTimer);
+            bestMoveStallTimer = null;
+          }
+        }
+
         function cancelBestMoveResponseTimer() {
           if (bestMoveResponseTimer) {
             clearTimeout(bestMoveResponseTimer);
             bestMoveResponseTimer = null;
           }
+          cancelBestMoveStallTimer();
+        }
+
+        function scheduleBestMoveStallTimer(token) {
+          cancelBestMoveStallTimer();
+          if (!showBestMove || !bestMoveActiveToken) return;
+          if (!token || token !== bestMoveActiveToken) return;
+          bestMoveStallTimer = setTimeout(() => {
+            handleBestMoveStallTimeout(token);
+          }, BEST_MOVE_STALL_TIMEOUT);
         }
 
         function scheduleBestMoveResponseTimer() {
           cancelBestMoveResponseTimer();
           if (!showBestMove || !bestMoveActiveToken) return;
           bestMoveResponseTimer = setTimeout(handleBestMoveResponseTimeout, BEST_MOVE_RESPONSE_TIMEOUT);
+          scheduleBestMoveStallTimer(bestMoveActiveToken);
+        }
+
+        function handleBestMoveStallTimeout(token) {
+          bestMoveStallTimer = null;
+          if (!showBestMove || !bestMoveActiveToken) return;
+          if (!token || token !== bestMoveActiveToken) return;
+          if (!bestMoveFen || lastBestMoveUpdate > 0) return;
+          handleBestMoveResponseTimeout();
         }
 
         function handleBestMoveResponseTimeout() {
+          cancelBestMoveStallTimer();
           bestMoveResponseTimer = null;
           if (!showBestMove || !bestMoveActiveToken) return;
-          if (!engineWorker || !bestMoveFen) return;
+          if (!engineWorker || !bestMoveFen) {
+            if (!engineWorker) {
+              const shouldReplay = showBestMove;
+              bestMoveResponseAttempts = 0;
+              bestMoveReplayPending = shouldReplay;
+              initEngine();
+            }
+            return;
+          }
           bestMoveResponseAttempts += 1;
           if (bestMoveResponseAttempts > BEST_MOVE_RESPONSE_RETRY_LIMIT) {
             const shouldReplay = showBestMove;
