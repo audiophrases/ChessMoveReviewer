@@ -213,9 +213,13 @@
         let bestMoveFenNormalized = null;
         let pendingBestMoveVisualData = null;
         let bestMoveVisualRetryHandle = null;
+        let bestMoveResponseTimeoutHandle = null;
+        let bestMoveStallTimeoutHandle = null;
         const BEST_MOVE_UPDATE_INTERVAL = 250;
         const BEST_MOVE_VISUAL_RETRY_DELAY = 50;
         const BEST_MOVE_VISUAL_RETRY_LIMIT = 20;
+        const BEST_MOVE_RESPONSE_TIMEOUT = 2500;
+        const BEST_MOVE_STALL_TIMEOUT = 9000;
 
       function configureEngineOptions() {
         engineReady = false;
@@ -815,6 +819,8 @@ Self-audit checklist before output submission:
           if (!pvMatch) return;
           const move = pvMatch[1];
           if (!/^[a-h][1-8][a-h][1-8][nbrq]?$/i.test(move)) return;
+          scheduleBestMoveResponseTimer(bestMoveActiveToken);
+          scheduleBestMoveStallTimer(bestMoveActiveToken);
           const mateMatch = msg.match(/\bscore mate (-?\d+)/);
           const cpMatch = msg.match(/\bscore cp (-?\d+)/);
           let evalType = null;
@@ -864,6 +870,96 @@ Self-audit checklist before output submission:
             bestMoveUpdateTimeout = null;
           }
           pendingBestMoveInfo = null;
+        }
+
+        function cancelBestMoveResponseTimer() {
+          if (bestMoveResponseTimeoutHandle) {
+            clearTimeout(bestMoveResponseTimeoutHandle);
+            bestMoveResponseTimeoutHandle = null;
+          }
+        }
+
+        function cancelBestMoveStallTimer() {
+          if (bestMoveStallTimeoutHandle) {
+            clearTimeout(bestMoveStallTimeoutHandle);
+            bestMoveStallTimeoutHandle = null;
+          }
+        }
+
+        function cancelBestMoveWatchdog() {
+          cancelBestMoveResponseTimer();
+          cancelBestMoveStallTimer();
+        }
+
+        function scheduleBestMoveResponseTimer(token) {
+          cancelBestMoveResponseTimer();
+          if (!showBestMove || !token) return;
+          bestMoveResponseTimeoutHandle = setTimeout(() => {
+            handleBestMoveResponseTimeout(token);
+          }, BEST_MOVE_RESPONSE_TIMEOUT);
+        }
+
+        function scheduleBestMoveStallTimer(token) {
+          cancelBestMoveStallTimer();
+          if (!showBestMove || !token) return;
+          bestMoveStallTimeoutHandle = setTimeout(() => {
+            handleBestMoveStallTimeout(token);
+          }, BEST_MOVE_STALL_TIMEOUT);
+        }
+
+        function handleBestMoveResponseTimeout(token) {
+          bestMoveResponseTimeoutHandle = null;
+          if (!showBestMove || !bestMoveActiveToken || token !== bestMoveActiveToken) return;
+          if (!engineReady || !engineWorker) return;
+          if (!bestMoveFen || !bestMoveFenNormalized) return;
+          if (!game) return;
+          const currentFen = game.fen();
+          if (!currentFen) return;
+          const currentNormalized = normalizeFenForComparison(currentFen);
+          if (currentNormalized !== bestMoveFenNormalized) return;
+          engineWorker.postMessage('stop');
+          engineWorker.postMessage('position fen ' + currentFen);
+          engineWorker.postMessage('go infinite');
+          scheduleBestMoveResponseTimer(token);
+        }
+
+        function handleBestMoveStallTimeout(token) {
+          bestMoveStallTimeoutHandle = null;
+          if (!showBestMove || !bestMoveActiveToken || token !== bestMoveActiveToken) return;
+          if (!bestMoveFen || !bestMoveFenNormalized) return;
+          if (!game) return;
+          const currentFen = game.fen();
+          if (!currentFen) return;
+          const currentNormalized = normalizeFenForComparison(currentFen);
+          if (currentNormalized !== bestMoveFenNormalized) return;
+          restartEngineAndRetryBestMove(token, currentFen, currentNormalized);
+        }
+
+        async function restartEngineAndRetryBestMove(token, fenSnapshot, normalizedSnapshot) {
+          if (!fenSnapshot || !normalizedSnapshot) return;
+          cancelBestMoveResponseTimer();
+          cancelBestMoveStallTimer();
+          initEngine();
+          try {
+            await waitForEngineReady();
+          } catch (err) {
+            return;
+          }
+          if (!showBestMove || !bestMoveActiveToken || token !== bestMoveActiveToken) return;
+          if (!engineReady || !engineWorker) return;
+          if (!game) return;
+          const currentFen = game.fen();
+          if (!currentFen) return;
+          const currentNormalized = normalizeFenForComparison(currentFen);
+          if (currentNormalized !== normalizedSnapshot) return;
+          bestMoveFen = currentFen;
+          bestMoveFenNormalized = currentNormalized;
+          showBestMoveAnalyzingDisplay();
+          cancelPendingBestMoveUpdates();
+          engineWorker.postMessage('position fen ' + currentFen);
+          engineWorker.postMessage('go infinite');
+          scheduleBestMoveResponseTimer(token);
+          scheduleBestMoveStallTimer(token);
         }
 
         function showBestMoveAnalyzingDisplay() {
@@ -985,6 +1081,7 @@ Self-audit checklist before output submission:
         function clearBestMoveHighlight() {
           bestMoveAnalysisToken++;
           bestMoveActiveToken = 0;
+          cancelBestMoveWatchdog();
           cancelPendingBestMoveUpdates();
           resetBestMoveVisualState();
           lastBestMoveUpdate = 0;
@@ -1073,6 +1170,7 @@ Self-audit checklist before output submission:
         }
 
         function showBestMoveForCurrentPosition() {
+          cancelBestMoveWatchdog();
           if (!showBestMove || !engineReady) return;
           if (!game) return;
           resetBestMoveVisualState();
@@ -1107,6 +1205,8 @@ Self-audit checklist before output submission:
               engineWorker.postMessage('position fen ' + currentFen);
               engineWorker.postMessage('go infinite');
             }
+            scheduleBestMoveResponseTimer(token);
+            scheduleBestMoveStallTimer(token);
           }, 0);
         }
 
