@@ -544,7 +544,7 @@ Self-audit checklist before output submission:
         const clamped = clampProb(prob);
         if (clamped == null) return '';
         const percent = Math.round(clamped * 100);
-        return '<span class="font-mono text-xs text-gray-400">{' + percent + '%}</span>';
+        return '<span class="font-mono text-xs text-yellow-400">{' + percent + '%}</span>';
       }
 
       function formatMoverDeltaIndicator(delta) {
