@@ -182,6 +182,7 @@
         let pendingBestMoveInfo = null;
         let lastBestMoveUpdate = 0;
         let bestMoveFen = null;
+        let bestMoveFenNormalized = null;
         const BEST_MOVE_UPDATE_INTERVAL = 250;
 
       function configureEngineOptions() {
@@ -632,10 +633,20 @@ Self-audit checklist before output submission:
           processBestMoveInfo(msg);
         }
 
+        function normalizeFenForComparison(fen) {
+          if (!fen) return '';
+          const parts = String(fen).trim().split(/\s+/);
+          if (parts.length < 4) return String(fen).trim();
+          return parts.slice(0, 4).join(' ');
+        }
+
         function processBestMoveInfo(msg) {
           if (!showBestMove || !bestMoveActiveToken) return;
-          if (!bestMoveFen) return;
-          if (!game || game.fen() !== bestMoveFen) return;
+          if (!bestMoveFen || !bestMoveFenNormalized) return;
+          if (!game) return;
+          const currentFen = game.fen();
+          if (!currentFen) return;
+          if (normalizeFenForComparison(currentFen) !== bestMoveFenNormalized) return;
           if (!msg.includes(' pv ')) return;
           const pvMatch = msg.match(/\spv\s+([^\s]+)/);
           if (!pvMatch) return;
@@ -704,9 +715,26 @@ Self-audit checklist before output submission:
 
         function updateBestMoveVisual(info) {
           if (!info || !info.move) return;
-          const from = info.move.substring(0, 2);
-          const to = info.move.substring(2, 4);
+          const moveStr = String(info.move).trim();
+          const from = moveStr.substring(0, 2);
+          const to = moveStr.substring(2, 4);
           if (!from || !to) return;
+          const sanMove = uciToSan(moveStr, bestMoveFen);
+          if (!sanMove) return;
+          const fromSquareEl = $('#board .square-' + from);
+          if (!fromSquareEl.length || fromSquareEl.find('.piece').length === 0) {
+            const attempts = info.retryCount || 0;
+            if (attempts < 5) {
+              info.retryCount = attempts + 1;
+              setTimeout(() => {
+                if (!showBestMove) return;
+                if (!bestMoveActiveToken || info.token !== bestMoveActiveToken) return;
+                updateBestMoveVisual(info);
+              }, 50);
+            }
+            return;
+          }
+          delete info.retryCount;
           if (bestMoveSquares) {
             bestMoveSquares.forEach(sq => {
               $('#board .square-' + sq).css('box-shadow', '');
@@ -715,15 +743,14 @@ Self-audit checklist before output submission:
           if (arrowCtx && arrowCanvas) arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
           drawBestMoveArrow(from, to);
           highlightBestMoveSquares(from, to);
-          lastBestMove = info.move;
-          updateBestEvalDisplay(info);
+          lastBestMove = moveStr;
+          updateBestEvalDisplay(info, sanMove);
         }
 
-        function updateBestEvalDisplay(info) {
+        function updateBestEvalDisplay(info, sanMove) {
           const display = $('#best-eval-display');
           if (!display.length) return;
           const evalText = formatBestEval(info);
-          const sanMove = uciToSan(info.move);
           const moveText = sanMove ? ' ' + sanMove : '';
           display.removeClass('hidden').text(evalText + moveText);
         }
@@ -741,17 +768,18 @@ Self-audit checklist before output submission:
           return (pawns >= 0 ? '+' : '') + pawns.toFixed(2);
         }
 
-        function uciToSan(uciMove) {
-          if (!uciMove || !game) return '';
+        function uciToSan(uciMove, fenOverride) {
+          if (!uciMove) return null;
           try {
-            const fen = game.fen();
-            const temp = new Chess(fen);
+            const baseFen = fenOverride || (game ? game.fen() : null);
+            if (!baseFen) return null;
+            const temp = new Chess(baseFen);
             const moveObj = { from: uciMove.substring(0, 2), to: uciMove.substring(2, 4) };
             if (uciMove.length > 4) moveObj.promotion = uciMove[4];
             const result = temp.move(moveObj);
-            return result ? result.san : uciMove;
+            return result ? result.san : null;
           } catch (err) {
-            return uciMove;
+            return null;
           }
         }
 
@@ -761,6 +789,7 @@ Self-audit checklist before output submission:
           cancelPendingBestMoveUpdates();
           lastBestMoveUpdate = 0;
           bestMoveFen = null;
+          bestMoveFenNormalized = null;
           if (engineWorker) engineWorker.postMessage('stop');
           if (bestMoveSquares) {
             bestMoveSquares.forEach(sq => {
@@ -845,22 +874,35 @@ Self-audit checklist before output submission:
 
         function showBestMoveForCurrentPosition() {
           if (!showBestMove || !engineReady) return;
-          const fen = game ? game.fen() : null;
+          if (!game) return;
+          const legalMoves = game.moves();
+          if (!Array.isArray(legalMoves) || legalMoves.length === 0) {
+            hideBestMoveEvalDisplay();
+            return;
+          }
+          const fen = game.fen();
           if (!fen) return;
           bestMoveActiveToken = 0;
           cancelPendingBestMoveUpdates();
           lastBestMoveUpdate = 0;
           bestMoveFen = null;
+          bestMoveFenNormalized = null;
           if (engineWorker) engineWorker.postMessage('stop');
           const token = ++bestMoveAnalysisToken;
+          const targetNormalizedFen = normalizeFenForComparison(fen);
           setTimeout(() => {
             if (!showBestMove) return;
-            if (!game || game.fen() !== fen) return;
+            if (!game) return;
+            const currentFen = game.fen();
+            if (!currentFen) return;
+            const currentNormalized = normalizeFenForComparison(currentFen);
+            if (currentNormalized !== targetNormalizedFen) return;
             bestMoveActiveToken = token;
-            bestMoveFen = fen;
+            bestMoveFen = currentFen;
+            bestMoveFenNormalized = currentNormalized;
             showBestMoveAnalyzingDisplay();
             if (engineWorker) {
-              engineWorker.postMessage('position fen ' + fen);
+              engineWorker.postMessage('position fen ' + currentFen);
               engineWorker.postMessage('go infinite');
             }
           }, 0);
