@@ -32,8 +32,9 @@
     input[type=number]::-webkit-outer-spin-button,
     input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     input[type=number] { -moz-appearance: textfield; }
-    .step-indicator { background-color: #273043; }
+    .step-indicator { background-color: #273043; cursor: pointer; }
     .step-indicator.active { background-color: #3b82f6; }
+    .step-indicator:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
     #board .square-55d63.selected { background-color: rgba(251, 191, 36, 0.5); }
   </style>
 </head>
@@ -46,9 +47,9 @@
 
   <!-- Step Indicators -->
   <div id="step-indicators" class="flex justify-center items-center space-x-3 mb-6">
-    <div id="indicator-1" class="step-indicator active w-8 h-2 rounded-full"></div>
-    <div id="indicator-2" class="step-indicator w-8 h-2 rounded-full"></div>
-    <div id="indicator-3" class="step-indicator w-8 h-2 rounded-full"></div>
+    <div id="indicator-1" class="step-indicator active w-8 h-2 rounded-full" data-step="1" role="button" tabindex="0" aria-label="Go to Step 1"></div>
+    <div id="indicator-2" class="step-indicator w-8 h-2 rounded-full" data-step="2" role="button" tabindex="0" aria-label="Go to Step 2"></div>
+    <div id="indicator-3" class="step-indicator w-8 h-2 rounded-full" data-step="3" role="button" tabindex="0" aria-label="Go to Step 3"></div>
   </div>
 
   <!-- Step 1: PGN Input -->
@@ -73,9 +74,14 @@
         <input id="hash-input" type="number" min="256" value="469" class="w-16 p-1 rounded form-input text-center"/>
       </div>
     </div>
-    <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
-      Loading Engine...
-    </button>
+    <div class="flex flex-col sm:flex-row gap-2">
+      <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
+        Loading Engine...
+      </button>
+      <button id="goto-step2-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
+        Go to Step 2 without analysis
+      </button>
+    </div>
   </section>
 
   <!-- Step 2: Stockfish Output & AI Instructions -->
@@ -92,9 +98,14 @@
       <textarea id="stockfish-output" rows="7" class="w-full p-3 rounded-lg form-input font-mono text-sm" readonly></textarea>
       <button id="copy-stockfish-btn" class="w-full mt-2 py-2 px-4 font-semibold text-white rounded-lg btn-secondary">Copy to Clipboard</button>
     </div>
-    <button id="goto-step3-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
-      Continue to Final Step
-    </button>
+    <div class="flex flex-col sm:flex-row gap-2">
+      <button id="back-to-step1-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
+        Back to Step 1
+      </button>
+      <button id="goto-step3-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
+        Continue to Final Step
+      </button>
+    </div>
   </section>
 
   <!-- Step 3: Final Analysis Input -->
@@ -105,9 +116,14 @@
       <label for="final-analysis-input" class="block mb-2 font-semibold text-gray-300">Paste complete analysis here</label>
       <textarea id="final-analysis-input" rows="6" class="w-full p-3 rounded-lg form-input" placeholder="e4 - {3} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack."></textarea>
     </div>
-    <button id="generate-review-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
-      Generate Interactive Review
-    </button>
+    <div class="flex flex-col sm:flex-row gap-2">
+      <button id="back-to-step2-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
+        Back to Step 2
+      </button>
+      <button id="generate-review-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
+        Generate Interactive Review
+      </button>
+    </div>
   </section>
 
   <!-- Final Review Section (mobile-optimized) -->
@@ -162,6 +178,18 @@
   <script>
     $(function () {
       $('#threads-input').val(4);
+
+      const FORM_STORAGE_KEY = 'cmr-form-state-v1';
+      const STEP_HASHES = { 1: '', 2: '#step-2', 3: '#step-3', 4: '#step-4' };
+      let formState = loadFormState();
+      let currentStep = 1;
+
+      applySavedFormState();
+      bindPersistentInput('#pgn-input', 'pgnInput');
+      bindPersistentInput('#final-analysis-input', 'finalAnalysisInput');
+      bindPersistentInput('#depth-input', 'depthInput');
+      bindPersistentInput('#threads-input', 'threadsInput');
+      bindPersistentInput('#hash-input', 'hashInput');
 
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
@@ -550,15 +578,145 @@ Self-audit checklist before output submission:
         return lines.join('\n');
       }
 
-      function switchStep(step) {
-        ['#step1-section','#step2-section','#step3-section','#review-section'].forEach(s => $(s).addClass('hidden'));
-        $('.step-indicator').removeClass('active');
-        $('#indicator-' + step).addClass('active');
-        if (step <= 3) $('#step' + step + '-section').removeClass('hidden');
-        else $('#review-section').removeClass('hidden');
-        // Hide header on final screen (no titles)
-        if (step === 4) { $('#app-header, #step-indicators').addClass('hidden'); } else { $('#app-header, #step-indicators').removeClass('hidden'); }
+      function normalizeStep(step) {
+        const n = parseInt(step, 10);
+        if (!Number.isFinite(n) || Number.isNaN(n)) return 1;
+        if (n < 1) return 1;
+        if (n > 4) return 4;
+        return n;
       }
+
+      function getStepFromHash(hash) {
+        if (!hash) return 1;
+        if (hash === '#step-1') return 1;
+        const match = Object.entries(STEP_HASHES).find(([, value]) => value === hash);
+        if (!match) return 1;
+        return normalizeStep(parseInt(match[0], 10));
+      }
+
+      function loadFormState() {
+        if (typeof window === 'undefined' || !window.localStorage) return {};
+        try {
+          const raw = window.localStorage.getItem(FORM_STORAGE_KEY);
+          if (!raw) return {};
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') return parsed;
+        } catch (err) {
+          console.warn('Unable to load saved form state:', err);
+        }
+        return {};
+      }
+
+      function persistFormState() {
+        if (typeof window === 'undefined' || !window.localStorage) return;
+        try {
+          window.localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(formState || {}));
+        } catch (err) {
+          console.warn('Unable to persist form state:', err);
+        }
+      }
+
+      function updateFormState(key, value) {
+        if (!key) return;
+        if (!formState || typeof formState !== 'object') formState = {};
+        formState[key] = value;
+        persistFormState();
+      }
+
+      function bindPersistentInput(selector, key) {
+        const el = $(selector);
+        if (!el.length) return;
+        el.on('input change', function () {
+          updateFormState(key, $(this).val());
+        });
+      }
+
+      function applySavedFormState() {
+        if (!formState) return;
+        if (formState.pgnInput != null) $('#pgn-input').val(formState.pgnInput);
+        if (formState.finalAnalysisInput != null) $('#final-analysis-input').val(formState.finalAnalysisInput);
+        if (formState.depthInput != null) $('#depth-input').val(formState.depthInput);
+        if (formState.threadsInput != null) $('#threads-input').val(formState.threadsInput);
+        if (formState.hashInput != null) $('#hash-input').val(formState.hashInput);
+        if (formState.stockfishOutput != null) $('#stockfish-output').val(formState.stockfishOutput);
+      }
+
+      function switchStep(step, opts) {
+        opts = opts || {};
+        const normalized = normalizeStep(step);
+        const previous = currentStep;
+        currentStep = normalized;
+
+        const sections = ['#step1-section', '#step2-section', '#step3-section', '#review-section'];
+        sections.forEach((selector, index) => {
+          if (index === normalized - 1) {
+            $(selector).removeClass('hidden');
+          } else {
+            $(selector).addClass('hidden');
+          }
+        });
+
+        $('.step-indicator').removeClass('active').removeAttr('aria-current');
+        const indicatorIndex = Math.min(normalized, 3);
+        const indicatorEl = $('#indicator-' + indicatorIndex);
+        if (indicatorEl.length) {
+          indicatorEl.addClass('active').attr('aria-current', 'step');
+        }
+
+        if (normalized === 4) {
+          $('#app-header, #step-indicators').addClass('hidden');
+        } else {
+          $('#app-header, #step-indicators').removeClass('hidden');
+        }
+
+        if (!opts.skipHistory && window.history && window.history.pushState) {
+          const targetHash = STEP_HASHES[normalized] != null ? STEP_HASHES[normalized] : STEP_HASHES[1];
+          const basePath = window.location.pathname + window.location.search;
+          const targetUrl = targetHash ? (basePath + targetHash) : basePath;
+          const state = { step: normalized };
+          if (opts.replace) {
+            window.history.replaceState(state, '', targetUrl);
+          } else if (previous === normalized) {
+            window.history.replaceState(state, '', targetUrl);
+          } else {
+            window.history.pushState(state, '', targetUrl);
+          }
+        }
+      }
+
+      $('.step-indicator').each(function () {
+        const step = parseInt($(this).data('step'), 10);
+        if (!step) return;
+        $(this).on('click', function () { switchStep(step); });
+        $(this).on('keydown', function (evt) {
+          if (evt.key === 'Enter' || evt.key === ' ' || evt.key === 'Spacebar' || evt.key === 'Space') {
+            evt.preventDefault();
+            switchStep(step);
+          }
+        });
+      });
+
+      const initialStep = (window.history && window.history.state && typeof window.history.state.step === 'number')
+        ? normalizeStep(window.history.state.step)
+        : getStepFromHash(window.location.hash);
+      switchStep(initialStep, { skipHistory: true });
+      if (window.history && window.history.replaceState) {
+        const initialHash = STEP_HASHES[initialStep] != null ? STEP_HASHES[initialStep] : STEP_HASHES[1];
+        const basePath = window.location.pathname + window.location.search;
+        const initialUrl = initialHash ? (basePath + initialHash) : basePath;
+        window.history.replaceState({ step: initialStep }, '', initialUrl);
+      }
+
+      window.addEventListener('popstate', function (event) {
+        const stateStep = event.state && typeof event.state.step === 'number'
+          ? normalizeStep(event.state.step)
+          : getStepFromHash(window.location.hash);
+        switchStep(stateStep, { skipHistory: true });
+      });
+
+      $('#goto-step2-btn').on('click', function(){ switchStep(2); });
+      $('#back-to-step1-btn').on('click', function(){ switchStep(1); });
+      $('#back-to-step2-btn').on('click', function(){ switchStep(2); });
 
       $('#analyze-pgn-btn').on('click', async function () {
         const pgnRaw = $('#pgn-input').val().trim(); if (!pgnRaw) { showError('Please paste a PGN.'); return; }
@@ -629,6 +787,7 @@ Self-audit checklist before output submission:
         const combined = ANALYSIS_PROMPT + '\n\n' + annotatedPgn.trim();
         $('#progress-text').text('Analysis Complete!');
         $('#stockfish-output').val(combined);
+        updateFormState('stockfishOutput', combined);
         $('#goto-step3-btn').prop('disabled', false);
       }
 
