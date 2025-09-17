@@ -161,7 +161,7 @@
 
   <script>
     $(function () {
-      $('#threads-input').val(3);
+      $('#threads-input').val(4);
 
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
@@ -188,7 +188,7 @@
         engineReady = false;
         $('#analyze-pgn-btn').prop('disabled', true);
         const depthVal = parseInt($('#depth-input').val(), 10) || 24;
-        const threadVal = parseInt($('#threads-input').val(), 10) || 3;
+        const threadVal = parseInt($('#threads-input').val(), 10) || 4;
         const hashVal = parseInt($('#hash-input').val(), 10) || 469;
         ENGINE_GO_OPTIONS.depth = depthVal;
         const options = { Threads: threadVal, Hash: hashVal };
