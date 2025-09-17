@@ -544,7 +544,7 @@ Self-audit checklist before output submission:
         const clamped = clampProb(prob);
         if (clamped == null) return '';
         const percent = Math.round(clamped * 100);
-        return '<span class="font-mono text-xs text-gray-400">White ' + percent + '%</span>';
+        return '<span class="font-mono text-xs text-gray-400">{' + percent + '%}</span>';
       }
 
       function formatMoverDeltaIndicator(delta) {
@@ -554,9 +554,9 @@ Self-audit checklist before output submission:
         let rounded = Math.round(numeric);
         if (Object.is(rounded, -0)) rounded = 0;
         if (rounded >= 0) {
-          return '<span class="font-mono text-xs font-bold text-green-400">&uarr;' + rounded + '</span>';
+          return '<span class="font-mono text-sm font-bold text-green-400">&uarr;' + rounded + '</span>';
         }
-        return '<span class="font-mono text-xs font-bold text-red-400">&darr;' + Math.abs(rounded) + '</span>';
+        return '<span class="font-mono text-sm font-bold text-red-400">&darr;' + Math.abs(rounded) + '</span>';
       }
 
       // ---------- PGN normalization ----------
