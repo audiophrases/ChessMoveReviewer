@@ -62,15 +62,15 @@
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
         <label for="depth-input" class="text-gray-300">Depth</label>
-        <input id="depth-input" type="number" min="1" value="12" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="depth-input" type="number" min="4" value="16" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
         <label for="threads-input" class="text-gray-300">Threads</label>
-        <input id="threads-input" type="number" min="1" value="3" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="threads-input" type="number" min="3" value="4" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
         <label for="hash-input" class="text-gray-300">Memory</label>
-        <input id="hash-input" type="number" min="1" value="469" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="hash-input" type="number" min="256" value="469" class="w-16 p-1 rounded form-input text-center"/>
       </div>
     </div>
     <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
@@ -165,7 +165,7 @@
 
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
-        const ENGINE_GO_OPTIONS = { depth: 20 };
+        const ENGINE_GO_OPTIONS = { depth: 24 };
         let engineWorker = null;
         let engineReady = false;
         let engineInitTimeout = null;
@@ -182,13 +182,13 @@
         let pendingBestMoveInfo = null;
         let lastBestMoveUpdate = 0;
         let bestMoveFen = null;
-        const BEST_MOVE_UPDATE_INTERVAL = 500;
+        const BEST_MOVE_UPDATE_INTERVAL = 250;
 
       function configureEngineOptions() {
         engineReady = false;
         $('#analyze-pgn-btn').prop('disabled', true);
-        const depthVal = parseInt($('#depth-input').val(), 10) || 14;
-        const threadVal = parseInt($('#threads-input').val(), 10) || 4;
+        const depthVal = parseInt($('#depth-input').val(), 10) || 24;
+        const threadVal = parseInt($('#threads-input').val(), 10) || 3;
         const hashVal = parseInt($('#hash-input').val(), 10) || 469;
         ENGINE_GO_OPTIONS.depth = depthVal;
         const options = { Threads: threadVal, Hash: hashVal };
@@ -272,17 +272,15 @@ Negative numbers = the mover worsened White’s win probability by that many poi
 
 {#-N} = Black has a forced mate in N.
 
-Output Format
+Output Format: <move> - {<eval>} <classification>: <comment>
 
-Exactly one line per half-move:
-<move> - {<eval>} <classification>: <comment>
+Onene line per half-move. Do not number moves in the output.
 
-Do not number moves in the output.
-
-End with a single Summary line in this format:
+Create a Summary line at the end in this format:
 Summary: X Total Good = (Brilliant + Great + Good + Book + Forced); Y Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: X / Total moves * 100 = Accuracy percentage. Narrative Summary: One-sentence overview of the game from eugenime’s perspective.
 
-Step 1 – Mandatory Numeric Classification (absolute priority)
+Workflow:
+Step 1 – Mandatory Numeric Classification:
 Classify using only the delta or mate token (never override with opinions):
 
 delta ≥ -2 → Book (only if opening theory; else Good)
@@ -295,13 +293,13 @@ delta ≥ -2 → Book (only if opening theory; else Good)
 
 ≤ -56 → Misclick??
 
-Step 2 – Mate Overrides (apply after Step 1, but cannot reduce severity)
+Step 2 – Mate Overrides:
 
 After a White move: if eval is {#-N}, classify the move as at least Blunder (upgrade to Misclick?? if the numeric delta ≤ -56).
 
 After a Black move: if eval is {#N}, classify the move as at least Blunder (upgrade to Misclick?? if the numeric delta ≤ -56).
 
-Step 3 – Special Categories (only if consistent with Step 1)
+Step 3 – Special Categories:
 
 Book: only in the opening phase and only if delta ≥ -2.
 Opening phase = first 10 full moves (plies 1–20). If unsure, use Good instead of Book.
@@ -312,7 +310,7 @@ Brilliant: sacrifices a bishop, rook, knight, or queen and delta > 0.
 
 Forced: only when it is the sole legal move or the only move avoiding immediate mate / catastrophic collapse; if uncertain, don’t use Forced.
 
-Comments (must never alter classification)
+Comments (must never alter classification):
 
 Explain why the move helped or hurt positionally or tactically.
 
@@ -320,15 +318,15 @@ Keep claims strictly verifiable from the SAN and basic implications:
 
 You may reference: checks (+, #), captures (x), promotions (=Q/R/B/N), castling (O-O, O-O-O), and the destination square/piece exchanged.
 
-Do not assert hidden tactics (pins, forks, mate in X, “only move”) unless they are explicit from the token or move.
+Only assert hidden tactics (pins, forks, mate in X, “only move”) when consistent with SAN position of the pieces.
 
-If I am one of the players, coach eugenime specifically when giving advice.
+If I am one of the players, coach me 'eugenime' specifically when giving advice.
 
 Avoid mentioning numeric deltas in comments.
 
-Self-audit checklist (use this right before you submit)
+Self-audit checklist before output submission:
 
- Any line with {-3…-11} says Inaccuracy (no exceptions).
+ Any line with {-3…-11} says Inaccuracy.
 
  Any line with {-12…-33} says Mistake.
 
