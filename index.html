@@ -534,6 +534,26 @@ Self-audit checklist before output submission:
         return `{${percent}%}`;
       }
 
+      function formatWhiteWinProbDisplay(prob) {
+        const clamped = clampProb(prob);
+        if (clamped == null) return '';
+        const percent = Math.round(clamped * 100);
+        return '<span class="font-mono text-xs text-gray-400">White ' + percent + '%</span>';
+      }
+
+      function formatMoverDeltaIndicator(delta) {
+        if (delta == null) return '';
+        const numeric = Number(delta);
+        if (!Number.isFinite(numeric)) return '';
+        let rounded = Math.round(numeric);
+        if (Object.is(rounded, -0)) rounded = 0;
+        const suffix = '%';
+        if (rounded >= 0) {
+          return '<span class="font-mono text-xs font-bold text-green-400">&uarr;' + rounded + suffix + '</span>';
+        }
+        return '<span class="font-mono text-xs font-bold text-red-400">&darr;' + Math.abs(rounded) + suffix + '</span>';
+      }
+
       // ---------- PGN normalization ----------
       function normalizePgn(raw, opts) {
         opts = opts || {}; const keepComments = !!opts.keepComments;
@@ -1452,19 +1472,38 @@ Self-audit checklist before output submission:
         movesWithAnalysis.forEach((mv, i) => {
           const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
           let evalHtml = '';
-          let evalDisplay = mv.displayEvaluation;
-          if (!evalDisplay && mv.analysis && mv.analysis.displayEvaluation) {
-            evalDisplay = mv.analysis.displayEvaluation;
-          }
-          if (!evalDisplay) {
-            if (mv.analysis && mv.analysis.evaluation) {
-              evalDisplay = mv.analysis.evaluation;
-            } else if (mv.delta != null) {
-              evalDisplay = formatDeltaBraced(mv.delta);
+          const evaluationSegments = [];
+          const whiteProbSource = mv.prob != null ? mv.prob : (mv.analysis ? mv.analysis.prob : null);
+          const whiteProbHtml = formatWhiteWinProbDisplay(whiteProbSource);
+          if (whiteProbHtml) evaluationSegments.push(whiteProbHtml);
+
+          const moverDeltaSource = mv.delta != null
+            ? mv.delta
+            : (mv.analysis && mv.analysis.delta != null ? mv.analysis.delta : null);
+          const moverDeltaHtml = formatMoverDeltaIndicator(moverDeltaSource);
+          if (moverDeltaHtml) evaluationSegments.push(moverDeltaHtml);
+
+          let mateDisplay = '';
+          if (mv.analysis && mv.analysis.kind === 'mate') {
+            const mateStr = mv.analysis.displayEvaluation || mv.displayEvaluation || mv.analysis.evaluation;
+            if (mateStr) {
+              mateDisplay = '<span class="font-mono text-xs text-yellow-300">' + mateStr + '</span>';
             }
           }
-          if (evalDisplay) {
-            evalHtml = '<span class="font-mono text-xs text-gray-400 ml-2">' + evalDisplay + '</span>';
+          if (mateDisplay) evaluationSegments.push(mateDisplay);
+
+          if (!evaluationSegments.length) {
+            let fallbackEval = mv.displayEvaluation;
+            if (!fallbackEval && mv.analysis && mv.analysis.displayEvaluation) fallbackEval = mv.analysis.displayEvaluation;
+            if (!fallbackEval && mv.analysis && mv.analysis.evaluation) fallbackEval = mv.analysis.evaluation;
+            if (!fallbackEval && mv.delta != null) fallbackEval = formatDeltaBraced(mv.delta);
+            if (fallbackEval) {
+              evaluationSegments.push('<span class="font-mono text-xs text-gray-400">' + fallbackEval + '</span>');
+            }
+          }
+
+          if (evaluationSegments.length) {
+            evalHtml = '<div class="flex items-center gap-2 ml-2">' + evaluationSegments.join('') + '</div>';
           }
           const html =
             '<div class="move-item p-2 cursor-pointer" data-move-index="' + i + '">' +
