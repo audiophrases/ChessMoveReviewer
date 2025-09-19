@@ -27,6 +27,9 @@
     .btn-primary:disabled { background-color: #374151; cursor: not-allowed; }
     .btn-secondary { background-color: #374151; transition: background-color: 0.2s; }
     .btn-secondary:hover { background-color: #4b5563; }
+    #toggle-eval-btn { border: 1px solid transparent; transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
+    #toggle-eval-btn.best-active { background-color: #0b0e15; border-color: rgba(250, 204, 21, 0.4); color: #facc15; font-family: 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace; }
+    #toggle-eval-btn.best-active:hover { background-color: #131a2c; }
     textarea.form-input, input.form-input { background-color: #2d2d2d; border-color: #364152; color: #e5e7eb; }
     textarea.form-input:focus, input.form-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35); outline: none; }
     input[type=number]::-webkit-outer-spin-button,
@@ -149,8 +152,7 @@
           <div class="w-full max-w-xl mx-auto">
             <div id="board" class="chessboard-container"></div>
             <div id="controls" class="mt-3 flex items-center justify-end gap-2 w-full">
-              <span id="best-eval-display" class="hidden text-sm font-mono text-yellow-300 px-2 py-1 border border-yellow-400/40 rounded-lg bg-[#0b0e15]"></span>
-              <button id="toggle-eval-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Best</button>
+              <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
               <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
               <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
               <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
@@ -210,6 +212,8 @@
         let lastInfoMsg = '';
         let currentScoreResolver = null;
         let showBestMove = false;
+        const toggleBestBtn = $('#toggle-eval-btn');
+        const defaultBestButtonLabel = toggleBestBtn.length ? (toggleBestBtn.text().trim() || 'Best') : 'Best';
         let bestMoveSquares = null;
         let arrowCanvas = null;
         let arrowCtx = null;
@@ -1000,14 +1004,22 @@ Self-audit checklist before output submission:
           scheduleBestMoveStallTimer(token);
         }
 
+        function setBestButtonState(text, isActive) {
+          if (!toggleBestBtn.length) return;
+          const label = text || defaultBestButtonLabel;
+          toggleBestBtn.text(label);
+          toggleBestBtn.attr('title', label);
+          toggleBestBtn.attr('aria-pressed', isActive ? 'true' : 'false');
+          toggleBestBtn.toggleClass('best-active', !!isActive);
+        }
+
         function showBestMoveAnalyzingDisplay() {
-          const display = $('#best-eval-display');
-          if (display.length) display.removeClass('hidden').text('Analyzing…');
+          const baseLabel = defaultBestButtonLabel || 'Best';
+          setBestButtonState(baseLabel + ' • Analyzing…', true);
         }
 
         function hideBestMoveEvalDisplay() {
-          const display = $('#best-eval-display');
-          if (display.length) display.addClass('hidden').text('');
+          setBestButtonState(defaultBestButtonLabel, false);
         }
 
         function cancelBestMoveVisualRetryTimer() {
@@ -1081,11 +1093,12 @@ Self-audit checklist before output submission:
         }
 
         function updateBestEvalDisplay(info, sanMove) {
-          const display = $('#best-eval-display');
-          if (!display.length) return;
+          if (!toggleBestBtn.length) return;
           const evalText = formatBestEval(info);
           const moveText = sanMove ? ' ' + sanMove : '';
-          display.removeClass('hidden').text(evalText + moveText);
+          const baseLabel = defaultBestButtonLabel || 'Best';
+          const combined = evalText ? `${baseLabel} • ${evalText}${moveText}` : baseLabel;
+          setBestButtonState(combined.trim(), true);
         }
 
         function formatBestEval(info) {
@@ -1253,6 +1266,7 @@ Self-audit checklist before output submission:
           renderEvalGraph(-1);
           clearBestMoveHighlight();
           if (showBestMove) {
+            showBestMoveAnalyzingDisplay();
             showBestMoveForCurrentPosition();
           }
         }
@@ -1657,7 +1671,10 @@ Self-audit checklist before output submission:
           $('#prev-btn').prop('disabled', idx < 0); $('#next-btn').prop('disabled', idx >= movesWithAnalysis.length - 1);
           adjustAnalysisHeight(); renderEvalGraph(idx); ensureMoveVisible(idx);
           clearBestMoveHighlight();
-          if (showBestMove) showBestMoveForCurrentPosition();
+          if (showBestMove) {
+            showBestMoveAnalyzingDisplay();
+            showBestMoveForCurrentPosition();
+          }
         }
 
         $('#next-btn').on('click', function(){ goToMove(currentMoveIndex + 1); });
@@ -1676,6 +1693,7 @@ Self-audit checklist before output submission:
         $('#toggle-eval-btn').on('click', function(){
           showBestMove = !showBestMove;
           if (showBestMove) {
+            showBestMoveAnalyzingDisplay();
             showBestMoveForCurrentPosition();
           } else {
             clearBestMoveHighlight();
