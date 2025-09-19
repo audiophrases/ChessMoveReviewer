@@ -1014,8 +1014,7 @@ Self-audit checklist before output submission:
         }
 
         function showBestMoveAnalyzingDisplay() {
-          const baseLabel = defaultBestButtonLabel || 'Best';
-          setBestButtonState(baseLabel + ' • Analyzing…', true);
+          setBestButtonState('Analyzing…', true);
         }
 
         function hideBestMoveEvalDisplay() {
@@ -1096,8 +1095,7 @@ Self-audit checklist before output submission:
           if (!toggleBestBtn.length) return;
           const evalText = formatBestEval(info);
           const moveText = sanMove ? ' ' + sanMove : '';
-          const baseLabel = defaultBestButtonLabel || 'Best';
-          const combined = evalText ? `${baseLabel} • ${evalText}${moveText}` : baseLabel;
+          const combined = evalText ? `${evalText}${moveText}` : 'Analyzing…';
           setBestButtonState(combined.trim(), true);
         }
 
