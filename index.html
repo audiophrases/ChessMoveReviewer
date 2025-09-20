@@ -92,15 +92,14 @@
 
   <!-- Step 2: Stockfish Output & AI Instructions -->
   <section id="step2-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
-    <h2 class="text-xl sm:text-2xl font-bold text-center">Step 2: Get AI Coaching Comments</h2>
+    <h2 class="text-xl sm:text-2xl font-bold text-center">Get AI Coaching Comments</h2>
     <div id="stockfish-progress" class="text-center p-4 bg-[#101522] rounded-lg">
-      <p id="progress-text" class="text-base sm:text-lg text-yellow-400">Initializing Stockfish...</p>
-      <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
+       <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
         <div id="progress-bar" class="bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
       </div>
     </div>
     <div>
-      <label for="stockfish-output" class="block mb-2 font-semibold text-gray-300">1. Copy the prompt + annotated PGN below</label>
+      <label for="stockfish-output" class="block mb-2 font-semibold text-gray-300">Copy the prompt + annotated PGN below</label>
       <textarea id="stockfish-output" rows="7" class="w-full p-3 rounded-lg form-input font-mono text-sm" readonly></textarea>
       <button id="copy-stockfish-btn" class="w-full mt-2 py-2 px-4 font-semibold text-white rounded-lg btn-secondary">Copy to Clipboard</button>
     </div>
@@ -109,14 +108,14 @@
         Back
       </button>
       <button id="goto-step3-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
-        Continue to Final Step
+        Continue
       </button>
     </div>
   </section>
 
   <!-- Step 3: Final Analysis Input -->
   <section id="step3-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
-    <h2 class="text-xl sm:text-2xl font-bold text-center">Step 3: Paste Your Final AI Review</h2>
+    <h2 class="text-xl sm:text-2xl font-bold text-center">Paste Your Final AI Review</h2>
     <div>
       <label for="final-analysis-input" class="block font-semibold text-gray-300 mb-2">Paste complete analysis here</label>
       <div class="flex flex-col sm:flex-row sm:items-start gap-2">
