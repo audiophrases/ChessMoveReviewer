@@ -152,7 +152,7 @@
           <div class="w-full max-w-xl mx-auto">
             <div id="board" class="chessboard-container"></div>
             <div id="controls" class="mt-3 flex items-center justify-end gap-2 w-full">
-              <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
+              <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Analyze</button>
               <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
               <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
               <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
@@ -213,7 +213,7 @@
         let currentScoreResolver = null;
         let showBestMove = false;
         const toggleBestBtn = $('#toggle-eval-btn');
-        const defaultBestButtonLabel = toggleBestBtn.length ? (toggleBestBtn.text().trim() || 'Best') : 'Best';
+        const defaultBestButtonLabel = toggleBestBtn.length ? (toggleBestBtn.text().trim() || 'Analyze') : 'Analyze';
         let bestMoveSquares = null;
         let arrowCanvas = null;
         let arrowCtx = null;
