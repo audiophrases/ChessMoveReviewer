@@ -60,11 +60,11 @@
   <section id="step1-section" class="max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-xl sm:text-2xl font-bold text-center">Analyze PGN with Stockfish</h2>
     <div>
-      <label for="pgn-input" class="block mb-2 font-semibold text-gray-300">Paste PGN here</label>
-      <div class="flex flex-col sm:flex-row sm:items-start gap-2">
-        <textarea id="pgn-input" rows="6" class="flex-1 w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..."></textarea>
-        <button id="clear-pgn-btn" type="button" class="sm:self-start py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Clear</button>
+      <div class="flex items-center justify-between gap-2 mb-2">
+        <label for="pgn-input" class="font-semibold text-gray-300">Paste PGN here</label>
+        <button id="clear-pgn-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Clear</button>
       </div>
+      <textarea id="pgn-input" rows="6" class="w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..."></textarea>
     </div>
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
@@ -85,7 +85,7 @@
         Loading Engine...
       </button>
       <button id="goto-step2-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
-        Continue without analyzing
+        Skip
       </button>
     </div>
   </section>
