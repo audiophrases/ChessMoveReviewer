@@ -446,6 +446,15 @@ Self-audit checklist before output submission:
       function getStyleForClassification(c) {
         return classificationStyles[normalizeClassificationKey(c)] || classificationStyles['default'];
       }
+      function normalizeSanToken(value) {
+        if (!value) return '';
+        let san = String(value).trim();
+        san = san.replace(/^[0-9]+\.(?:\.\.)?\s*/, '');
+        san = san.replace(/^\.{3}/, '');
+        san = san.replace(/[!?]+$/, '');
+        san = san.replace(/0-0-0/gi, 'O-O-O').replace(/0-0/gi, 'O-O');
+        return san;
+      }
       let selectedSquare = null;
       function clearSelected() {
         $('#board .square-55d63').removeClass('selected');
@@ -1458,18 +1467,29 @@ Self-audit checklist before output submission:
         // Allow leading whitespace before "Summary:" to handle AI outputs
         // that may indent or space the final summary line.
         const summaryLineRegex = /^\s*Summary[^:]*:\s*(.*)/i;
-        const moveOfGameRegex = /^\s*Move of the game:\s*([^\s]+)(?:\s*(?:[-–—]\s*)?(\{[^}]+\}))?\s*([A-Za-z0-9!?\'"()\-\s]+?):\s*(.*)$/i;
+        const moveOfGameRegex = /^\s*Move of the game:\s*((?:\d+\.{1,3}\s*|\.{3}\s*)?)(\S+)(?:\s*(?:[-–—]\s*)?(\{[^}]+\}))?\s*([A-Za-z0-9!?\'"()\-\s]+?):\s*(.*)$/i;
 
         function assignFeatured(match) {
           if (!match) return false;
           if (featuredMove) return true;
-          const san = match[1];
+          const prefixRaw = match[1] || '';
+          const rawSan = match[2] || '';
+          const combinedSan = prefixRaw + rawSan;
+          let san = normalizeSanToken(combinedSan);
+          if (!san) san = normalizeSanToken(rawSan);
+          if (!san) san = rawSan.trim();
           if (!san) return true;
-          const evaluation = (match[2] || '').trim() || null;
-          const classification = (match[3] || '').trim();
-          const justification = (match[4] || '').trim();
+          const needsSpace = prefixRaw && rawSan && !/\s$/.test(prefixRaw) ? ' ' : '';
+          let displaySan = rawSan.trim();
+          if (prefixRaw) {
+            displaySan = (prefixRaw + needsSpace + rawSan).trim();
+          }
+          if (!displaySan) displaySan = san;
+          const evaluation = (match[3] || '').trim() || null;
+          const classification = (match[4] || '').trim();
+          const justification = (match[5] || '').trim();
           const evalInfo = parseEvaluationToken(evaluation);
-          featuredMove = { san, evaluation, classification, text: justification, ...evalInfo };
+          featuredMove = { san, displaySan, evaluation, classification, text: justification, ...evalInfo };
           return true;
         }
 
@@ -1486,12 +1506,13 @@ Self-audit checklist before output submission:
           if (assignFeatured(line.match(moveOfGameRegex))) return;
           const m = line.match(moveRegex);
           if (m) {
-            const san = m[1];
+            const rawSan = m[1];
+            const san = normalizeSanToken(rawSan) || rawSan.trim();
             const evaluation = (m[2] || '').trim() || null;
             const classification = m[3].trim();
             const txt = m[4].trim();
             const evalInfo = parseEvaluationToken(evaluation);
-            parsedMoves.push({ san, evaluation, classification, ...evalInfo, text: txt });
+            parsedMoves.push({ san, evaluation, classification, ...evalInfo, text: txt, displaySan: rawSan.trim() });
             lastSan = san; currentSummary = null; return;
           }
           const cm = line.match(criticalMomentRegex); if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; return; }
@@ -1583,12 +1604,17 @@ Self-audit checklist before output submission:
 
       function findFeaturedMoveIndex(list, featured) {
         if (!featured || !Array.isArray(list) || !list.length) return -1;
-        const targetSan = (featured.san || '').trim();
+        let targetSan = normalizeSanToken(featured.san);
+        if (!targetSan && featured.displaySan) targetSan = normalizeSanToken(featured.displaySan);
         if (!targetSan) return -1;
         const targetClass = normalizeClassificationKey(featured.classification);
         const targetEval = normalizeEvaluationString(featured.evaluation);
-        const matchesBase = mv => mv && mv.analysis && mv.san === targetSan;
-        const matchesClass = mv => matchesBase(mv) && (!targetClass || normalizeClassificationKey(mv.analysis.classification) === targetClass);
+        const matchesBase = mv => {
+          if (!mv) return false;
+          if (mv.analysis && normalizeSanToken(mv.analysis.san) === targetSan) return true;
+          return normalizeSanToken(mv.san) === targetSan;
+        };
+        const matchesClass = mv => matchesBase(mv) && mv.analysis && (!targetClass || normalizeClassificationKey(mv.analysis.classification) === targetClass);
         const matchesEval = mv => {
           if (!targetEval || !matchesClass(mv)) return false;
           const candidates = [
@@ -1616,6 +1642,12 @@ Self-audit checklist before output submission:
           : ((featuredMoveIndex >= 0 && featuredMoveIndex < movesWithAnalysis.length) ? featuredMoveIndex : -1);
         const move = idx >= 0 ? movesWithAnalysis[idx] : null;
         const evaluationSegments = move ? buildEvaluationSegments(move) : [];
+        let displaySan = featuredMoveData.displaySan || featuredMoveData.san;
+        if (move) {
+          const moveNumber = Math.floor(idx / 2) + 1;
+          const prefix = move.color === 'w' ? moveNumber + '. ' : moveNumber + '... ';
+          displaySan = prefix + move.san;
+        }
         let evaluationHtml = '';
         if (evaluationSegments.length) {
           evaluationHtml = '<div class="flex items-center gap-2 text-xs sm:text-sm flex-wrap">' + evaluationSegments.join('') + '</div>';
@@ -1635,7 +1667,7 @@ Self-audit checklist before output submission:
         const baseClasses = 'w-full text-left p-3 sm:p-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10' + (isClickable ? ' hover:bg-yellow-500/20 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-yellow-400/60' : ' opacity-90');
         const headerParts = [
           '<span class="text-xs uppercase tracking-wide text-yellow-300 font-semibold">Move of the game</span>',
-          '<span class="font-bold text-lg text-white">' + featuredMoveData.san + '</span>'
+          '<span class="font-bold text-lg text-white">' + displaySan + '</span>'
         ];
         if (evaluationHtml) headerParts.push(evaluationHtml);
         if (classificationHtml) headerParts.push(classificationHtml);
