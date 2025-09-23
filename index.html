@@ -365,43 +365,17 @@ Forced: only when it is the sole legal move or the only move avoiding immediate 
 
 Comments (must never alter classification):
 
-Explain why the move helped or hurt positionally or tactically.
+In the background keep a diagram of the board position updated to analyze how each move helped or hurt positionally and tactically.
 
-Keep claims strictly verifiable from the SAN and basic implications:
+Keep claims strictly consistent with the board position:
 
-You may reference: checks (+, #), captures (x), promotions (=Q/R/B/N), castling (O-O, O-O-O), and the destination square/piece exchanged.
+You must be extremely factual when referencing: checks (+, #), captures (x), promotions (=Q/R/B/N), castling (O-O, O-O-O), and the destination square/piece exchanged.
 
-Only assert hidden tactics (pins, forks, mate in X, “only move”) when consistent with SAN position of the pieces.
+Don't assert hidden tactics (pins, forks, mate in X, “only move”, etc.) unless you're 100% certain of the board position.
 
 If I am one of the players, coach me 'eugenime' specifically when giving advice.
 
-Avoid mentioning numeric deltas in comments.
-
-The Move of the game has to be a Great, a Brilliant or Blunder and is the most impactful move of the game.
-
-Self-audit checklist before output submission:
-
- Any line with {-3…-11} says Inaccuracy.
-
- Any line with {-12…-33} says Mistake.
-
- Any line with {-34…-55} says Blunder.
-
- Any line with {≤-56} says Misclick??.
-
- Book only in plies 1–16 and only with ≥-2; else Good.
-
- Mate blunders applied correctly → at least Blunder, upgraded to Misclick?? if delta ≤ -56.
-
- Great requires non-sacrifice + delta ≥ 0 and wins major material / starts forced mate.
-
- Brilliant requires a sacrifice + positive delta.
-
- Forced only if clearly the sole move; if unsure, don’t use it.
-
- Comments reference only what’s certain from SAN (checks, captures, destinations); no speculative tactics.
-
- Summary math checks out.`;
+The Move of the game has to be a Great, a Brilliant a Blunder or a Misclick?? and is the most impactful move for the course of the game.`;
 
       function waitForEngineReady() {
         return new Promise(resolve => {
