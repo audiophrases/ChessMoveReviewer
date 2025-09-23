@@ -324,8 +324,9 @@ Output Format: <move> - {<eval>} <classification>: <comment>
 
 One line per half-move. Do not number moves in the output.
 
-Create a Summary line at the end in this format:
+Create a Summary line and featured move line at the end in this format:
 Summary: X Total Good = (Brilliant + Great + Good + Book + Forced); Y Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: X / Total moves * 100 = Accuracy percentage. Narrative Summary: One-sentence overview of the game from eugenime’s perspective.
+Move of the game: <move> - {<eval>} <classification>: <Justification for being picked move of the game>
 
 Workflow:
 Step 1 – Mandatory Numeric Classification:
@@ -352,7 +353,7 @@ Step 3 – Special Categories:
 Book: only in the opening phase and only if delta ≥ -2.
 Opening phase = first 10 full moves (plies 1–20). If unsure, use Good instead of Book.
 
-Great: non-sacrificial and either (a) initiates a forced mate sequence, or (b) wins a queen or rook; also requires delta  > -1.
+Great: it's a non-sacrificial, requires delta  > -1, and either (a) initiates a forced mate sequence, (b) wins a queen or rook, or (c) follows an opponent's blunder.
 
 Brilliant: sacrifices a bishop, rook, knight, or queen and delta > -1.
 
@@ -371,6 +372,8 @@ Only assert hidden tactics (pins, forks, mate in X, “only move”) when consis
 If I am one of the players, coach me 'eugenime' specifically when giving advice.
 
 Avoid mentioning numeric deltas in comments.
+
+The Move of the game has to be a Great, a Brilliant or Blunder and is the most impactful move of the game.
 
 Self-audit checklist before output submission:
 
