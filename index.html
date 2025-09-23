@@ -348,9 +348,9 @@ delta ≥ -2 → Book (only if opening theory; else Good)
 
 Step 2 – Mate Overrides:
 
-After a White move: if eval is {#-N}, classify the move as at least Blunder (upgrade to Misclick?? if the numeric delta ≤ -56).
-
-After a Black move: if eval is {#N}, classify the move as at least Blunder (upgrade to Misclick?? if the numeric delta ≤ -56).
+If a move results in the opponent having a forced mate (e.g., White moves, eval becomes {#-N}), THEN classify as Blunder (or Misclick?? if delta ≤ -56).
+​
+If a player has a forced mate (e.g., previous eval was {#N}) and makes a move that is no longer a forced mate, THEN classify as Blunder (or Misclick?? if delta ≤ -56).
 
 Step 3 – Special Categories:
 
