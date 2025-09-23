@@ -348,9 +348,9 @@ delta ≥ -2 → Book (only if opening theory; else Good)
 
 Step 2 – Mate Overrides:
 
-If a move results in the opponent having a forced mate (e.g., White moves, eval becomes {#-N}), THEN classify as Blunder (or Misclick?? if delta ≤ -56).
+IF a move results in the opponent having a forced mate (e.g., White moves, eval becomes {#-N}), THEN classify as Blunder (or Misclick?? if delta ≤ -56).
 ​
-If a player has a forced mate (e.g., previous eval was {#N}) and makes a move that is no longer a forced mate, THEN classify as Blunder (or Misclick?? if delta ≤ -56).
+IF a player has a forced mate (e.g., previous eval was {#N}) and makes a move that is no longer a forced mate, THEN classify as Blunder (or Misclick?? if delta ≤ -56).
 
 Step 3 – Special Categories:
 
@@ -391,7 +391,7 @@ Self-audit checklist before output submission:
 
  Book only in plies 1–16 and only with ≥-2; else Good.
 
- Mate overrides applied (White move → {#-N}; Black move → {#N}) → at least Blunder, upgraded to Misclick?? if delta ≤ -56.
+ Mate blunders applied correctly → at least Blunder, upgraded to Misclick?? if delta ≤ -56.
 
  Great requires non-sacrifice + delta ≥ 0 and wins major material / starts forced mate.
 
