@@ -235,11 +235,17 @@
           if (/^(?:[a-z]+:)?\/\//i.test(normalized) || normalized.startsWith('blob:') || normalized.startsWith('data:')) {
             return normalized;
           }
-          const baseHref = (typeof window !== 'undefined' && window.location && window.location.href)
-            ? window.location.href
-            : '';
-          if (!baseHref) return normalized;
-          return new URL(normalized, baseHref).toString();
+          if (typeof window === 'undefined' || !window.location) {
+            return normalized;
+          }
+          const { origin, pathname } = window.location;
+          let base = origin || '';
+          if (pathname && typeof pathname === 'string') {
+            const dir = pathname.replace(/[^/]*$/, '');
+            base = base + dir;
+          }
+          if (!base) return normalized;
+          return new URL(normalized, base).toString();
         } catch (err) {
           console.warn('Falling back to raw worker path due to resolution error:', err);
           return path;
