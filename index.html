@@ -231,18 +231,15 @@
       function resolveWorkerUrl(path) {
         if (!path) return path;
         try {
-          const { origin, pathname } = window.location;
-          let basePath = pathname || '/';
-          if (!basePath.endsWith('/')) {
-            const lastSlash = basePath.lastIndexOf('/');
-            const lastSegment = basePath.slice(lastSlash + 1);
-            const directoryPath = (lastSegment && lastSegment.includes('.'))
-              ? basePath.slice(0, lastSlash + 1)
-              : `${basePath}/`;
-            basePath = directoryPath || '/';
+          const normalized = String(path);
+          if (/^(?:[a-z]+:)?\/\//i.test(normalized) || normalized.startsWith('blob:') || normalized.startsWith('data:')) {
+            return normalized;
           }
-          const baseUrl = origin + basePath;
-          return new URL(path, baseUrl).toString();
+          const baseHref = (typeof window !== 'undefined' && window.location && window.location.href)
+            ? window.location.href
+            : '';
+          if (!baseHref) return normalized;
+          return new URL(normalized, baseHref).toString();
         } catch (err) {
           console.warn('Falling back to raw worker path due to resolution error:', err);
           return path;
