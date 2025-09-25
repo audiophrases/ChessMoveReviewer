@@ -64,6 +64,13 @@
     <h2 class="text-xl sm:text-2xl font-bold text-center">Analyze PGN with Stockfish</h2>
     <div>
       <div class="flex items-center justify-between gap-2 mb-2">
+        <label for="player-name-input" class="font-semibold text-gray-300">Who should the AI coach?</label>
+      </div>
+      <input id="player-name-input" type="text" class="w-full p-3 rounded-lg form-input" placeholder="e.g., Alex"/>
+      <p class="mt-1 text-xs text-gray-400">This name replaces &ldquo;eugenime&rdquo; in the coaching prompt.</p>
+    </div>
+    <div>
+      <div class="flex items-center justify-between gap-2 mb-2">
         <label for="pgn-input" class="font-semibold text-gray-300">Paste PGN here</label>
         <button id="clear-pgn-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Clear</button>
       </div>
@@ -194,15 +201,18 @@
 
       const FORM_STORAGE_KEY = 'cmr-form-state-v1';
       const STEP_HASHES = { 1: '', 2: '#step-2', 3: '#step-3', 4: '#step-4' };
+      const DEFAULT_PLAYER_NAME = 'eugenime';
       let formState = loadFormState();
       let currentStep = 1;
 
       applySavedFormState();
+      bindPersistentInput('#player-name-input', 'playerName');
       bindPersistentInput('#pgn-input', 'pgnInput');
       bindPersistentInput('#final-analysis-input', 'finalAnalysisInput');
       bindPersistentInput('#depth-input', 'depthInput');
       bindPersistentInput('#threads-input', 'threadsInput');
       bindPersistentInput('#hash-input', 'hashInput');
+      $('#player-name-input').on('input change', function () { refreshStockfishOutput(); });
 
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
@@ -312,7 +322,7 @@
       initEngine(true);
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT = `Analyze the PGN where each SAN move is followed by a mover-centric evaluation delta in braces {}.
+      const ANALYSIS_PROMPT_TEMPLATE = `Analyze the PGN where each SAN move is followed by a mover-centric evaluation delta in braces {}.
 Output exactly one line per half-move in this format:
 
 <move> - {<eval>} <classification>: <comment>
@@ -401,6 +411,17 @@ Choose Move of the game among Great / Brilliant / Blunder / Misclick?? based on 
 
 Finish with the Summary in the specified format; compute totals and accuracy exactly.`;
 
+      function getPlayerName() {
+        const raw = $('#player-name-input').val();
+        const trimmed = raw == null ? '' : String(raw).trim();
+        return trimmed || DEFAULT_PLAYER_NAME;
+      }
+
+      function buildAnalysisPrompt(playerName) {
+        const target = (playerName == null ? '' : String(playerName)).trim() || DEFAULT_PLAYER_NAME;
+        return ANALYSIS_PROMPT_TEMPLATE.replace(/eugenime/gi, target);
+      }
+
       function waitForEngineReady() {
         return new Promise(resolve => {
           if (engineReady) { resolve(); return; }
@@ -423,6 +444,7 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
       let evalCtx = null;
       let featuredMoveData = null;
       let featuredMoveIndex = -1;
+      let lastAnnotatedPgn = '';
 
       const classificationStyles = {
         brilliant: 'text-cyan-300',
@@ -436,6 +458,13 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         misclick: 'text-fuchsia-500',
         default: ''
       };
+      const classificationMarkerColors = {
+        brilliant: '#67e8f9',
+        great: '#5eead4',
+        blunder: '#ef4444',
+        misclick: '#d946ef'
+      };
+      const highlightedGraphClassifications = new Set(['brilliant', 'great', 'blunder', 'misclick']);
       function normalizeClassificationKey(c) {
         return (c || '')
           .toLowerCase()
@@ -661,6 +690,13 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         persistFormState();
       }
 
+      function refreshStockfishOutput() {
+        if (!lastAnnotatedPgn) return;
+        const combined = buildAnalysisPrompt(getPlayerName()) + '\n\n' + lastAnnotatedPgn;
+        $('#stockfish-output').val(combined);
+        updateFormState('stockfishOutput', combined);
+      }
+
       function bindPersistentInput(selector, key) {
         const el = $(selector);
         if (!el.length) return;
@@ -671,12 +707,15 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
 
       function applySavedFormState() {
         if (!formState) return;
+        if (formState.playerName != null) $('#player-name-input').val(formState.playerName);
         if (formState.pgnInput != null) $('#pgn-input').val(formState.pgnInput);
         if (formState.finalAnalysisInput != null) $('#final-analysis-input').val(formState.finalAnalysisInput);
         if (formState.depthInput != null) $('#depth-input').val(formState.depthInput);
         if (formState.threadsInput != null) $('#threads-input').val(formState.threadsInput);
         if (formState.hashInput != null) $('#hash-input').val(formState.hashInput);
         if (formState.stockfishOutput != null) $('#stockfish-output').val(formState.stockfishOutput);
+        if (formState.annotatedPgn != null) lastAnnotatedPgn = formState.annotatedPgn;
+        if (lastAnnotatedPgn) refreshStockfishOutput();
       }
 
       function switchStep(step, opts) {
@@ -831,10 +870,12 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
           probSeries.push(prob);
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
         }
-        const combined = ANALYSIS_PROMPT + '\n\n' + annotatedPgn.trim();
+        lastAnnotatedPgn = annotatedPgn.trim();
+        const combined = buildAnalysisPrompt(getPlayerName()) + '\n\n' + lastAnnotatedPgn;
         $('#progress-text').text('Analysis Complete!');
         $('#stockfish-output').val(combined);
         updateFormState('stockfishOutput', combined);
+        updateFormState('annotatedPgn', lastAnnotatedPgn);
         $('#goto-step3-btn').prop('disabled', false);
       }
 
@@ -1758,9 +1799,15 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         const w = evalCanvas.width;
         const h = evalCanvas.height;
         evalCtx.clearRect(0, 0, w, h);
-        evalCtx.fillStyle = '#000';
+        const baselineY = h / 2;
+        evalCtx.fillStyle = '#f9fafb';
         evalCtx.fillRect(0, 0, w, h);
-        if (probSeries.length > 0) {
+
+        const hasProbSeries = probSeries.length > 0;
+        let xPoints = [];
+        let yPoints = [];
+
+        if (hasProbSeries) {
           const maxIdx = Math.max(probSeries.length - 1, 1);
           const values = probSeries.map(p => {
             if (p == null) return null;
@@ -1771,32 +1818,89 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
           const validValues = values.filter(v => v != null);
           const scale = validValues.length ? Math.max(50, ...validValues.map(v => Math.abs(v))) : 50;
 
-          evalCtx.lineWidth = 0.75;
-          evalCtx.strokeStyle = '#fbbf24';
-          evalCtx.beginPath();
+          xPoints = new Array(values.length);
+          yPoints = new Array(values.length);
           let lastVal = 0;
-          values.forEach((val, i) => {
+          values.forEach((rawVal, i) => {
+            let val = rawVal;
             if (val == null) val = lastVal;
             else lastVal = val;
             const x = (i / maxIdx) * w;
-            const y = h / 2 - (val / scale) * (h / 2);
-            if (i === 0) evalCtx.moveTo(x, y);
-            else evalCtx.lineTo(x, y);
+            const y = baselineY - (val / scale) * (h / 2);
+            xPoints[i] = x;
+            yPoints[i] = y;
           });
+
+          if (values.length > 0) {
+            evalCtx.fillStyle = '#0b0e15';
+            evalCtx.beginPath();
+            evalCtx.moveTo(0, 0);
+            evalCtx.lineTo(w, 0);
+            for (let i = values.length - 1; i >= 0; i--) {
+              evalCtx.lineTo(xPoints[i], yPoints[i]);
+            }
+            evalCtx.closePath();
+            evalCtx.fill();
+          }
+
+          evalCtx.strokeStyle = '#4b5563';
+          evalCtx.lineWidth = 0.6;
+          evalCtx.beginPath();
+          evalCtx.moveTo(0, baselineY);
+          evalCtx.lineTo(w, baselineY);
           evalCtx.stroke();
 
-          // Midline at 0 (equal chances)
-          evalCtx.strokeStyle = '#ffffff';
-          evalCtx.lineWidth = 0.25;
+          if (values.length > 0) {
+            evalCtx.strokeStyle = '#fbbf24';
+            evalCtx.lineWidth = 1.1;
+            evalCtx.lineJoin = 'round';
+            evalCtx.lineCap = 'round';
+            evalCtx.beginPath();
+            for (let i = 0; i < xPoints.length; i++) {
+              const x = xPoints[i];
+              const y = yPoints[i];
+              if (i === 0) evalCtx.moveTo(x, y);
+              else evalCtx.lineTo(x, y);
+            }
+            evalCtx.stroke();
+
+            if (Array.isArray(movesWithAnalysis) && movesWithAnalysis.length === xPoints.length) {
+              for (let i = 0; i < movesWithAnalysis.length; i++) {
+                const move = movesWithAnalysis[i];
+                const classificationKey = move && move.analysis
+                  ? normalizeClassificationKey(move.analysis.classification)
+                  : '';
+                if (!highlightedGraphClassifications.has(classificationKey)) continue;
+                const color = classificationMarkerColors[classificationKey] || '#fbbf24';
+                const x = xPoints[i];
+                const y = yPoints[i];
+                evalCtx.beginPath();
+                evalCtx.fillStyle = color;
+                evalCtx.strokeStyle = '#0f172a';
+                evalCtx.lineWidth = 1.2;
+                evalCtx.arc(x, y, 4, 0, Math.PI * 2);
+                evalCtx.fill();
+                evalCtx.stroke();
+              }
+            }
+          }
+        } else {
+          evalCtx.fillStyle = '#0b0e15';
+          evalCtx.fillRect(0, 0, w, baselineY);
+          evalCtx.fillStyle = '#f9fafb';
+          evalCtx.fillRect(0, baselineY, w, baselineY);
+          evalCtx.strokeStyle = '#4b5563';
+          evalCtx.lineWidth = 0.6;
           evalCtx.beginPath();
-          evalCtx.moveTo(0, h / 2);
-          evalCtx.lineTo(w, h / 2);
+          evalCtx.moveTo(0, baselineY);
+          evalCtx.lineTo(w, baselineY);
           evalCtx.stroke();
         }
-        if (idx >= 0 && probSeries.length > 0) {
+
+        if (idx >= 0 && hasProbSeries) {
           const maxIdx = Math.max(probSeries.length - 1, 1);
           const x = (idx / maxIdx) * w;
-          evalCtx.lineWidth = 0.5;
+          evalCtx.lineWidth = 1;
           evalCtx.strokeStyle = '#fbbf24';
           evalCtx.beginPath();
           evalCtx.moveTo(x, 0);
