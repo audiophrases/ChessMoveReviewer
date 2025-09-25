@@ -216,6 +216,16 @@
 
       // ====== Stockfish (same-origin Worker) ======
       const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
+      function resolveWorkerUrl(path) {
+        if (!path) return path;
+        try {
+          const base = new URL('.', window.location.href);
+          return new URL(path, base).toString();
+        } catch (err) {
+          console.warn('Falling back to raw worker path due to resolution error:', err);
+          return path;
+        }
+      }
         const ENGINE_GO_OPTIONS = { depth: 24 };
         let engineWorker = null;
         let engineReady = false;
@@ -269,7 +279,7 @@
           $('#analyze-pgn-btn').prop('disabled', true);
         }
         try {
-          engineWorker = new Worker(new URL(LOCAL_ENGINE, location.href));
+          engineWorker = new Worker(resolveWorkerUrl(LOCAL_ENGINE));
         } catch (err) {
           console.error('Engine load error', err);
           showError('Failed to load Stockfish engine. See console for details.');
