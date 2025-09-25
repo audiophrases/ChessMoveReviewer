@@ -219,8 +219,18 @@
       function resolveWorkerUrl(path) {
         if (!path) return path;
         try {
-          const base = new URL('.', window.location.href);
-          return new URL(path, base).toString();
+          const { origin, pathname } = window.location;
+          let basePath = pathname || '/';
+          if (!basePath.endsWith('/')) {
+            const lastSlash = basePath.lastIndexOf('/');
+            const lastSegment = basePath.slice(lastSlash + 1);
+            const directoryPath = (lastSegment && lastSegment.includes('.'))
+              ? basePath.slice(0, lastSlash + 1)
+              : `${basePath}/`;
+            basePath = directoryPath || '/';
+          }
+          const baseUrl = origin + basePath;
+          return new URL(path, baseUrl).toString();
         } catch (err) {
           console.warn('Falling back to raw worker path due to resolution error:', err);
           return path;
