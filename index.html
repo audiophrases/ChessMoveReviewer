@@ -1863,13 +1863,6 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
             evalCtx.fill();
           }
 
-          evalCtx.strokeStyle = '#4b5563';
-          evalCtx.lineWidth = 0.6;
-          evalCtx.beginPath();
-          evalCtx.moveTo(0, baselineY);
-          evalCtx.lineTo(w, baselineY);
-          evalCtx.stroke();
-
           if (values.length > 0) {
             evalCtx.strokeStyle = '#fbbf24';
             evalCtx.lineWidth = 1.1;
@@ -1893,14 +1886,15 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
                 if (!highlightedGraphClassifications.has(classificationKey)) continue;
                 const color = classificationMarkerColors[classificationKey] || '#fbbf24';
                 const x = xPoints[i];
-                const y = yPoints[i];
+                evalCtx.save();
+                evalCtx.strokeStyle = color;
+                evalCtx.lineWidth = 1.5;
+                evalCtx.globalAlpha = 0.9;
                 evalCtx.beginPath();
-                evalCtx.fillStyle = color;
-                evalCtx.strokeStyle = '#0f172a';
-                evalCtx.lineWidth = 1.2;
-                evalCtx.arc(x, y, 4, 0, Math.PI * 2);
-                evalCtx.fill();
+                evalCtx.moveTo(x, 0);
+                evalCtx.lineTo(x, h);
                 evalCtx.stroke();
+                evalCtx.restore();
               }
             }
           }
@@ -1909,13 +1903,20 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
           evalCtx.fillRect(0, 0, w, baselineY);
           evalCtx.fillStyle = '#f9fafb';
           evalCtx.fillRect(0, baselineY, w, baselineY);
-          evalCtx.strokeStyle = '#4b5563';
-          evalCtx.lineWidth = 0.6;
-          evalCtx.beginPath();
-          evalCtx.moveTo(0, baselineY);
-          evalCtx.lineTo(w, baselineY);
-          evalCtx.stroke();
         }
+
+        evalCtx.strokeStyle = '#facc15';
+        evalCtx.lineWidth = 1.2;
+        evalCtx.beginPath();
+        evalCtx.moveTo(0, baselineY);
+        evalCtx.lineTo(w, baselineY);
+        evalCtx.stroke();
+
+        evalCtx.save();
+        evalCtx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+        evalCtx.lineWidth = 1.4;
+        evalCtx.strokeRect(0.7, 0.7, w - 1.4, h - 1.4);
+        evalCtx.restore();
 
         if (idx >= 0 && hasProbSeries) {
           const maxIdx = Math.max(probSeries.length - 1, 1);
