@@ -205,6 +205,18 @@
       let formState = loadFormState();
       let currentStep = 1;
 
+      // ====== App state ======
+      let board = null;
+      let game = new Chess();
+      let movesWithAnalysis = [];
+      let currentMoveIndex = -1;
+      let probSeries = []; // WHITE win probability per ply (0..1)
+      let evalCanvas = null;
+      let evalCtx = null;
+      let featuredMoveData = null;
+      let featuredMoveIndex = -1;
+      let lastAnnotatedPgn = '';
+
       applySavedFormState();
       bindPersistentInput('#player-name-input', 'playerName');
       bindPersistentInput('#pgn-input', 'pgnInput');
@@ -453,18 +465,6 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
           }, 50);
         });
       }
-
-      // ====== App state ======
-      let board = null;
-      let game = new Chess();
-      let movesWithAnalysis = [];
-      let currentMoveIndex = -1;
-      let probSeries = []; // WHITE win probability per ply (0..1)
-      let evalCanvas = null;
-      let evalCtx = null;
-      let featuredMoveData = null;
-      let featuredMoveIndex = -1;
-      let lastAnnotatedPgn = '';
 
       const classificationStyles = {
         brilliant: 'text-cyan-300',
