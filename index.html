@@ -213,6 +213,9 @@
       let probSeries = []; // WHITE win probability per ply (0..1)
       let evalCanvas = null;
       let evalCtx = null;
+      const copyStockfishBtn = $('#copy-stockfish-btn');
+      const defaultCopyLabel = copyStockfishBtn.length ? (copyStockfishBtn.text().trim() || 'Copy to Clipboard') : 'Copy to Clipboard';
+      const analyzingCopyLabel = 'Analyzing...';
       let featuredMoveData = null;
       let featuredMoveIndex = -1;
       let lastAnnotatedPgn = '';
@@ -853,66 +856,83 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         await runStockfishAnalysis();
       });
 
-      async function runStockfishAnalysis() {
-        configureEngineOptions();
-        await waitForEngineReady();
-        const sanMoves = game.history(); let annotatedPgn = '';
-        const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
-        const temp = new Chess();
-        probSeries = [];
-        let prevProb = 0.5;
-        for (let i = 0; i < sanMoves.length; i++) {
-          const moveNumber = Math.floor(i / 2) + 1; const prefix = (i % 2 === 0) ? (moveNumber + '. ') : '';
-          const move = sanMoves[i];
-          $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
-          $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
-
-          // *** FIX STARTS HERE ***
-          // The order of operations is changed.
-          // 1. Make the move on the temporary board.
-          const moveObj = temp.move(move);
-          const lastMoveColor = moveObj.color; // 'w' or 'b'
-
-          // 2. Get the score for the new position *after* the move has been made.
-          const score = await getScore(temp.fen(), ENGINE_GO_OPTIONS);
-          // *** FIX ENDS HERE ***
-
-          let evalStr = '';
-          let prob = null;
-          let mateScore = null;
-          if (score.type === 'mate') {
-            mateScore = score.value; // mate in N from side to move
-            if (temp.turn() === 'b') mateScore = -mateScore; // convert to WHITE-relative
-            prob = (mateScore === 0) ? (lastMoveColor === 'w' ? 1 : 0) : (mateScore > 0 ? 1 : 0);
-          } else {
-            let cp = score.value; // centipawns from side to move
-            if (temp.turn() === 'b') cp = -cp; // convert to WHITE-relative
-            prob = cpToProb(cp);
-          }
-          prob = clampProb(prob);
-          let moverDelta = null;
-          if (prob != null && prevProb != null) {
-            const diff = (prob - prevProb) * 100;
-            const moverSign = lastMoveColor === 'w' ? 1 : -1;
-            moverDelta = diff * moverSign;
-            prevProb = prob;
-          }
-          const deltaStr = formatDeltaBraced(moverDelta);
-          if (mateScore != null) {
-            evalStr = `{#${mateScore}}`;
-          } else {
-            evalStr = deltaStr || '{0}';
-          }
-          probSeries.push(prob);
-          annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
+      function setCopyButtonAnalyzing(active) {
+        if (!copyStockfishBtn.length) return;
+        if (active) {
+          copyStockfishBtn.text(analyzingCopyLabel).prop('disabled', true);
+        } else {
+          copyStockfishBtn.text(defaultCopyLabel).prop('disabled', false);
         }
-        lastAnnotatedPgn = annotatedPgn.trim();
-        const combined = buildAnalysisPrompt(getPlayerName()) + '\n\n' + lastAnnotatedPgn;
-        $('#progress-text').text('Analysis Complete!');
-        $('#stockfish-output').val(combined);
-        updateFormState('stockfishOutput', combined);
-        updateFormState('annotatedPgn', lastAnnotatedPgn);
-        $('#goto-step3-btn').prop('disabled', false);
+      }
+
+      async function runStockfishAnalysis() {
+        setCopyButtonAnalyzing(true);
+        try {
+          configureEngineOptions();
+          await waitForEngineReady();
+          const sanMoves = game.history(); let annotatedPgn = '';
+          const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
+          const temp = new Chess();
+          probSeries = [];
+          let prevProb = 0.5;
+          for (let i = 0; i < sanMoves.length; i++) {
+            const moveNumber = Math.floor(i / 2) + 1; const prefix = (i % 2 === 0) ? (moveNumber + '. ') : '';
+            const move = sanMoves[i];
+            $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
+            $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
+
+            // *** FIX STARTS HERE ***
+            // The order of operations is changed.
+            // 1. Make the move on the temporary board.
+            const moveObj = temp.move(move);
+            const lastMoveColor = moveObj.color; // 'w' or 'b'
+
+            // 2. Get the score for the new position *after* the move has been made.
+            const score = await getScore(temp.fen(), ENGINE_GO_OPTIONS);
+            // *** FIX ENDS HERE ***
+
+            let evalStr = '';
+            let prob = null;
+            let mateScore = null;
+            if (score.type === 'mate') {
+              mateScore = score.value; // mate in N from side to move
+              if (temp.turn() === 'b') mateScore = -mateScore; // convert to WHITE-relative
+              prob = (mateScore === 0) ? (lastMoveColor === 'w' ? 1 : 0) : (mateScore > 0 ? 1 : 0);
+            } else {
+              let cp = score.value; // centipawns from side to move
+              if (temp.turn() === 'b') cp = -cp; // convert to WHITE-relative
+              prob = cpToProb(cp);
+            }
+            prob = clampProb(prob);
+            let moverDelta = null;
+            if (prob != null && prevProb != null) {
+              const diff = (prob - prevProb) * 100;
+              const moverSign = lastMoveColor === 'w' ? 1 : -1;
+              moverDelta = diff * moverSign;
+              prevProb = prob;
+            }
+            const deltaStr = formatDeltaBraced(moverDelta);
+            if (mateScore != null) {
+              evalStr = `{#${mateScore}}`;
+            } else {
+              evalStr = deltaStr || '{0}';
+            }
+            probSeries.push(prob);
+            annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
+          }
+          lastAnnotatedPgn = annotatedPgn.trim();
+          const combined = buildAnalysisPrompt(getPlayerName()) + '\n\n' + lastAnnotatedPgn;
+          $('#progress-text').text('Analysis Complete!');
+          $('#stockfish-output').val(combined);
+          updateFormState('stockfishOutput', combined);
+          updateFormState('annotatedPgn', lastAnnotatedPgn);
+          $('#goto-step3-btn').prop('disabled', false);
+        } catch (err) {
+          console.error('Stockfish analysis failed', err);
+          showError('Stockfish analysis failed. Please try again.');
+        } finally {
+          setCopyButtonAnalyzing(false);
+        }
       }
 
         function getScore(fen, opts) {
@@ -1363,8 +1383,10 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         }
 
       $('#copy-stockfish-btn').on('click', function () {
+        if (!copyStockfishBtn.length || copyStockfishBtn.prop('disabled')) return;
         navigator.clipboard.writeText($('#stockfish-output').val()).then(function(){
-          $('#copy-stockfish-btn').text('Copied!'); setTimeout(function(){ $('#copy-stockfish-btn').text('Copy to Clipboard'); }, 1600);
+          copyStockfishBtn.text('Copied!');
+          setTimeout(function(){ copyStockfishBtn.text(defaultCopyLabel); }, 1600);
         });
       });
 
@@ -1879,39 +1901,24 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
             evalCtx.fill();
           }
 
-          if (values.length > 0) {
-            evalCtx.strokeStyle = '#fbbf24';
-            evalCtx.lineWidth = 1.1;
-            evalCtx.lineJoin = 'round';
-            evalCtx.lineCap = 'round';
-            evalCtx.beginPath();
-            for (let i = 0; i < xPoints.length; i++) {
+          if (values.length > 0 && Array.isArray(movesWithAnalysis) && movesWithAnalysis.length === xPoints.length) {
+            for (let i = 0; i < movesWithAnalysis.length; i++) {
+              const move = movesWithAnalysis[i];
+              const classificationKey = move && move.analysis
+                ? normalizeClassificationKey(move.analysis.classification)
+                : '';
+              if (!highlightedGraphClassifications.has(classificationKey)) continue;
+              const color = classificationMarkerColors[classificationKey] || '#fbbf24';
               const x = xPoints[i];
-              const y = yPoints[i];
-              if (i === 0) evalCtx.moveTo(x, y);
-              else evalCtx.lineTo(x, y);
-            }
-            evalCtx.stroke();
-
-            if (Array.isArray(movesWithAnalysis) && movesWithAnalysis.length === xPoints.length) {
-              for (let i = 0; i < movesWithAnalysis.length; i++) {
-                const move = movesWithAnalysis[i];
-                const classificationKey = move && move.analysis
-                  ? normalizeClassificationKey(move.analysis.classification)
-                  : '';
-                if (!highlightedGraphClassifications.has(classificationKey)) continue;
-                const color = classificationMarkerColors[classificationKey] || '#fbbf24';
-                const x = xPoints[i];
-                evalCtx.save();
-                evalCtx.strokeStyle = color;
-                evalCtx.lineWidth = 1.5;
-                evalCtx.globalAlpha = 0.9;
-                evalCtx.beginPath();
-                evalCtx.moveTo(x, 0);
-                evalCtx.lineTo(x, h);
-                evalCtx.stroke();
-                evalCtx.restore();
-              }
+              evalCtx.save();
+              evalCtx.strokeStyle = color;
+              evalCtx.lineWidth = 1.5;
+              evalCtx.globalAlpha = 0.9;
+              evalCtx.beginPath();
+              evalCtx.moveTo(x, 0);
+              evalCtx.lineTo(x, h);
+              evalCtx.stroke();
+              evalCtx.restore();
             }
           }
         } else {
