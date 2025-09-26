@@ -282,6 +282,7 @@
         const BEST_MOVE_STALL_TIMEOUT = 9000;
 
       function configureEngineOptions() {
+        if (!engineWorker) return;
         engineReady = false;
         $('#analyze-pgn-btn').prop('disabled', true);
         const depthVal = parseInt($('#depth-input').val(), 10) || 24;
@@ -317,13 +318,16 @@
           $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
         };
         engineWorker.onmessage = function (e) {
-          const msg = String(e.data || '');
-          if (msg === 'readyok') {
+          const rawMsg = String(e.data || '');
+          const msg = rawMsg.trim();
+          if (msg === 'uciok') {
+            configureEngineOptions();
+          } else if (msg === 'readyok') {
             engineReady = true;
             clearTimeout(engineInitTimeout);
             $('#analyze-pgn-btn').prop('disabled', false).text('Analyze');
           } else if (msg.startsWith('info')) {
-            handleEngineInfoMessage(msg);
+            handleEngineInfoMessage(rawMsg);
           } else if (msg.startsWith('bestmove')) {
             const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
             const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
@@ -342,7 +346,6 @@
           }
         };
         engineWorker.postMessage('uci');
-        configureEngineOptions();
         engineInitTimeout = setTimeout(() => {
           if (!engineReady) {
             engineWorker.terminate();
@@ -770,16 +773,20 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         }
 
         if (!opts.skipHistory && window.history && window.history.pushState) {
-          const targetHash = STEP_HASHES[normalized] != null ? STEP_HASHES[normalized] : STEP_HASHES[1];
-          const basePath = window.location.pathname + window.location.search;
-          const targetUrl = targetHash ? (basePath + targetHash) : basePath;
-          const state = { step: normalized };
-          if (opts.replace) {
-            window.history.replaceState(state, '', targetUrl);
-          } else if (previous === normalized) {
-            window.history.replaceState(state, '', targetUrl);
-          } else {
-            window.history.pushState(state, '', targetUrl);
+          try {
+            const targetHash = STEP_HASHES[normalized] != null ? STEP_HASHES[normalized] : STEP_HASHES[1];
+            const basePath = window.location.pathname + window.location.search;
+            const targetUrl = targetHash ? (basePath + targetHash) : basePath;
+            const state = { step: normalized };
+            if (opts.replace) {
+              window.history.replaceState(state, '', targetUrl);
+            } else if (previous === normalized) {
+              window.history.replaceState(state, '', targetUrl);
+            } else {
+              window.history.pushState(state, '', targetUrl);
+            }
+          } catch (err) {
+            console.warn('Unable to update history state:', err);
           }
         }
       }
@@ -820,11 +827,17 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
       $('#back-to-step3-btn').on('click', function(){ switchStep(3); });
       $('#clear-pgn-btn').on('click', function(){
         const pgnInput = $('#pgn-input');
-        pgnInput.val('').trigger('input').focus();
+        pgnInput.val('').focus();
+        updateFormState('pgnInput', '');
+        lastAnnotatedPgn = '';
+        updateFormState('annotatedPgn', '');
+        $('#stockfish-output').val('');
+        updateFormState('stockfishOutput', '');
       });
       $('#clear-final-analysis-btn').on('click', function(){
         const finalAnalysisInput = $('#final-analysis-input');
-        finalAnalysisInput.val('').trigger('input').focus();
+        finalAnalysisInput.val('').focus();
+        updateFormState('finalAnalysisInput', '');
       });
 
       $('#analyze-pgn-btn').on('click', async function () {
