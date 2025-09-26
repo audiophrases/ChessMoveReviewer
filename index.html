@@ -43,6 +43,12 @@
     .step-indicator:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
     #board .square-55d63.selected { background-color: rgba(251, 191, 36, 0.5); }
     #prev-btn, #next-btn { font-size: 1rem; }
+    .status-banner { display: none; border-radius: 0.75rem; padding: 0.75rem 1rem; border: 1px solid transparent; }
+    .status-banner.status-visible { display: flex; align-items: flex-start; gap: 0.75rem; }
+    .status-banner.status-info { background-color: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.35); color: #bfdbfe; }
+    .status-banner.status-error { background-color: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.35); color: #fecaca; }
+    .status-banner .detail { color: rgba(191, 219, 254, 0.8); font-size: 0.75rem; margin-top: 0.25rem; }
+    .status-banner.status-error .detail { color: rgba(254, 202, 202, 0.85); }
   </style>
 </head>
 <body class="min-h-screen flex flex-col p-3 sm:p-4">
@@ -62,6 +68,13 @@
   <!-- Step 1: PGN Input -->
   <section id="step1-section" class="max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-xl sm:text-2xl font-bold text-center">Analyze PGN with Stockfish</h2>
+    <div id="engine-status-banner" class="status-banner">
+      <div class="flex-1">
+        <p id="engine-status-message" class="font-medium"></p>
+        <p id="engine-status-detail" class="detail hidden"></p>
+      </div>
+      <button id="retry-engine-btn" type="button" class="hidden self-start py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Retry</button>
+    </div>
     <div>
       <div class="flex items-center justify-between gap-2 mb-2">
         <label for="player-name-input" class="font-semibold text-gray-300">Who should the AI coach?</label>
@@ -219,6 +232,10 @@
       let featuredMoveData = null;
       let featuredMoveIndex = -1;
       let lastAnnotatedPgn = '';
+      const engineStatusBanner = $('#engine-status-banner');
+      const engineStatusMessage = $('#engine-status-message');
+      const engineStatusDetail = $('#engine-status-detail');
+      const retryEngineBtn = $('#retry-engine-btn');
 
       applySavedFormState();
       bindPersistentInput('#player-name-input', 'playerName');
@@ -299,6 +316,52 @@
         engineWorker.postMessage('isready');
       }
 
+      function showEngineStatus(opts) {
+        if (!engineStatusBanner.length) return;
+        const tone = opts && opts.tone ? String(opts.tone) : 'info';
+        const message = opts && opts.message ? String(opts.message) : '';
+        const detail = opts && opts.detail ? String(opts.detail) : '';
+        const showRetry = !!(opts && opts.showRetry);
+        engineStatusBanner
+          .removeClass('status-info status-error status-visible')
+          .addClass('status-visible')
+          .addClass(tone === 'error' ? 'status-error' : 'status-info');
+        if (engineStatusMessage.length) engineStatusMessage.text(message);
+        if (engineStatusDetail.length) {
+          if (detail) {
+            engineStatusDetail.text(detail).removeClass('hidden');
+          } else {
+            engineStatusDetail.text('').addClass('hidden');
+          }
+        }
+        if (retryEngineBtn.length) {
+          if (showRetry) {
+            retryEngineBtn.removeClass('hidden').prop('disabled', false);
+          } else {
+            retryEngineBtn.addClass('hidden');
+          }
+        }
+      }
+
+      function hideEngineStatus() {
+        if (!engineStatusBanner.length) return;
+        engineStatusBanner.removeClass('status-visible status-info status-error');
+        if (engineStatusMessage.length) engineStatusMessage.text('');
+        if (engineStatusDetail.length) engineStatusDetail.text('').addClass('hidden');
+        if (retryEngineBtn.length) retryEngineBtn.addClass('hidden');
+      }
+
+      function handleEngineLoadFailure(detailMessage) {
+        engineReady = false;
+        $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
+        showEngineStatus({
+          tone: 'error',
+          message: 'Stockfish engine failed to load.',
+          detail: detailMessage || 'Please retry or continue without engine analysis.',
+          showRetry: true
+        });
+      }
+
       function initEngine(initial = false) {
         if (engineWorker) engineWorker.terminate();
         engineReady = false;
@@ -307,18 +370,21 @@
         } else {
           $('#analyze-pgn-btn').prop('disabled', true);
         }
+        showEngineStatus({
+          tone: 'info',
+          message: 'Loading Stockfish engine…',
+          detail: 'This can take a few seconds on mobile devices.'
+        });
         try {
           engineWorker = new Worker(resolveWorkerUrl(LOCAL_ENGINE));
         } catch (err) {
           console.error('Engine load error', err);
-          showError('Failed to load Stockfish engine. See console for details.');
-          $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
+          handleEngineLoadFailure(err && err.message ? err.message : 'Worker could not be created.');
           return;
         }
         engineWorker.onerror = function (err) {
           console.error('Engine load error', err);
-          showError('Failed to load Stockfish engine. See console for details.');
-          $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
+          handleEngineLoadFailure('Worker reported an error during initialization.');
         };
         engineWorker.onmessage = function (e) {
           const rawMsg = String(e.data || '');
@@ -329,6 +395,7 @@
             engineReady = true;
             clearTimeout(engineInitTimeout);
             $('#analyze-pgn-btn').prop('disabled', false).text('Analyze');
+            hideEngineStatus();
           } else if (msg.startsWith('info')) {
             handleEngineInfoMessage(rawMsg);
           } else if (msg.startsWith('bestmove')) {
@@ -352,10 +419,16 @@
         engineInitTimeout = setTimeout(() => {
           if (!engineReady) {
             engineWorker.terminate();
-            showError('Stockfish failed to initialize');
-            $('#analyze-pgn-btn').prop('disabled', false).text('Engine Load Error');
+            handleEngineLoadFailure('Initialization timed out.');
           }
-        }, 10000);
+        }, 20000);
+      }
+
+      if (retryEngineBtn.length) {
+        retryEngineBtn.on('click', function(){
+          $(this).prop('disabled', true);
+          initEngine(true);
+        });
       }
 
       $('#depth-input, #threads-input, #hash-input').on('change', function(){ initEngine(); });
@@ -851,7 +924,7 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
           if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
         }
         await waitForEngineReady();
-        if (!engineReady) { showError('Stockfish failed to initialize'); return; }
+        if (!engineReady) { handleEngineLoadFailure('Stockfish failed to initialize.'); return; }
         switchStep(2);
         await runStockfishAnalysis();
       });
@@ -870,6 +943,10 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         try {
           configureEngineOptions();
           await waitForEngineReady();
+          if (!engineReady) {
+            handleEngineLoadFailure('Stockfish failed to initialize.');
+            return;
+          }
           const sanMoves = game.history(); let annotatedPgn = '';
           const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
           const temp = new Chess();
@@ -929,7 +1006,7 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
           $('#goto-step3-btn').prop('disabled', false);
         } catch (err) {
           console.error('Stockfish analysis failed', err);
-          showError('Stockfish analysis failed. Please try again.');
+          handleEngineLoadFailure('Stockfish analysis failed. Please retry.');
         } finally {
           setCopyButtonAnalyzing(false);
         }
