@@ -247,7 +247,8 @@
       $('#player-name-input').on('input change', function () { refreshStockfishOutput(); });
 
       // ====== Stockfish (same-origin Worker) ======
-      const LOCAL_ENGINE = 'engine/stockfish-nnue-16-single.js';
+      const ENGINE_BUNDLE_VERSION = '20240609';
+      const LOCAL_ENGINE = `engine/stockfish-nnue-16-single.js?v=${ENGINE_BUNDLE_VERSION}`;
       function resolveWorkerUrl(path) {
         if (!path) return path;
         try {

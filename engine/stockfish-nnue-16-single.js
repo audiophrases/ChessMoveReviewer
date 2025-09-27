@@ -1,6 +1,16 @@
 var Module = {
-  locateFile: () =>
-    new URL('stockfish-nnue-16-single.wasm', self.location.href).toString(),
+  locateFile: (path) => {
+    try {
+      var baseUrl = new URL(self.location.href);
+      var target = new URL(path || '', baseUrl);
+      if (baseUrl.search) {
+        target.search = baseUrl.search;
+      }
+      return target.toString();
+    } catch (err) {
+      return new URL(path || 'stockfish-nnue-16-single.wasm', self.location.href).toString();
+    }
+  },
 };
 /*!
  * Stockfish.js 16 (c) 2023, Chess.com, LLC
