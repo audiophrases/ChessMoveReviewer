@@ -96,7 +96,7 @@
       </div>
       <div class="flex flex-col items-center">
         <label for="threads-input" class="text-gray-300">Threads</label>
-        <input id="threads-input" type="number" min="4" value="6" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="threads-input" type="number" min="1" value="4" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
         <label for="hash-input" class="text-gray-300">Memory</label>
@@ -213,6 +213,45 @@
       $('#threads-input').val(4);
 
       const FORM_STORAGE_KEY = 'cmr-form-state-v1';
+      const hardwareThreadCap = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency)
+        ? Math.max(1, Math.min(16, navigator.hardwareConcurrency))
+        : 8;
+
+      function sanitizeIntegerSetting(value, rules) {
+        const normalizedRules = rules || {};
+        const fallback = Number.isFinite(normalizedRules.fallback) ? normalizedRules.fallback : 0;
+        let numeric = parseInt(value, 10);
+        if (!Number.isFinite(numeric)) numeric = fallback;
+        if (Number.isFinite(normalizedRules.min) && numeric < normalizedRules.min) numeric = normalizedRules.min;
+        if (Number.isFinite(normalizedRules.max) && numeric > normalizedRules.max) numeric = normalizedRules.max;
+        if (!Number.isFinite(numeric)) numeric = fallback;
+        return numeric;
+      }
+
+      const ENGINE_SETTING_LIMITS = {
+        depth: { min: 4, max: 30, fallback: sanitizeIntegerSetting($('#depth-input').val(), { fallback: 24 }) },
+        threads: { min: 1, max: hardwareThreadCap, fallback: sanitizeIntegerSetting($('#threads-input').val(), { fallback: 4 }) },
+        hash: { min: 32, max: 512, fallback: sanitizeIntegerSetting($('#hash-input').val(), { fallback: 384 }) }
+      };
+
+      function sanitizeEngineSetting(key, value) {
+        const rules = ENGINE_SETTING_LIMITS[key] || {};
+        const fallback = Number.isFinite(rules.fallback)
+          ? Math.min(Math.max(rules.fallback, rules.min ?? rules.fallback), rules.max ?? rules.fallback)
+          : 0;
+        let numeric = parseInt(value, 10);
+        if (!Number.isFinite(numeric)) numeric = fallback;
+        if (Number.isFinite(rules.min) && numeric < rules.min) numeric = rules.min;
+        if (Number.isFinite(rules.max) && numeric > rules.max) numeric = rules.max;
+        if (!Number.isFinite(numeric)) numeric = fallback;
+        return numeric;
+      }
+
+      Object.keys(ENGINE_SETTING_LIMITS).forEach(key => {
+        const rules = ENGINE_SETTING_LIMITS[key];
+        rules.fallback = sanitizeEngineSetting(key, rules.fallback);
+      });
+
       const STEP_HASHES = { 1: '', 2: '#step-2', 3: '#step-3', 4: '#step-4' };
       const DEFAULT_PLAYER_NAME = 'eugenime';
       let formState = loadFormState();
@@ -241,9 +280,9 @@
       bindPersistentInput('#player-name-input', 'playerName');
       bindPersistentInput('#pgn-input', 'pgnInput');
       bindPersistentInput('#final-analysis-input', 'finalAnalysisInput');
-      bindPersistentInput('#depth-input', 'depthInput');
-      bindPersistentInput('#threads-input', 'threadsInput');
-      bindPersistentInput('#hash-input', 'hashInput');
+      bindPersistentInput('#depth-input', 'depthInput', { sanitize: value => sanitizeEngineSetting('depth', value) });
+      bindPersistentInput('#threads-input', 'threadsInput', { sanitize: value => sanitizeEngineSetting('threads', value) });
+      bindPersistentInput('#hash-input', 'hashInput', { sanitize: value => sanitizeEngineSetting('hash', value) });
       $('#player-name-input').on('input change', function () { refreshStockfishOutput(); });
 
       // ====== Stockfish (same-origin Worker) ======
@@ -306,9 +345,12 @@
         if (!engineWorker) return;
         engineReady = false;
         $('#analyze-pgn-btn').prop('disabled', true);
-        const depthVal = parseInt($('#depth-input').val(), 10) || 24;
-        const threadVal = parseInt($('#threads-input').val(), 10) || 4;
-        const hashVal = parseInt($('#hash-input').val(), 10) || 469;
+        const depthVal = sanitizeEngineSetting('depth', $('#depth-input').val());
+        const threadVal = sanitizeEngineSetting('threads', $('#threads-input').val());
+        const hashVal = sanitizeEngineSetting('hash', $('#hash-input').val());
+        $('#depth-input').val(depthVal);
+        $('#threads-input').val(threadVal);
+        $('#hash-input').val(hashVal);
         ENGINE_GO_OPTIONS.depth = depthVal;
         const options = { Threads: threadVal, Hash: hashVal };
         Object.entries(options).forEach(([name, value]) => {
@@ -800,11 +842,18 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         updateFormState('stockfishOutput', combined);
       }
 
-      function bindPersistentInput(selector, key) {
+      function bindPersistentInput(selector, key, opts) {
         const el = $(selector);
         if (!el.length) return;
+        const sanitizer = opts && typeof opts.sanitize === 'function' ? opts.sanitize : (value => value);
         el.on('input change', function () {
-          updateFormState(key, $(this).val());
+          const raw = $(this).val();
+          const sanitized = sanitizer(raw);
+          const sanitizedStr = sanitized == null ? '' : String(sanitized);
+          if (raw !== sanitizedStr) {
+            $(this).val(sanitizedStr);
+          }
+          updateFormState(key, sanitized);
         });
       }
 
@@ -813,9 +862,21 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         if (formState.playerName != null) $('#player-name-input').val(formState.playerName);
         if (formState.pgnInput != null) $('#pgn-input').val(formState.pgnInput);
         if (formState.finalAnalysisInput != null) $('#final-analysis-input').val(formState.finalAnalysisInput);
-        if (formState.depthInput != null) $('#depth-input').val(formState.depthInput);
-        if (formState.threadsInput != null) $('#threads-input').val(formState.threadsInput);
-        if (formState.hashInput != null) $('#hash-input').val(formState.hashInput);
+        if (formState.depthInput != null) {
+          const sanitizedDepth = sanitizeEngineSetting('depth', formState.depthInput);
+          $('#depth-input').val(sanitizedDepth);
+          if (sanitizedDepth !== formState.depthInput) updateFormState('depthInput', sanitizedDepth);
+        }
+        if (formState.threadsInput != null) {
+          const sanitizedThreads = sanitizeEngineSetting('threads', formState.threadsInput);
+          $('#threads-input').val(sanitizedThreads);
+          if (sanitizedThreads !== formState.threadsInput) updateFormState('threadsInput', sanitizedThreads);
+        }
+        if (formState.hashInput != null) {
+          const sanitizedHash = sanitizeEngineSetting('hash', formState.hashInput);
+          $('#hash-input').val(sanitizedHash);
+          if (sanitizedHash !== formState.hashInput) updateFormState('hashInput', sanitizedHash);
+        }
         if (formState.stockfishOutput != null) $('#stockfish-output').val(formState.stockfishOutput);
         if (formState.annotatedPgn != null) lastAnnotatedPgn = formState.annotatedPgn;
         if (lastAnnotatedPgn) refreshStockfishOutput();
