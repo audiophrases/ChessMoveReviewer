@@ -212,7 +212,6 @@
     $(function () {
       $('#threads-input').val(4);
 
-      const FORM_STORAGE_KEY = 'cmr-form-state-v1';
       const hardwareThreadCap = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency)
         ? Math.max(1, Math.min(16, navigator.hardwareConcurrency))
         : 8;
@@ -807,29 +806,17 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
       }
 
       function loadFormState() {
-        if (typeof window === 'undefined' || !window.localStorage) return {};
-        try {
-          const raw = window.localStorage.getItem(FORM_STORAGE_KEY);
-          if (!raw) return {};
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === 'object') return parsed;
-        } catch (err) {
-          console.warn('Unable to load saved form state:', err);
-        }
         return {};
       }
 
       function persistFormState() {
-        if (typeof window === 'undefined' || !window.localStorage) return;
-        try {
-          window.localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(formState || {}));
-        } catch (err) {
-          console.warn('Unable to persist form state:', err);
-        }
+        // Disabled: Avoid persisting PGN or analysis data to storage.
       }
 
+      const TRANSIENT_FORM_KEYS = new Set(['pgnInput', 'finalAnalysisInput', 'stockfishOutput']);
+
       function updateFormState(key, value) {
-        if (!key) return;
+        if (!key || TRANSIENT_FORM_KEYS.has(String(key))) return;
         if (!formState || typeof formState !== 'object') formState = {};
         formState[key] = value;
         persistFormState();
