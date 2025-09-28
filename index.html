@@ -274,6 +274,7 @@
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
       const retryEngineBtn = $('#retry-engine-btn');
+      let explorationState = null;
 
       applySavedFormState();
       bindPersistentInput('#player-name-input', 'playerName');
@@ -631,17 +632,85 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         $('#board .square-55d63').removeClass('selected');
         selectedSquare = null;
       }
+
+      function isExploring() {
+        return !!(explorationState && explorationState.active);
+      }
+
+      function startExploration(baseFen, baseIndex) {
+        explorationState = {
+          active: true,
+          baseFen: baseFen || null,
+          baseIndex: Number.isFinite(baseIndex) ? baseIndex : -1,
+          moves: [],
+          cursor: 0
+        };
+      }
+
+      function clearExploration(forceUpdate) {
+        const wasExploring = isExploring();
+        explorationState = null;
+        if (wasExploring || forceUpdate) {
+          syncNavigationControls();
+        }
+      }
+
+      function applyExplorationCursor(targetCursor) {
+        if (!isExploring()) return;
+        const maxMoves = explorationState.moves.length;
+        const safeTarget = Math.max(0, Math.min(targetCursor, maxMoves));
+        const baseFen = explorationState.baseFen;
+        let loaded = false;
+        if (baseFen) {
+          loaded = game.load(baseFen);
+        }
+        if (!loaded) {
+          game.reset();
+        }
+        explorationState.cursor = 0;
+        for (let i = 0; i < safeTarget; i++) {
+          const mv = explorationState.moves[i];
+          if (!mv) break;
+          let applied = null;
+          if (mv.san) applied = game.move(mv.san);
+          if (!applied && mv.from && mv.to) {
+            const moveSpec = { from: mv.from, to: mv.to };
+            if (mv.promotion) moveSpec.promotion = mv.promotion;
+            applied = game.move(moveSpec);
+          }
+          if (!applied) break;
+          explorationState.cursor = i + 1;
+        }
+        if (board) board.position(game.fen());
+      }
+
+      function stepExploration(delta) {
+        if (!isExploring()) return false;
+        const target = explorationState.cursor + delta;
+        if (target < 0 || target > explorationState.moves.length) return false;
+        applyExplorationCursor(target);
+        handleExplorationPositionChanged();
+        return true;
+      }
       function handleSquareClick(square) {
         if (selectedSquare) {
           if (selectedSquare === square) {
             clearSelected();
             return;
           }
+          const fenBeforeMove = game.fen();
           const move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
           if (move) {
-            board.position(game.fen());
+            if (!isExploring()) {
+              startExploration(fenBeforeMove, currentMoveIndex);
+            } else if (explorationState.cursor < explorationState.moves.length) {
+              explorationState.moves = explorationState.moves.slice(0, explorationState.cursor);
+            }
+            explorationState.moves.push({ san: move.san, from: move.from, to: move.to, promotion: move.promotion });
+            explorationState.cursor = explorationState.moves.length;
+            if (board) board.position(game.fen());
             clearSelected();
-            handleFreePlayAfterMove();
+            handleExplorationPositionChanged();
           } else {
             clearSelected();
             if (game.get(square)) {
@@ -1498,7 +1567,11 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
           }, 0);
         }
 
-        function handleFreePlayAfterMove() {
+        function handleExplorationPositionChanged() {
+          if (!isExploring()) {
+            syncNavigationControls();
+            return;
+          }
           $('.move-item').removeClass('highlight');
           renderEvalGraph(-1);
           clearBestMoveHighlight();
@@ -1506,6 +1579,7 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
             showBestMoveAnalyzingDisplay();
             showBestMoveForCurrentPosition();
           }
+          syncNavigationControls();
         }
 
       $('#copy-stockfish-btn').on('click', function () {
@@ -1660,6 +1734,7 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         board.position('start');
         game.reset();
         currentMoveIndex = -1;
+        clearExploration(true);
         renderMoveList();
         adjustAnalysisHeight();
         board.resize();
@@ -1899,7 +1974,9 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         if (isClickable) {
           container.find('button[data-move-index]').on('click', function(){
             const targetIdx = Number($(this).data('move-index'));
-            if (!Number.isNaN(targetIdx)) goToMove(targetIdx);
+            if (Number.isNaN(targetIdx)) return;
+            clearExploration();
+            goToMove(targetIdx);
           });
         }
       }
@@ -1932,7 +2009,12 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
             '</div>';
           c.append(html);
         });
-        $('.move-item').on('click', function(){ goToMove($(this).data('move-index')); });
+        $('.move-item').on('click', function(){
+          const idx = Number($(this).data('move-index'));
+          if (Number.isNaN(idx)) return;
+          clearExploration();
+          goToMove(idx);
+        });
       }
 
       function adjustAnalysisHeight() {
@@ -1961,6 +2043,7 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         if (!evalCanvas) return;
         evalCtx = evalCanvas.getContext('2d');
         evalCanvas.addEventListener('click', function(e) {
+          if (isExploring()) return;
           const rect = evalCanvas.getBoundingClientRect();
           const x = e.clientX - rect.left;
           const maxIdx = Math.max(probSeries.length - 1, 0);
@@ -2093,22 +2176,54 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         }
       }
 
+      function syncNavigationControls() {
+        const prevBtn = $('#prev-btn');
+        const nextBtn = $('#next-btn');
+        if (!prevBtn.length || !nextBtn.length) return;
+        if (isExploring()) {
+          const cursor = explorationState ? explorationState.cursor : 0;
+          const total = explorationState ? explorationState.moves.length : 0;
+          prevBtn.prop('disabled', cursor <= 0);
+          nextBtn.prop('disabled', cursor >= total);
+        } else {
+          prevBtn.prop('disabled', currentMoveIndex < 0);
+          nextBtn.prop('disabled', currentMoveIndex >= movesWithAnalysis.length - 1);
+        }
+      }
+
         function goToMove(idx) {
           if (idx < -1 || idx >= movesWithAnalysis.length) return;
-          currentMoveIndex = idx; game.reset(); for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
+          currentMoveIndex = idx;
+          game.reset();
+          for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
           if (board) board.position(game.fen());
-          $('.move-item').removeClass('highlight'); if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
-          $('#prev-btn').prop('disabled', idx < 0); $('#next-btn').prop('disabled', idx >= movesWithAnalysis.length - 1);
-          adjustAnalysisHeight(); renderEvalGraph(idx); ensureMoveVisible(idx);
+          $('.move-item').removeClass('highlight');
+          if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
+          adjustAnalysisHeight();
+          renderEvalGraph(idx);
+          ensureMoveVisible(idx);
           clearBestMoveHighlight();
           if (showBestMove) {
             showBestMoveAnalyzingDisplay();
             showBestMoveForCurrentPosition();
           }
+          syncNavigationControls();
         }
 
-        $('#next-btn').on('click', function(){ goToMove(currentMoveIndex + 1); });
-        $('#prev-btn').on('click', function(){ goToMove(currentMoveIndex - 1); });
+        $('#next-btn').on('click', function(){
+          if (isExploring()) {
+            if (!stepExploration(1)) return;
+          } else {
+            goToMove(currentMoveIndex + 1);
+          }
+        });
+        $('#prev-btn').on('click', function(){
+          if (isExploring()) {
+            if (!stepExploration(-1)) return;
+          } else {
+            goToMove(currentMoveIndex - 1);
+          }
+        });
         $('#flip-btn').on('click', function(){
           if (board) {
             board.flip();
@@ -2140,7 +2255,22 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
             highlightBestMoveSquares(from, to);
           }
         });
-        $(document).on('keydown', function(e){ if (!$('#review-section').is(':visible')) return; if (e.key==='ArrowRight') goToMove(currentMoveIndex + 1); if (e.key==='ArrowLeft') goToMove(currentMoveIndex - 1); });
+        $(document).on('keydown', function(e){
+          if (!$('#review-section').is(':visible')) return;
+          if (e.key === 'ArrowRight') {
+            if (isExploring()) {
+              stepExploration(1);
+            } else {
+              goToMove(currentMoveIndex + 1);
+            }
+          } else if (e.key === 'ArrowLeft') {
+            if (isExploring()) {
+              stepExploration(-1);
+            } else {
+              goToMove(currentMoveIndex - 1);
+            }
+          }
+        });
       });
     </script>
 </body>
