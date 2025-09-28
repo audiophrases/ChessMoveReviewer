@@ -23,7 +23,7 @@
     .move-item.featured:hover { background-color: rgba(250, 204, 21, 0.12); }
     .move-item.featured.highlight { background-color: #243249; }
     #eval-graph { cursor: pointer; transition: opacity 0.2s ease-in-out; }
-    #eval-graph.exploration-disabled { cursor: default; pointer-events: none; opacity: 0.85; }
+    #eval-graph.exploration-disabled { opacity: 0.85; }
     #move-analysis-scroll::-webkit-scrollbar { width: 8px; }
     #move-analysis-scroll::-webkit-scrollbar-track { background: #1a1f2a; }
     #move-analysis-scroll::-webkit-scrollbar-thumb { background-color: #4b5563; border-radius: 10px; border: 2px solid #1a1f2a; }
@@ -2046,10 +2046,8 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         if (!evalCanvas) return;
         if (isExploring()) {
           evalCanvas.classList.add('exploration-disabled');
-          evalCanvas.setAttribute('aria-disabled', 'true');
         } else {
           evalCanvas.classList.remove('exploration-disabled');
-          evalCanvas.removeAttribute('aria-disabled');
         }
       }
 
@@ -2059,9 +2057,7 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         evalCtx = evalCanvas.getContext('2d');
         evalCanvas.addEventListener('click', function(e) {
           if (isExploring()) {
-            e.preventDefault();
-            e.stopPropagation();
-            return;
+            clearExploration();
           }
           const rect = evalCanvas.getBoundingClientRect();
           const x = e.clientX - rect.left;
