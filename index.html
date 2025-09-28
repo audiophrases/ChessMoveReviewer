@@ -22,6 +22,8 @@
     .move-item.featured { border: 1px solid rgba(250, 204, 21, 0.35); background-color: rgba(250, 204, 21, 0.06); }
     .move-item.featured:hover { background-color: rgba(250, 204, 21, 0.12); }
     .move-item.featured.highlight { background-color: #243249; }
+    #eval-graph { cursor: pointer; transition: opacity 0.2s ease-in-out; }
+    #eval-graph.exploration-disabled { opacity: 0.85; }
     #move-analysis-scroll::-webkit-scrollbar { width: 8px; }
     #move-analysis-scroll::-webkit-scrollbar-track { background: #1a1f2a; }
     #move-analysis-scroll::-webkit-scrollbar-thumb { background-color: #4b5563; border-radius: 10px; border: 2px solid #1a1f2a; }
@@ -653,6 +655,7 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         if (wasExploring || forceUpdate) {
           syncNavigationControls();
         }
+        updateEvalGraphInteractivity();
       }
 
       function applyExplorationCursor(targetCursor) {
@@ -1568,6 +1571,7 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         }
 
         function handleExplorationPositionChanged() {
+          updateEvalGraphInteractivity();
           if (!isExploring()) {
             syncNavigationControls();
             return;
@@ -2038,18 +2042,30 @@ Finish with the Summary in the specified format; compute totals and accuracy exa
         scroll.style.height = target + 'px';
       }
 
+      function updateEvalGraphInteractivity() {
+        if (!evalCanvas) return;
+        if (isExploring()) {
+          evalCanvas.classList.add('exploration-disabled');
+        } else {
+          evalCanvas.classList.remove('exploration-disabled');
+        }
+      }
+
       function initEvalGraph() {
         evalCanvas = document.getElementById('eval-graph');
         if (!evalCanvas) return;
         evalCtx = evalCanvas.getContext('2d');
         evalCanvas.addEventListener('click', function(e) {
-          if (isExploring()) return;
+          if (isExploring()) {
+            clearExploration();
+          }
           const rect = evalCanvas.getBoundingClientRect();
           const x = e.clientX - rect.left;
           const maxIdx = Math.max(probSeries.length - 1, 0);
           const idx = Math.round((x / evalCanvas.width) * maxIdx);
           goToMove(idx);
         });
+        updateEvalGraphInteractivity();
         resizeEvalGraph();
       }
 
