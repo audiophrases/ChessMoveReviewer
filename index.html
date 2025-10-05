@@ -84,6 +84,19 @@
       <input id="player-name-input" type="text" class="w-full p-3 rounded-lg form-input" placeholder="Username"/>
       <p class="mt-1 text-xs text-gray-400">Your username should appear in the PGN.</p>
     </div>
+    <div class="bg-[#101522] border border-[#1f2937] rounded-lg p-4">
+      <h3 class="text-sm font-semibold text-gray-200">Need a PGN?</h3>
+      <p class="mt-1 text-xs text-gray-400">Load a recent game from Chess.com or Lichess, or paste one manually below.</p>
+      <div class="flex flex-wrap items-center gap-2 mt-3">
+        <button id="load-chesscom-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">
+          Browse Chess.com games
+        </button>
+        <button id="load-lichess-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">
+          Browse Lichess games
+        </button>
+      </div>
+      <p id="game-loader-feedback" class="hidden mt-3 text-xs text-gray-300" role="status"></p>
+    </div>
     <div>
       <div class="flex items-center justify-between gap-2 mb-2">
         <label for="pgn-input" class="font-semibold text-gray-300">Paste PGN here</label>
@@ -197,6 +210,18 @@
     </div>
   </main>
 
+  <!-- Game Picker Modal -->
+  <div id="game-picker-modal" class="hidden fixed inset-0 z-50 bg-black bg-opacity-70 flex items-center justify-center px-4" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="bg-[#141926] w-full max-w-lg p-6 rounded-xl shadow-2xl border border-[#1f2937]">
+      <div class="flex items-start justify-between gap-3">
+        <h3 id="game-picker-title" class="text-xl font-semibold text-white">Select a game</h3>
+        <button id="close-game-picker-btn" type="button" class="py-1.5 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Close</button>
+      </div>
+      <p id="game-picker-status" class="mt-3 text-sm text-gray-300"></p>
+      <div id="game-picker-list" class="mt-4 space-y-2 max-h-96 overflow-y-auto" role="list"></div>
+    </div>
+  </div>
+
   <!-- Error Modal -->
   <div id="error-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
     <div class="bg-[#141926] p-8 rounded-lg shadow-xl max-w-sm w-full text-center">
@@ -277,6 +302,16 @@
       const engineStatusDetail = $('#engine-status-detail');
       const retryEngineBtn = $('#retry-engine-btn');
       let explorationState = null;
+      const loadChessComBtn = $('#load-chesscom-btn');
+      const loadLichessBtn = $('#load-lichess-btn');
+      const gameLoaderFeedback = $('#game-loader-feedback');
+      const gamePickerModal = $('#game-picker-modal');
+      const gamePickerTitle = $('#game-picker-title');
+      const gamePickerStatus = $('#game-picker-status');
+      const gamePickerList = $('#game-picker-list');
+      const closeGamePickerBtn = $('#close-game-picker-btn');
+      let activeGameRequestToken = 0;
+      let gamePickerReturnFocus = null;
 
       applySavedFormState();
       bindPersistentInput('#player-name-input', 'playerName');
@@ -286,6 +321,564 @@
       bindPersistentInput('#threads-input', 'threadsInput', { sanitize: value => sanitizeEngineSetting('threads', value) });
       bindPersistentInput('#hash-input', 'hashInput', { sanitize: value => sanitizeEngineSetting('hash', value) });
       $('#player-name-input').on('input change', function () { refreshStockfishOutput(); });
+
+      if (loadChessComBtn.length) {
+        loadChessComBtn.data('defaultLabel', loadChessComBtn.text().trim() || 'Browse Chess.com games');
+        loadChessComBtn.on('click', function () { handleGameLoad('chesscom'); });
+      }
+      if (loadLichessBtn.length) {
+        loadLichessBtn.data('defaultLabel', loadLichessBtn.text().trim() || 'Browse Lichess games');
+        loadLichessBtn.on('click', function () { handleGameLoad('lichess'); });
+      }
+      if (closeGamePickerBtn.length) {
+        closeGamePickerBtn.on('click', function () { closeGamePickerModal(); });
+      }
+      if (gamePickerModal.length) {
+        gamePickerModal.on('click', function (evt) {
+          if (evt.target === this) { closeGamePickerModal(); }
+        });
+      }
+      $(document).on('keydown', function (evt) {
+        if (evt.key === 'Escape' || evt.key === 'Esc') {
+          if (gamePickerModal.length && !gamePickerModal.hasClass('hidden')) {
+            evt.preventDefault();
+            closeGamePickerModal();
+          }
+        }
+      });
+
+      function handleGameSelection(game) {
+        if (!game || !game.pgn) {
+          showGameLoaderFeedback('Unable to load the selected game.', 'error');
+          return;
+        }
+        closeGamePickerModal();
+        $('#pgn-input').val(game.pgn).trigger('input');
+        $('#pgn-input').focus();
+        lastAnnotatedPgn = '';
+        updateFormState('annotatedPgn', '');
+        $('#stockfish-output').val('');
+        updateFormState('stockfishOutput', '');
+        const detailParts = [];
+        if (game.colorLabel && game.colorLabel !== 'Unknown color') detailParts.push(game.colorLabel);
+        if (game.resultLabel) detailParts.push(game.resultLabel);
+        const detail = detailParts.length ? ` (${detailParts.join(' • ')})` : '';
+        const opponent = game.opponent || 'opponent';
+        const source = game.sourceLabel || 'Game';
+        showGameLoaderFeedback(`Loaded ${source} game vs ${opponent}${detail}.`, 'success');
+      }
+
+      async function handleGameLoad(source) {
+        const button = source === 'chesscom' ? loadChessComBtn : loadLichessBtn;
+        const defaultLabel = button && button.length ? (button.data('defaultLabel') || button.text().trim()) : '';
+        const sourceLabel = source === 'chesscom' ? 'Chess.com' : 'Lichess';
+        const usernameRaw = $('#player-name-input').val();
+        const username = usernameRaw == null ? '' : String(usernameRaw).trim();
+        if (!username) {
+          showGameLoaderFeedback('Enter a username before loading games.', 'error');
+          if ($('#player-name-input').length) $('#player-name-input').focus();
+          return;
+        }
+        hideGameLoaderFeedback();
+        if (button && button.length) {
+          button.prop('disabled', true).text(`Loading ${sourceLabel}…`);
+        }
+        const requestToken = ++activeGameRequestToken;
+        openGamePickerModal(sourceLabel, username);
+        setGamePickerStatus(`Fetching recent ${sourceLabel} games for ${username}…`, 'info');
+        clearGamePickerList();
+        try {
+          const loader = source === 'chesscom' ? fetchChessComGames : fetchLichessGames;
+          const games = await loader(username);
+          if (requestToken !== activeGameRequestToken) return;
+          if (!games.length) {
+            setGamePickerStatus(`No recent ${sourceLabel} games found for ${username}.`, 'info');
+            return;
+          }
+          renderGamePickerList(games);
+          setGamePickerStatus('Choose a game to load into the PGN field.', 'info');
+        } catch (err) {
+          if (requestToken !== activeGameRequestToken) return;
+          console.error('Game fetch failed:', err);
+          const message = err && err.message ? err.message : `Unable to load ${sourceLabel} games.`;
+          setGamePickerStatus(message, 'error');
+        } finally {
+          if (button && button.length) {
+            button.prop('disabled', false).text(defaultLabel || (source === 'chesscom' ? 'Browse Chess.com games' : 'Browse Lichess games'));
+          }
+        }
+      }
+
+      function showGameLoaderFeedback(message, tone) {
+        if (!gameLoaderFeedback.length) return;
+        const toneClass = tone === 'error' ? 'text-red-300' : tone === 'success' ? 'text-emerald-300' : 'text-sky-300';
+        gameLoaderFeedback
+          .removeClass('hidden text-red-300 text-emerald-300 text-sky-300 text-gray-300')
+          .addClass(toneClass)
+          .text(message);
+      }
+
+      function hideGameLoaderFeedback() {
+        if (!gameLoaderFeedback.length) return;
+        gameLoaderFeedback
+          .addClass('hidden')
+          .removeClass('text-red-300 text-emerald-300 text-sky-300 text-gray-300')
+          .text('');
+      }
+
+      function openGamePickerModal(sourceLabel, username) {
+        if (!gamePickerModal.length) return;
+        gamePickerReturnFocus = document.activeElement;
+        const titleParts = ['Select a game'];
+        if (sourceLabel) titleParts[0] = `Select a ${sourceLabel} game`;
+        if (username) titleParts.push(`for ${username}`);
+        if (gamePickerTitle.length) gamePickerTitle.text(titleParts.join(' '));
+        gamePickerModal.removeClass('hidden').attr('aria-hidden', 'false');
+        if (closeGamePickerBtn.length) {
+          setTimeout(() => { closeGamePickerBtn.trigger('focus'); }, 0);
+        }
+      }
+
+      function closeGamePickerModal() {
+        if (!gamePickerModal.length) return;
+        activeGameRequestToken++;
+        gamePickerModal.addClass('hidden').attr('aria-hidden', 'true');
+        clearGamePickerList();
+        setGamePickerStatus('', 'info');
+        if (gamePickerReturnFocus && typeof gamePickerReturnFocus.focus === 'function') {
+          try { gamePickerReturnFocus.focus(); } catch (err) { /* noop */ }
+        }
+        gamePickerReturnFocus = null;
+      }
+
+      function setGamePickerStatus(message, tone) {
+        if (!gamePickerStatus.length) return;
+        gamePickerStatus
+          .removeClass('text-red-300 text-emerald-300 text-sky-300 text-gray-300 hidden')
+          .addClass(message ? '' : 'hidden')
+          .text(message || '');
+        if (!message) return;
+        const toneClass = tone === 'error' ? 'text-red-300' : tone === 'success' ? 'text-emerald-300' : tone === 'info' ? 'text-sky-300' : 'text-gray-300';
+        gamePickerStatus.addClass(toneClass);
+      }
+
+      function clearGamePickerList() {
+        if (!gamePickerList.length) return;
+        gamePickerList.empty();
+      }
+
+      function renderGamePickerList(games) {
+        if (!gamePickerList.length) return;
+        clearGamePickerList();
+        games.forEach((game, index) => {
+          const item = $('<button type="button" class="w-full text-left bg-[#0b0e15] border border-[#1f2937] hover:bg-[#172033] rounded-lg p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"></button>');
+          item.data('game', game);
+          const titleRow = $('<div class="flex items-center justify-between gap-2"></div>');
+          const titleText = game.summary || `Game ${index + 1}`;
+          $('<span class="font-semibold text-gray-100"></span>').text(titleText).appendTo(titleRow);
+          const badgeText = game.resultCode ? game.resultCode : (game.resultLabel || '');
+          if (badgeText) {
+            $('<span class="text-xs font-semibold px-2 py-0.5 rounded bg-[#1f2937] text-gray-200"></span>').text(badgeText).appendTo(titleRow);
+          }
+          item.append(titleRow);
+          const subtitleParts = [];
+          if (game.sourceLabel) subtitleParts.push(game.sourceLabel);
+          if (game.colorLabel && game.colorLabel !== 'Unknown color') subtitleParts.push(game.colorLabel);
+          if (game.dateLabel) subtitleParts.push(game.dateLabel);
+          if (subtitleParts.length) {
+            $('<div class="mt-2 text-sm text-gray-300"></div>').text(subtitleParts.join(' • ')).appendTo(item);
+          }
+          const detailParts = [];
+          if (game.eventLabel) detailParts.push(game.eventLabel);
+          if (game.timeControlLabel) detailParts.push(game.timeControlLabel);
+          if (game.siteLabel) detailParts.push(game.siteLabel);
+          if (game.speedLabel) detailParts.push(game.speedLabel);
+          if (game.ratingLabel) detailParts.push(game.ratingLabel);
+          const detailLine = detailParts.join(' • ');
+          if (detailLine) {
+            $('<div class="mt-2 text-xs text-gray-400"></div>').text(detailLine).appendTo(item);
+          }
+          item.on('click', function () {
+            const selected = $(this).data('game');
+            handleGameSelection(selected);
+          });
+          gamePickerList.append(item);
+        });
+      }
+
+      async function fetchChessComGames(username) {
+        const normalized = String(username || '').trim();
+        if (!normalized) return [];
+        const lower = normalized.toLowerCase();
+        const archivesUrl = `https://api.chess.com/pub/player/${encodeURIComponent(normalized)}/games/archives`;
+        let archiveResponse;
+        try {
+          archiveResponse = await fetch(archivesUrl, { mode: 'cors' });
+        } catch (err) {
+          throw new Error('Unable to reach Chess.com. Check your connection and try again.');
+        }
+        if (!archiveResponse.ok) {
+          if (archiveResponse.status === 404) {
+            throw new Error(`Chess.com user "${normalized}" was not found.`);
+          }
+          throw new Error(`Chess.com request failed (status ${archiveResponse.status}).`);
+        }
+        let archiveJson;
+        try {
+          archiveJson = await archiveResponse.json();
+        } catch (err) {
+          throw new Error('Received an unexpected response from Chess.com.');
+        }
+        const archiveList = Array.isArray(archiveJson.archives) ? archiveJson.archives : [];
+        if (!archiveList.length) return [];
+        const archiveUrls = archiveList.slice(-3).reverse();
+        const collected = [];
+        for (const url of archiveUrls) {
+          if (!url) continue;
+          try {
+            const resp = await fetch(url, { mode: 'cors' });
+            if (!resp.ok) continue;
+            const data = await resp.json();
+            if (data && Array.isArray(data.games)) {
+              data.games.forEach(game => collected.push(game));
+            }
+          } catch (err) {
+            console.warn('Failed to load Chess.com archive', url, err);
+          }
+          if (collected.length >= 40) break;
+        }
+        const mapped = collected
+          .map(game => mapChessComGame(game, normalized, lower))
+          .filter(Boolean);
+        mapped.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        return mapped.slice(0, 30);
+      }
+
+      function mapChessComGame(game, username, usernameLower) {
+        if (!game || !game.pgn) return null;
+        const headers = parsePgnHeaders(game.pgn);
+        const whiteNameRaw = headers.White || (game.white && game.white.username) || '';
+        const blackNameRaw = headers.Black || (game.black && game.black.username) || '';
+        const whiteName = whiteNameRaw ? String(whiteNameRaw).trim() : '';
+        const blackName = blackNameRaw ? String(blackNameRaw).trim() : '';
+        const whiteLower = whiteName.toLowerCase();
+        const blackLower = blackName.toLowerCase();
+        let color = null;
+        if (whiteLower === usernameLower) {
+          color = 'white';
+        } else if (blackLower === usernameLower) {
+          color = 'black';
+        } else if (game.white && typeof game.white.username === 'string' && game.white.username.toLowerCase() === usernameLower) {
+          color = 'white';
+        } else if (game.black && typeof game.black.username === 'string' && game.black.username.toLowerCase() === usernameLower) {
+          color = 'black';
+        }
+        const opponent = color === 'white'
+          ? (blackName || (game.black && game.black.username) || 'Unknown opponent')
+          : color === 'black'
+            ? (whiteName || (game.white && game.white.username) || 'Unknown opponent')
+            : (whiteName && blackName ? `${whiteName} vs ${blackName}` : 'Unknown opponent');
+        const colorLabel = color === 'white' ? 'White' : color === 'black' ? 'Black' : 'Unknown color';
+        const resultCodeRaw = headers.Result || '';
+        const resultCode = String(resultCodeRaw).trim();
+        const resultLabel = describeResult(resultCode);
+        const timestamp = timestampFromHeaders(headers)
+          || normalizeTimestamp(game.end_time)
+          || normalizeTimestamp(game.start_time);
+        const dateLabel = formatDateTime(timestamp);
+        const timeControlLabel = formatTimeControl(headers.TimeControl);
+        const eventLabel = headers.Event || '';
+        let siteLabel = headers.Site || '';
+        if (!siteLabel) {
+          try {
+            siteLabel = game.url ? new URL(game.url).hostname.replace(/^www\./, '') : 'Chess.com';
+          } catch (err) {
+            siteLabel = 'Chess.com';
+          }
+        }
+        const ratingYou = color === 'white' ? getNumeric(game.white && game.white.rating) : color === 'black' ? getNumeric(game.black && game.black.rating) : null;
+        const ratingOpp = color === 'white' ? getNumeric(game.black && game.black.rating) : color === 'black' ? getNumeric(game.white && game.white.rating) : null;
+        const ratingParts = [];
+        if (ratingYou != null) ratingParts.push(`You: ${ratingYou}`);
+        if (ratingOpp != null) ratingParts.push(`Opp: ${ratingOpp}`);
+        const ratingLabel = ratingParts.join(' • ');
+        const summaryOpponent = opponent || 'opponent';
+        const summary = color && color !== 'unknown'
+          ? `${colorLabel} vs ${summaryOpponent}`
+          : `${whiteName || 'White'} vs ${blackName || 'Black'}`;
+        const resultCodeDisplay = resultCode && resultCode !== '*' ? resultCode : '';
+        const idSource = game.url || game.uuid || `${timestamp || Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        return {
+          id: `chesscom-${idSource}`,
+          source: 'chesscom',
+          sourceLabel: 'Chess.com',
+          pgn: game.pgn,
+          color,
+          colorLabel,
+          opponent: summaryOpponent,
+          resultCode: resultCodeDisplay,
+          resultLabel,
+          timestamp,
+          dateLabel,
+          eventLabel,
+          siteLabel,
+          timeControlLabel,
+          ratingLabel,
+          summary,
+          speedLabel: ''
+        };
+      }
+
+      async function fetchLichessGames(username) {
+        const normalized = String(username || '').trim();
+        if (!normalized) return [];
+        const lower = normalized.toLowerCase();
+        const params = new URLSearchParams({
+          max: '20',
+          pgnInJson: 'true',
+          moves: 'false',
+          clocks: 'false',
+          evals: 'false',
+          opening: 'false'
+        });
+        const url = `https://lichess.org/api/games/user/${encodeURIComponent(normalized)}?${params.toString()}`;
+        let response;
+        try {
+          response = await fetch(url, {
+            headers: { 'Accept': 'application/x-ndjson' },
+            mode: 'cors'
+          });
+        } catch (err) {
+          throw new Error('Unable to reach Lichess. Check your connection and try again.');
+        }
+        if (!response.ok) {
+          if (response.status === 404) {
+            throw new Error(`Lichess user "${normalized}" was not found.`);
+          }
+          throw new Error(`Lichess request failed (status ${response.status}).`);
+        }
+        const payload = await response.text();
+        if (!payload) return [];
+        const lines = payload.split('\n');
+        const mapped = [];
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const data = JSON.parse(trimmed);
+            if (data && data.pgn) {
+              const mappedGame = mapLichessGame(data, normalized, lower);
+              if (mappedGame) mapped.push(mappedGame);
+            }
+          } catch (err) {
+            console.warn('Failed to parse Lichess game payload', err);
+          }
+          if (mapped.length >= 40) break;
+        }
+        mapped.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        return mapped.slice(0, 30);
+      }
+
+      function mapLichessGame(game, username, usernameLower) {
+        if (!game || !game.pgn) return null;
+        const headers = parsePgnHeaders(game.pgn);
+        const whiteNameRaw = headers.White || pickLichessName(game.players && game.players.white);
+        const blackNameRaw = headers.Black || pickLichessName(game.players && game.players.black);
+        const whiteName = whiteNameRaw ? String(whiteNameRaw).trim() : '';
+        const blackName = blackNameRaw ? String(blackNameRaw).trim() : '';
+        const whiteLower = whiteName.toLowerCase();
+        const blackLower = blackName.toLowerCase();
+        let color = null;
+        if (whiteLower === usernameLower) {
+          color = 'white';
+        } else if (blackLower === usernameLower) {
+          color = 'black';
+        } else {
+          const whiteFallback = pickLichessName(game.players && game.players.white).toLowerCase();
+          const blackFallback = pickLichessName(game.players && game.players.black).toLowerCase();
+          if (whiteFallback === usernameLower) {
+            color = 'white';
+          } else if (blackFallback === usernameLower) {
+            color = 'black';
+          }
+        }
+        const opponent = color === 'white'
+          ? (blackName || pickLichessName(game.players && game.players.black) || 'Unknown opponent')
+          : color === 'black'
+            ? (whiteName || pickLichessName(game.players && game.players.white) || 'Unknown opponent')
+            : (whiteName && blackName ? `${whiteName} vs ${blackName}` : 'Unknown opponent');
+        const colorLabel = color === 'white' ? 'White' : color === 'black' ? 'Black' : 'Unknown color';
+        let resultCode = (headers.Result || '').trim();
+        if (!resultCode || resultCode === '*') {
+          const winner = game.winner ? String(game.winner).toLowerCase() : '';
+          if (winner === 'white') {
+            resultCode = '1-0';
+          } else if (winner === 'black') {
+            resultCode = '0-1';
+          } else if ((game.status || '').toLowerCase() === 'draw') {
+            resultCode = '1/2-1/2';
+          }
+        }
+        const resultLabel = describeResult(resultCode);
+        const timestamp = timestampFromHeaders(headers)
+          || normalizeTimestamp(game.lastMoveAt)
+          || normalizeTimestamp(game.createdAt);
+        const dateLabel = formatDateTime(timestamp);
+        const eventLabel = headers.Event || game.event || '';
+        const siteLabel = headers.Site || 'Lichess';
+        let timeControlLabel = formatTimeControl(headers.TimeControl);
+        if (!timeControlLabel && game.clock && Number.isFinite(Number(game.clock.initial)) && Number.isFinite(Number(game.clock.increment))) {
+          timeControlLabel = formatTimeControl(`${game.clock.initial}+${game.clock.increment}`);
+        }
+        const ratingWhite = game.players && game.players.white ? getNumeric(game.players.white.rating) : null;
+        const ratingBlack = game.players && game.players.black ? getNumeric(game.players.black.rating) : null;
+        const ratingYou = color === 'white' ? ratingWhite : color === 'black' ? ratingBlack : null;
+        const ratingOpp = color === 'white' ? ratingBlack : color === 'black' ? ratingWhite : null;
+        const ratingParts = [];
+        if (ratingYou != null) ratingParts.push(`You: ${ratingYou}`);
+        if (ratingOpp != null) ratingParts.push(`Opp: ${ratingOpp}`);
+        const ratingLabel = ratingParts.join(' • ');
+        const speedLabel = buildSpeedLabel(game.speed, game.perf, game.variant);
+        const summaryOpponent = opponent || 'opponent';
+        const summary = color && color !== 'unknown'
+          ? `${colorLabel} vs ${summaryOpponent}`
+          : `${whiteName || 'White'} vs ${blackName || 'Black'}`;
+        const resultCodeDisplay = resultCode && resultCode !== '*' ? resultCode : '';
+        const idSource = game.id || game.url || `${timestamp || Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        return {
+          id: `lichess-${idSource}`,
+          source: 'lichess',
+          sourceLabel: 'Lichess',
+          pgn: game.pgn,
+          color,
+          colorLabel,
+          opponent: summaryOpponent,
+          resultCode: resultCodeDisplay,
+          resultLabel,
+          timestamp,
+          dateLabel,
+          eventLabel,
+          siteLabel,
+          timeControlLabel,
+          ratingLabel,
+          summary,
+          speedLabel
+        };
+      }
+
+      function parsePgnHeaders(pgn) {
+        const headers = {};
+        if (!pgn) return headers;
+        const headerRegex = /\[(\w+)\s+"([^"]*)"\]/g;
+        let match;
+        while ((match = headerRegex.exec(pgn)) !== null) {
+          headers[match[1]] = match[2];
+        }
+        return headers;
+      }
+
+      function normalizeTimestamp(value) {
+        if (value == null) return null;
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) return null;
+        if (numeric < 1e11) {
+          return numeric * 1000;
+        }
+        return numeric;
+      }
+
+      function timestampFromHeaders(headers) {
+        if (!headers) return null;
+        const dateRaw = headers.UTCDate || headers.Date;
+        if (!dateRaw) return null;
+        const dateMatch = String(dateRaw).match(/^\s*(\d{4})[.\-](\d{2})[.\-](\d{2})\s*$/);
+        if (!dateMatch) return null;
+        const sanitizedDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+        const timeRaw = headers.UTCTime || headers.Time;
+        const sanitizedTime = normalizeTimeComponent(timeRaw);
+        const isoCandidate = `${sanitizedDate}T${sanitizedTime}`;
+        const withZone = headers.UTCDate || headers.UTCTime ? `${isoCandidate}Z` : isoCandidate;
+        const parsed = Date.parse(withZone);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+
+      function normalizeTimeComponent(value) {
+        if (!value) return '00:00:00';
+        const str = String(value).trim();
+        const match = str.match(/^(\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?$/);
+        if (!match) return '00:00:00';
+        const hours = match[1].padStart(2, '0');
+        const minutes = (match[2] || '0').padStart(2, '0');
+        const seconds = (match[3] || '0').padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
+      }
+
+      function formatDateTime(timestamp) {
+        if (!timestamp) return '';
+        try {
+          const date = new Date(timestamp);
+          if (Number.isNaN(date.getTime())) return '';
+          return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+        } catch (err) {
+          return '';
+        }
+      }
+
+      function formatTimeControl(value) {
+        if (!value) return '';
+        const normalized = String(value).trim();
+        if (!normalized || normalized === '-' || normalized === '?') return '';
+        if (normalized.includes('+')) {
+          const [baseStr, incStr] = normalized.split('+');
+          const base = Number(baseStr);
+          const increment = Number(incStr);
+          if (Number.isFinite(base) && Number.isFinite(increment)) {
+            const baseDisplay = base >= 60 && base % 60 === 0
+              ? `${base / 60}`
+              : `${base}s`;
+            return `TC ${baseDisplay}+${increment}`;
+          }
+        }
+        return `TC ${normalized}`;
+      }
+
+      function describeResult(resultCode) {
+        const normalized = (resultCode || '').trim();
+        if (!normalized || normalized === '*') return 'In progress';
+        if (normalized === '1-0') return 'White won (1-0)';
+        if (normalized === '0-1') return 'Black won (0-1)';
+        if (normalized === '1/2-1/2') return 'Draw (½-½)';
+        return normalized;
+      }
+
+      function getNumeric(value) {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : null;
+      }
+
+      function pickLichessName(player) {
+        if (!player) return '';
+        if (player.user && player.user.name) return String(player.user.name);
+        if (player.userId) return String(player.userId);
+        if (player.name) return String(player.name);
+        if (player.aiLevel != null) return `Stockfish L${player.aiLevel}`;
+        return '';
+      }
+
+      function buildSpeedLabel(speed, perf, variant) {
+        const parts = [];
+        if (speed) parts.push(capitalizeFirst(speed));
+        if (variant && variant !== 'standard') parts.push(capitalizeFirst(variant));
+        if (perf && perf !== speed && perf !== variant) parts.push(capitalizeFirst(perf));
+        return parts.join(' • ');
+      }
+
+      function capitalizeFirst(value) {
+        const str = String(value || '').trim();
+        if (!str) return '';
+        return str.charAt(0).toUpperCase() + str.slice(1);
+      }
+
 
       // ====== Stockfish (same-origin Worker) ======
       const ENGINE_BUNDLE_VERSION = '20240609';
