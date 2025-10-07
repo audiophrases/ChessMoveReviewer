@@ -286,6 +286,8 @@
       // ====== App state ======
       let board = null;
       let game = new Chess();
+      let reviewPlayerColor = null;
+      let lastEngineMoveRecords = null;
       let movesWithAnalysis = [];
       let currentMoveIndex = -1;
       let probSeries = []; // WHITE win probability per ply (0..1)
@@ -320,7 +322,19 @@
       bindPersistentInput('#depth-input', 'depthInput', { sanitize: value => sanitizeEngineSetting('depth', value) });
       bindPersistentInput('#threads-input', 'threadsInput', { sanitize: value => sanitizeEngineSetting('threads', value) });
       bindPersistentInput('#hash-input', 'hashInput', { sanitize: value => sanitizeEngineSetting('hash', value) });
-      $('#player-name-input').on('input change', function () { refreshStockfishOutput(); });
+      $('#player-name-input').on('input change', function () {
+        const rawName = getRawPlayerNameInput();
+        if (rawName) {
+          updateReviewPlayerColorFromGame(game, rawName);
+        } else {
+          setReviewPlayerColor(null);
+        }
+        if (Array.isArray(lastEngineMoveRecords) && lastEngineMoveRecords.length) {
+          automatedMoveInsights = computeAutomatedMoveInsights(lastEngineMoveRecords, reviewPlayerColor);
+          automatedReviewText = buildAutomatedReviewText(automatedMoveInsights);
+        }
+        refreshStockfishOutput();
+      });
 
       if (loadChessComBtn.length) {
         loadChessComBtn.data('defaultLabel', loadChessComBtn.text().trim() || 'Browse Chess.com games');
@@ -359,6 +373,11 @@
         updateFormState('annotatedPgn', '');
         $('#stockfish-output').val('');
         updateFormState('stockfishOutput', '');
+        setReviewPlayerColor(game && game.color ? game.color : null);
+        if (getRawPlayerNameInput()) {
+          updateReviewPlayerColorFromHeaders(parsePgnHeaders(game.pgn), getPlayerName());
+        }
+        lastEngineMoveRecords = null;
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         automatedReviewText = '';
         const detailParts = [];
@@ -1128,6 +1147,65 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return trimmed || DEFAULT_PLAYER_NAME;
       }
 
+      function getRawPlayerNameInput() {
+        const el = $('#player-name-input');
+        if (!el.length) return '';
+        const raw = el.val();
+        return raw == null ? '' : String(raw).trim();
+      }
+
+      function normalizePlayerHandle(value) {
+        if (value == null) return '';
+        let normalized = String(value).trim();
+        if (!normalized) return '';
+        normalized = normalized.replace(/^@+/, '');
+        normalized = normalized.replace(/\s*\([^)]*\)\s*$/, '');
+        normalized = normalized.replace(/\s+/g, ' ');
+        return normalized.toLowerCase();
+      }
+
+      function setReviewPlayerColor(color) {
+        if (color === 'w' || color === 'b') {
+          reviewPlayerColor = color;
+          return reviewPlayerColor;
+        }
+        if (color === 'white') {
+          reviewPlayerColor = 'w';
+          return reviewPlayerColor;
+        }
+        if (color === 'black') {
+          reviewPlayerColor = 'b';
+          return reviewPlayerColor;
+        }
+        reviewPlayerColor = null;
+        return reviewPlayerColor;
+      }
+
+      function determinePlayerColorFromHeaders(headers, playerName) {
+        if (!headers) return null;
+        const target = normalizePlayerHandle(playerName);
+        if (!target) return null;
+        const white = normalizePlayerHandle(headers.White);
+        const black = normalizePlayerHandle(headers.Black);
+        if (white && white === target) return 'w';
+        if (black && black === target) return 'b';
+        return null;
+      }
+
+      function updateReviewPlayerColorFromHeaders(headers, playerName) {
+        const detected = determinePlayerColorFromHeaders(headers, playerName);
+        if (detected) return setReviewPlayerColor(detected);
+        return setReviewPlayerColor(null);
+      }
+
+      function updateReviewPlayerColorFromGame(chess, playerName) {
+        if (!chess || typeof chess.header !== 'function') {
+          return setReviewPlayerColor(null);
+        }
+        const headers = chess.header();
+        return updateReviewPlayerColorFromHeaders(headers, playerName);
+      }
+
       function buildAnalysisPrompt(playerName) {
         const target = (playerName == null ? '' : String(playerName)).trim() || DEFAULT_PLAYER_NAME;
         return ANALYSIS_PROMPT_TEMPLATE.replace(/eugenime/gi, target);
@@ -1291,7 +1369,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return score;
       }
 
-      function computeAutomatedMoveInsights(rawMoves) {
+      function computeAutomatedMoveInsights(rawMoves, playerColor) {
         if (!Array.isArray(rawMoves) || !rawMoves.length) {
           return { moves: [], summary: null, moveOfGame: null };
         }
@@ -1319,40 +1397,61 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           mv.classification = isLikelySacrificeMove(mv) ? 'Brilliant' : 'Great';
         });
 
-        const counts = {};
-        Object.values(CLASSIFICATION_CANONICAL).forEach(name => { counts[name] = 0; });
+        const summaryCounts = {};
+        Object.values(CLASSIFICATION_CANONICAL).forEach(name => { summaryCounts[name] = 0; });
         moves.forEach(mv => {
           const name = canonicalizeClassification(mv.classification);
           mv.classification = name;
-          if (counts[name] == null) counts[name] = 0;
-          counts[name] += 1;
+          if (summaryCounts[name] == null) summaryCounts[name] = 0;
         });
 
-        const totalMoves = moves.length;
-        const totalGood = (counts['Brilliant'] || 0) + (counts['Great'] || 0) + (counts['Good'] || 0) + (counts['Book'] || 0) + (counts['Forced'] || 0);
-        const totalBad = (counts['Inaccuracy'] || 0) + (counts['Mistake'] || 0) + (counts['Blunder'] || 0) + (counts['Misclick??'] || 0);
+        const normalizedColor = playerColor === 'w' || playerColor === 'b'
+          ? playerColor
+          : playerColor === 'white'
+            ? 'w'
+            : playerColor === 'black'
+              ? 'b'
+              : null;
+        const relevantMoves = normalizedColor ? moves.filter(mv => mv.color === normalizedColor) : moves;
+        relevantMoves.forEach(mv => {
+          if (summaryCounts[mv.classification] == null) summaryCounts[mv.classification] = 0;
+          summaryCounts[mv.classification] += 1;
+        });
+
+        const totalMoves = relevantMoves.length;
+        const totalGood = (summaryCounts['Brilliant'] || 0) + (summaryCounts['Great'] || 0) + (summaryCounts['Good'] || 0) + (summaryCounts['Book'] || 0) + (summaryCounts['Forced'] || 0);
+        const totalBad = (summaryCounts['Inaccuracy'] || 0) + (summaryCounts['Mistake'] || 0) + (summaryCounts['Blunder'] || 0) + (summaryCounts['Misclick??'] || 0);
         const accuracy = totalMoves ? (totalGood / totalMoves) * 100 : 0;
 
-        let moveOfGame = null;
-        let bestImpact = -Infinity;
-        moves.forEach(mv => {
-          const key = normalizeClassificationKey(mv.classification);
-          if (!MOVE_OF_GAME_TARGET_KEYS.has(key)) return;
-          const impact = computeImpactScore(mv);
-          if (impact > bestImpact) {
-            bestImpact = impact;
-            moveOfGame = mv;
+        let largestDrop = null;
+        let bestNonNegative = null;
+        relevantMoves.forEach(mv => {
+          const delta = Number(mv.moverDelta);
+          if (!Number.isFinite(delta)) return;
+          if (delta < 0) {
+            if (!largestDrop || delta < Number(largestDrop.moverDelta) || (delta === Number(largestDrop.moverDelta) && mv.index < largestDrop.index)) {
+              largestDrop = mv;
+            }
+          } else {
+            if (!bestNonNegative || delta > Number(bestNonNegative.moverDelta) || (delta === Number(bestNonNegative.moverDelta) && mv.index < bestNonNegative.index)) {
+              bestNonNegative = mv;
+            }
           }
         });
+
+        let moveOfGame = null;
+        if (largestDrop) moveOfGame = largestDrop;
+        else if (bestNonNegative) moveOfGame = bestNonNegative;
 
         return {
           moves,
           summary: {
-            counts,
+            counts: summaryCounts,
             totalMoves,
             totalGood,
             totalBad,
-            accuracy
+            accuracy,
+            playerColor: normalizedColor
           },
           moveOfGame
         };
@@ -1412,11 +1511,26 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           }
           return 'Auto insight: engine-marked turning point that secured the advantage.';
         }
+        if (key === 'mistake') {
+          if (opponentHasForcedMateAfter(move)) {
+            return 'Auto insight: error that hands the opponent a forcing sequence.';
+          }
+          return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} mistake that swung the evaluation.`;
+        }
+        if (key === 'inaccuracy') {
+          return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} slip highlighted by Stockfish.`;
+        }
         if (key === 'blunder' || key === 'misclick') {
           if (opponentHasForcedMateAfter(move)) {
             return 'Auto insight: pivotal mistake that yields a forced mate.';
           }
           return 'Auto insight: largest collapse in evaluation during the game.';
+        }
+        if (key === 'good' || key === 'book' || key === 'forced') {
+          if (Number.isFinite(move.moverDelta) && move.moverDelta > 0) {
+            return 'Auto insight: precise move that kept or grew the initiative.';
+          }
+          return 'Auto insight: steady choice that held the evaluation in balance.';
         }
         return 'Auto insight: most impactful swing detected by Stockfish.';
       }
@@ -1926,6 +2040,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         updateFormState('annotatedPgn', '');
         $('#stockfish-output').val('');
         updateFormState('stockfishOutput', '');
+        setReviewPlayerColor(null);
+        lastEngineMoveRecords = null;
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         automatedReviewText = '';
       });
@@ -1941,6 +2057,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (!game.load_pgn(pgn)) {
           const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm,''));
           if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
+        }
+        const rawNameForAnalysis = getRawPlayerNameInput();
+        if (rawNameForAnalysis) {
+          updateReviewPlayerColorFromGame(game, rawNameForAnalysis);
         }
         await waitForEngineReady();
         if (!engineReady) { handleEngineLoadFailure('Stockfish failed to initialize.'); return; }
@@ -1965,6 +2085,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (!engineReady) {
             handleEngineLoadFailure('Stockfish failed to initialize.');
             return;
+          }
+          const rawNameDuringAnalysis = getRawPlayerNameInput();
+          if (rawNameDuringAnalysis) {
+            updateReviewPlayerColorFromGame(game, rawNameDuringAnalysis);
           }
           const sanMoves = game.history(); let annotatedPgn = '';
           const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
@@ -2041,7 +2165,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             lastMateScore = mateScore;
             annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
           }
-          automatedMoveInsights = computeAutomatedMoveInsights(engineMoveRecords);
+          lastEngineMoveRecords = engineMoveRecords.map(mv => ({
+            ...mv,
+            move: mv.move ? { ...mv.move } : null
+          }));
+          automatedMoveInsights = computeAutomatedMoveInsights(engineMoveRecords, reviewPlayerColor);
           automatedReviewText = buildAutomatedReviewText(automatedMoveInsights);
           lastAnnotatedPgn = annotatedPgn.trim();
           const combined = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
@@ -2550,6 +2678,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (invalidMove) showError('Illegal move "' + invalidMove.san + '" at position ' + invalidMove.index + '.');
           else showError('Could not find or reconstruct a valid PGN from the text you pasted.');
           return;
+        }
+
+        const rawNameForReview = getRawPlayerNameInput();
+        if (rawNameForReview) {
+          updateReviewPlayerColorFromGame(game, rawNameForReview);
         }
 
         switchStep(4);
