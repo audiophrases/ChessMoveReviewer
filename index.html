@@ -1075,53 +1075,52 @@
       initEngine(true);
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT_TEMPLATE = `Analyze the PGN where each SAN move is followed by a mover-centric evaluation delta in braces {}.
-Automated Stockfish Insights will follow after the PGN; rely on those embedded classifications, summary counts, and featured move details instead of recomputing them.
+      const ANALYSIS_PROMPT_TEMPLATE = `You are given:
+1) A PGN with SAN moves and mover-centric deltas {…}.
+2) An “Automated Insights” block listing each half-move with its FINAL classification (Book, Good, Forced, Inaccuracy, Mistake, Blunder, Misclick??, Great, Brilliant).
+3) Precomputed Summary counts and (optionally) Move of the game.
+Do NOT change any classification or counts.
 
-OUTPUT REQUIREMENTS
+TASK
 - Output exactly ONE line per half-move in this format:
   <move> - {<eval>} <classification>: <comment>
-- Only write a comment (the text after the colon) for these four categories:
-  Great, Brilliant, Blunder, Misclick??.
-- For all other classifications (Book, Good, Forced, Inaccuracy, Mistake), DO NOT write a comment; still include the colon but leave it empty (i.e., end the line right after the colon).
-- After all moves, add exactly these lines:
-  Summary: X Total Good = (Brilliant + Great + Good + Book + Forced); Y Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: X / Total moves * 100 = Accuracy percentage. Narrative Summary: One-sentence overview of the game from Eugenime’s perspective.
-  Move of the game: <move> - {<eval>} <classification>: <why it’s the most impactful (Great/Brilliant/Blunder/Misclick??)>
+- Show ALL moves with their provided classification.
+- Write a comment ONLY for: Mistake, Blunder, Misclick??, Great, Brilliant.
+- For all other classifications (Book, Good, Forced, Inaccuracy), leave the comment empty (end the line right after the colon).
+- At the end, output:
+  Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
+  Narrative Summary: One-sentence overview of the game from Eugenime’s perspective.
+  Move of the game: <move> - {<eval>} <classification>: <one-sentence why it’s most impactful>
+- If Summary counts and Move of the game are provided in the input, reproduce them verbatim. If any are missing, generate them minimally from the provided classifications (no accuracy math).
 
-CLASSIFICATION RULES (use numeric thresholds only; do not override with opinions)
-- Delta meaning (mover-centric): Positive = mover improved White’s win probability; Negative = mover worsened it.
-- Thresholds:
-  • delta ≥ -2 → Book (plies 1–7); if not in plies 1–7, use Good instead
-  • -3 to -9 → Inaccuracy
-  • -10 to -20 → Mistake
-  • -21 to -49 → Blunder
-  • ≤ -50 → Misclick??
-- Mate tokens:
-  • {#N} = White has mate in N; {#-N} = Black has mate in N.
-  • After a White move: if eval is {#-N} → classify at least Blunder (or Misclick?? if delta ≤ -50).
-  • After a Black move: if eval is {#N} → classify at least Blunder (or Misclick?? if delta ≤ -50).
-  • If a side had {#N} and their move removes the forced mate, classify that move as Blunder (or Misclick?? if delta ≤ -50).
-- Special categories:
-  • Great: non-sacrificial, delta ≥ 0, and one of: (a) delivers mate; (b) initiates a forced mate; or (c) wins a queen or rook (based on SAN-visible captures).
-  • Brilliant: sacrifices a bishop, rook, knight, or queen and delta ≥ 0 (improves or holds) — sacrifice must be visible from SAN (e.g., a piece is given up).
-  • Forced: use only when the SAN itself makes it obvious (in check with a single plausible reply, or an immediate recapture). If unsure, don’t use Forced.
-
-EVIDENCE RULES FOR COMMENTS 
-- Keep comments SHORT and positional: explain why the move improves or worsens the position using only SAN-visible facts (checks +/#, captures and which piece was taken if clear from SAN, promotions, castling, square reached, obvious consequences like “wins the queen,” “wins a rook,” “recaptures,” “keeps check on the king,” “drives the king to the edge,” “isolates the pawn,” “opens the e-file,” “concedes dark squares”).
-- Do NOT mention numeric deltas in comments.
-- Mention pins, forks, “only move”, mate in X, etc. explicit in the SAN.
-- Deep board map required for commented move.
-
-SUMMARY & MOVE OF THE GAME
-- X (Total Good) = Brilliant + Great + Good + Book + Forced.
-- Y (Total Bad) = Inaccuracies + Mistakes + Blunders + Misclicks.
-- Accuracy = X / (total half-moves) * 100; show to two decimals.
-- “Move of the game” must be one of Great/Brilliant/Blunder/Misclick??, chosen by most impactful swing (mate started/lost, queen/rook won/lost, or largest absolute delta). Provide a one-sentence why.
+COMMENTING RULES (focus compute here)
+- Keep comments SHORT (1–2 sentences), purely from SAN and obvious consequences:
+  • checks (+/#), captures (what piece is taken if SAN makes it clear), promotions (=Q/R/B/N), castling.
+  • immediate positional effects: “opens the e-file,” “weakens king safety,” “creates/advances a passed pawn,” “wins a rook/queen,” “keeps the attack,” “drives the king,” “loses coordination,” “concedes dark squares.”
+- Do NOT include numeric evaluations or hidden engine lines.
+- Do NOT re-evaluate or contradict any mate token in the eval:
+  • {#N} = White has mate in N; {#-N} = Black has mate in N. You may say “starts/continues a forced mate” when such tokens appear or are flagged by the input’s insights.
+- Do NOT change the provided classification. If the input marks a move as Great/Brilliant, explain **why** in positional terms (e.g., wins a rook/queen; keeps the mating attack; visible sacrifice that maintains the attack). If marked Mistake/Blunder/Misclick??, explain **how** it worsens the position (e.g., walks into checks; drops a piece; opens king; loses a passer).
 
 DISCIPLINE
-- Toggle movers correctly (White, Black, White…).
-- Use exactly the provided SAN and {delta or mate token}.
-- Do not add extra prose before or after the required sections.`;
+- Toggle movers correctly and use SAN exactly as given.
+- Use the provided {eval} token exactly as given.
+- No extra prose before or after the required sections.
+- Be consistent and terse to minimize compute.
+
+INPUT FORMAT (example)
+<PGN headers and moves with deltas>
+=== Automated Insights ===
+<one line per half-move with FINAL classification>
+Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
+(optional) Move of the game: <move> - {<eval>} <classification>: <reason>
+
+OUTPUT FORMAT (strict)
+<move> - {<eval>} <classification>: <comment or empty>
+...
+Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
+Narrative Summary: <one sentence from Eugenime’s perspective>
+Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       function getPlayerName() {
         const raw = $('#player-name-input').val();
