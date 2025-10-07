@@ -1076,6 +1076,7 @@
 
       // Prompt (adds one-line Summary at the end)
       const ANALYSIS_PROMPT_TEMPLATE = `Analyze the PGN where each SAN move is followed by a mover-centric evaluation delta in braces {}.
+Automated Stockfish Insights will follow after the PGN; rely on those embedded classifications, summary counts, and featured move details instead of recomputing them.
 
 OUTPUT REQUIREMENTS
 - Output exactly ONE line per half-move in this format:
@@ -1768,9 +1769,21 @@ DISCIPLINE
         persistFormState();
       }
 
+      function buildCombinedStockfishOutput(playerName, annotatedPgn, automatedText) {
+        const prompt = buildAnalysisPrompt(playerName);
+        let combined = prompt;
+        if (annotatedPgn) {
+          combined += '\n\n' + annotatedPgn;
+        }
+        if (automatedText) {
+          combined += '\n\n=== Automated Stockfish Insights ===\n' + automatedText;
+        }
+        return combined;
+      }
+
       function refreshStockfishOutput() {
         if (!lastAnnotatedPgn) return;
-        const combined = buildAnalysisPrompt(getPlayerName()) + '\n\n' + lastAnnotatedPgn;
+        const combined = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
         $('#stockfish-output').val(combined);
         updateFormState('stockfishOutput', combined);
       }
@@ -2032,7 +2045,7 @@ DISCIPLINE
           automatedMoveInsights = computeAutomatedMoveInsights(engineMoveRecords);
           automatedReviewText = buildAutomatedReviewText(automatedMoveInsights);
           lastAnnotatedPgn = annotatedPgn.trim();
-          const combined = buildAnalysisPrompt(getPlayerName()) + '\n\n' + lastAnnotatedPgn;
+          const combined = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
           $('#progress-text').text('Analysis Complete!');
           $('#stockfish-output').val(combined);
           updateFormState('stockfishOutput', combined);
