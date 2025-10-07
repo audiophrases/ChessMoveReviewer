@@ -107,7 +107,7 @@
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
         <label for="depth-input" class="text-gray-300">Depth</label>
-        <input id="depth-input" type="number" min="4" value="16" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="depth-input" type="number" min="4" value="20" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
         <label for="threads-input" class="text-gray-300">Threads</label>
@@ -252,12 +252,6 @@
         if (Number.isFinite(normalizedRules.max) && numeric > normalizedRules.max) numeric = normalizedRules.max;
         if (!Number.isFinite(numeric)) numeric = fallback;
         return numeric;
-      }
-
-      const ENGINE_SETTING_LIMITS = {
-        depth: { min: 4, max: 30, fallback: sanitizeIntegerSetting($('#depth-input').val(), { fallback: 24 }) },
-        threads: { min: 1, max: hardwareThreadCap, fallback: sanitizeIntegerSetting($('#threads-input').val(), { fallback: 4 }) },
-        hash: { min: 32, max: 512, fallback: sanitizeIntegerSetting($('#hash-input').val(), { fallback: 384 }) }
       };
 
       function sanitizeEngineSetting(key, value) {
