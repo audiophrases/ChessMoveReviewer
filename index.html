@@ -1119,7 +1119,7 @@ COMMENTING RULES
 - Do NOT include numeric evaluations or hidden engine lines.
 - Do NOT re-evaluate or contradict any mate token in the eval:
   • {#N} = White has mate in N; {#-N} = Black has mate in N. You may say “starts/continues a forced mate” when such tokens appear or are flagged by the input’s insights.
-- Do NOT change the provided classification. If the input marks a move as Great/Brilliant, explain **why** in positional terms (e.g., wins a rook/queen; keeps the mating attack; visible sacrifice that maintains the attack). If marked Mistake/Blunder/Misclick??, explain **how** it worsens the position (e.g., walks into checks; drops a piece; opens king; loses a passer).
+- Do NOT change the provided classification. If the input marks a move as Great/Brilliant, explain why in positional terms (e.g., wins a rook/queen; keeps the mating attack; visible sacrifice that maintains the attack). If marked Mistake/Blunder/Misclick??, explain how it worsens the position (e.g., walks into checks; drops a piece; opens king; loses a passer).
 
 DISCIPLINE
 - Toggle movers correctly and use SAN exactly as given.
@@ -2107,7 +2107,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
             $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
 
-            // *** FIX STARTS HERE ***
+            // * FIX STARTS HERE *
             // The order of operations is changed.
             // 1. Make the move on the temporary board.
             const moveObj = temp.move(move);
@@ -2116,7 +2116,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
             // 2. Get the score for the new position *after* the move has been made.
             const score = await getScore(temp.fen(), ENGINE_GO_OPTIONS);
-            // *** FIX ENDS HERE ***
+            // * FIX ENDS HERE *
 
             let evalStr = '';
             let prob = null;
@@ -3174,7 +3174,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
                 badgeHtml +
               '</div>' +
               commentHtml +
-              (mv.criticalMoment ? '<p class="pl-12 mt-1 text-xs text-yellow-300 bg-yellow-900/40 p-2 rounded">' + formatText('**Critical Moment:** ' + mv.criticalMoment) + '</p>' : '') +
+              (mv.criticalMoment ? '<p class="pl-12 mt-1 text-xs text-yellow-300 bg-yellow-900/40 p-2 rounded">' + formatText('Critical Moment: ' + mv.criticalMoment) + '</p>' : '') +
             '</div>';
           c.append(html);
         });
