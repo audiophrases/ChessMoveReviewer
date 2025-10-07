@@ -360,6 +360,7 @@
         $('#stockfish-output').val('');
         updateFormState('stockfishOutput', '');
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
+        automatedReviewText = '';
         const detailParts = [];
         if (game.colorLabel && game.colorLabel !== 'Unknown color') detailParts.push(game.colorLabel);
         if (game.resultLabel) detailParts.push(game.resultLabel);
@@ -1197,6 +1198,7 @@ DISCIPLINE
       const PREVIOUS_ERROR_KEYS = new Set(['mistake', 'blunder', 'misclick']);
       const MOVE_OF_GAME_TARGET_KEYS = new Set(['brilliant', 'great', 'blunder', 'misclick']);
       let automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
+      let automatedReviewText = '';
 
       function canonicalizeClassification(value) {
         const key = normalizeClassificationKey(value);
@@ -1296,6 +1298,7 @@ DISCIPLINE
 
         const moves = rawMoves.map((mv, idx) => ({
           ...mv,
+          index: idx,
           classification: computeBaseClassification(mv.moverDelta, idx)
         }));
 
@@ -1355,6 +1358,117 @@ DISCIPLINE
         };
       }
 
+      function describeAutomatedImpact(delta) {
+        const swing = Math.abs(Number(delta || 0));
+        if (!Number.isFinite(swing)) return 'severe';
+        if (swing >= 60) return 'devastating';
+        if (swing >= 40) return 'huge';
+        if (swing >= 25) return 'major';
+        return 'costly';
+      }
+
+      function buildAutomatedComment(move) {
+        if (!move) return '';
+        const key = normalizeClassificationKey(move.classification);
+        if (key === 'brilliant') {
+          if (retainsMateForMover(move)) {
+            return 'Auto insight: keeps the forced mate alive.';
+          }
+          if (isLikelySacrificeMove(move)) {
+            return 'Auto insight: engine-backed sacrifice keeps the initiative.';
+          }
+          return 'Auto insight: Stockfish approves this tactic to extend the attack.';
+        }
+        if (key === 'great') {
+          if (retainsMateForMover(move)) {
+            return 'Auto insight: preserves the forced mate the engine spotted.';
+          }
+          if (Number.isFinite(move.moverDelta) && move.moverDelta > 0) {
+            return 'Auto insight: extends the advantage according to Stockfish.';
+          }
+          return 'Auto insight: flagged as the only move that keeps control.';
+        }
+        if (key === 'blunder') {
+          if (opponentHasForcedMateAfter(move)) {
+            return 'Auto insight: allows a forced mate per Stockfish.';
+          }
+          return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} drop flagged by Stockfish.`;
+        }
+        if (key === 'misclick') {
+          if (opponentHasForcedMateAfter(move)) {
+            return 'Auto insight: hands the opponent a forced mate.';
+          }
+          return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} collapse detected by Stockfish.`;
+        }
+        return '';
+      }
+
+      function buildAutomatedMoveOfGameComment(move) {
+        if (!move) return '';
+        const key = normalizeClassificationKey(move.classification);
+        if (key === 'brilliant' || key === 'great') {
+          if (retainsMateForMover(move)) {
+            return 'Auto insight: decisive tactic that keeps the mate on the board.';
+          }
+          return 'Auto insight: engine-marked turning point that secured the advantage.';
+        }
+        if (key === 'blunder' || key === 'misclick') {
+          if (opponentHasForcedMateAfter(move)) {
+            return 'Auto insight: pivotal mistake that yields a forced mate.';
+          }
+          return 'Auto insight: largest collapse in evaluation during the game.';
+        }
+        return 'Auto insight: most impactful swing detected by Stockfish.';
+      }
+
+      function formatAutomatedMoveLabel(move, idx) {
+        if (!move) return '';
+        const moveNumber = move.moveNumber || Math.floor(idx / 2) + 1;
+        const prefix = move.color === 'b' ? `${moveNumber}...` : `${moveNumber}.`;
+        return `${prefix} ${move.san}`;
+      }
+
+      function formatAutomatedEvaluation(move) {
+        if (!move) return '{0}';
+        if (move.evaluation) return move.evaluation;
+        if (Number.isFinite(move.mateAfter)) return `{#${move.mateAfter}}`;
+        if (Number.isFinite(move.mateBefore)) return `{#${move.mateBefore}}`;
+        const deltaToken = formatDeltaBraced(move.moverDelta);
+        if (deltaToken) return deltaToken;
+        const whiteDeltaToken = formatDeltaBraced(move.whiteDelta);
+        return whiteDeltaToken || '{0}';
+      }
+
+      function buildAutomatedReviewText(insights) {
+        if (!insights || !Array.isArray(insights.moves) || !insights.moves.length) return '';
+        const lines = [];
+        insights.moves.forEach((move, idx) => {
+          const label = formatAutomatedMoveLabel(move, idx);
+          if (!label) return;
+          const evaluation = formatAutomatedEvaluation(move);
+          const classification = move.classification || 'Good';
+          const comment = buildAutomatedComment(move);
+          const commentSuffix = comment ? ` ${comment}` : '';
+          lines.push(`${label} - ${evaluation} ${classification}:${commentSuffix}`);
+        });
+
+        const summaryLine = buildAutomatedSummaryLine(insights.summary);
+        if (summaryLine) {
+          lines.push('', summaryLine);
+        }
+
+        if (insights.moveOfGame) {
+          const featured = insights.moveOfGame;
+          const label = formatAutomatedMoveLabel(featured, featured.index || 0);
+          const evaluation = formatAutomatedEvaluation(featured);
+          const classification = featured.classification || 'Great';
+          const justification = buildAutomatedMoveOfGameComment(featured);
+          lines.push(`Move of the game: ${label} - ${evaluation} ${classification}: ${justification}`);
+        }
+
+        return lines.join('\n');
+      }
+
       function buildAutomatedSummaryLine(summaryData) {
         if (!summaryData) return '';
         const counts = summaryData.counts || {};
@@ -1366,7 +1480,7 @@ DISCIPLINE
         const totalGood = summaryData.totalGood || 0;
         const totalBad = summaryData.totalBad || 0;
         const accuracy = summaryData.totalMoves ? (summaryData.totalGood / summaryData.totalMoves) * 100 : 0;
-        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%.`;
+        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%. Narrative Summary: Automated engine insights summary generated from Stockfish evaluations.`;
       }
 
       function convertAutomatedMoveToFeatured(autoMove) {
@@ -1716,6 +1830,16 @@ DISCIPLINE
           }
         });
 
+        if (normalized === 3) {
+          const finalInput = $('#final-analysis-input');
+          if (finalInput.length) {
+            const currentVal = finalInput.val();
+            if ((!currentVal || !String(currentVal).trim()) && automatedReviewText) {
+              finalInput.val(automatedReviewText);
+            }
+          }
+        }
+
         $('.step-indicator').removeClass('active').removeAttr('aria-current');
         const indicatorIndex = Math.min(normalized, 3);
         const indicatorEl = $('#indicator-' + indicatorIndex);
@@ -1791,6 +1915,7 @@ DISCIPLINE
         $('#stockfish-output').val('');
         updateFormState('stockfishOutput', '');
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
+        automatedReviewText = '';
       });
       $('#clear-final-analysis-btn').on('click', function(){
         const finalAnalysisInput = $('#final-analysis-input');
@@ -1837,6 +1962,7 @@ DISCIPLINE
           let lastMateScore = null;
           const engineMoveRecords = [];
           automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
+          automatedReviewText = '';
           for (let i = 0; i < sanMoves.length; i++) {
             const moveNumber = Math.floor(i / 2) + 1; const prefix = (i % 2 === 0) ? (moveNumber + '. ') : '';
             const move = sanMoves[i];
@@ -1904,6 +2030,7 @@ DISCIPLINE
             annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
           }
           automatedMoveInsights = computeAutomatedMoveInsights(engineMoveRecords);
+          automatedReviewText = buildAutomatedReviewText(automatedMoveInsights);
           lastAnnotatedPgn = annotatedPgn.trim();
           const combined = buildAnalysisPrompt(getPlayerName()) + '\n\n' + lastAnnotatedPgn;
           $('#progress-text').text('Analysis Complete!');
@@ -2384,7 +2511,16 @@ DISCIPLINE
 
       // ====== Step 3: accept PGN or comments-only and build review ======
       $('#generate-review-btn').on('click', function () {
-        const finalAnalysisRaw = $('#final-analysis-input').val().trim(); if (!finalAnalysisRaw) { showError('Please paste the final analysis.'); return; }
+        let finalAnalysisRaw = $('#final-analysis-input').val().trim();
+        if (!finalAnalysisRaw) {
+          if (automatedReviewText) {
+            finalAnalysisRaw = automatedReviewText.trim();
+            $('#final-analysis-input').val(finalAnalysisRaw);
+          } else {
+            showError('Please paste the final analysis.');
+            return;
+          }
+        }
         let pgn = normalizePgn(finalAnalysisRaw); let loaded = game.load_pgn(pgn);
         const parsed = parseAnalysis(finalAnalysisRaw);
         let invalidMove = null;
