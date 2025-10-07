@@ -1421,7 +1421,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
         const totalMoves = relevantMoves.length;
         const totalGood = (summaryCounts['Brilliant'] || 0) + (summaryCounts['Great'] || 0) + (summaryCounts['Good'] || 0) + (summaryCounts['Book'] || 0) + (summaryCounts['Forced'] || 0);
-        const totalBad = (summaryCounts['Inaccuracy'] || 0) + (summaryCounts['Mistake'] || 0) + (summaryCounts['Blunder'] || 0) + (summaryCounts['Misclick??'] || 0);
+        const totalBad = (summaryCounts['Mistake'] || 0) + (summaryCounts['Blunder'] || 0) + (summaryCounts['Misclick??'] || 0);
         const accuracy = totalMoves ? (totalGood / totalMoves) * 100 : 0;
 
         let largestDrop = null;
