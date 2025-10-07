@@ -1097,22 +1097,21 @@
       const ANALYSIS_PROMPT_TEMPLATE = `You are given:
 1) A PGN with SAN moves and mover-centric deltas {…}.
 2) An “Automated Insights” block listing each half-move with its FINAL classification (Book, Good, Forced, Inaccuracy, Mistake, Blunder, Misclick??, Great, Brilliant).
-3) Precomputed Summary counts and (optionally) Move of the game.
+3) Precomputed Summary counts, Accuracy, Move of the game.
 Do NOT change any classification or counts.
 
 TASK
 - Output exactly ONE line per half-move in this format:
   <move> - {<eval>} <classification>: <comment>
 - Show ALL moves with their provided classification.
-- Write a comment ONLY for: Mistake, Blunder, Misclick??, Great, Brilliant.
-- For all other classifications (Book, Good, Forced, Inaccuracy), leave the comment empty (end the line right after the colon).
 - At the end, output:
   Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
-  Narrative Summary: One-sentence overview of the game from Eugenime’s perspective.
+  Accuracy: <Accuracy percentage>
+  Narrative Summary: One-sentence overview of the game of the player being coached.
   Move of the game: <move> - {<eval>} <classification>: <one-sentence why it’s most impactful>
-- If Summary counts and Move of the game are provided in the input, reproduce them verbatim. If any are missing, generate them minimally from the provided classifications (no accuracy math).
 
-COMMENTING RULES (focus compute here)
+COMMENTING RULES
+- You are addressing the player being coached.
 - Keep comments SHORT (1–2 sentences), purely from SAN and obvious consequences:
   • checks (+/#), captures (what piece is taken if SAN makes it clear), promotions (=Q/R/B/N), castling.
   • immediate positional effects: “opens the e-file,” “weakens king safety,” “creates/advances a passed pawn,” “wins a rook/queen,” “keeps the attack,” “drives the king,” “loses coordination,” “concedes dark squares.”
@@ -1132,13 +1131,15 @@ INPUT FORMAT (example)
 === Automated Insights ===
 <one line per half-move with FINAL classification>
 Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
-(optional) Move of the game: <move> - {<eval>} <classification>: <reason>
+Accuracy: <Accuracy percentage>
+Move of the game: <move> - {<eval>} <classification>: <reason>
 
 OUTPUT FORMAT (strict)
 <move> - {<eval>} <classification>: <comment or empty>
 ...
 Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
-Narrative Summary: <one sentence from Eugenime’s perspective>
+Accuracy: <Accuracy percentage>
+Narrative Summary: <one sentence>
 Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       function getPlayerName() {
