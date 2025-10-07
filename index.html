@@ -1073,94 +1073,52 @@
       initEngine(true);
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT_TEMPLATE = `Analyze the PGN where each SAN move is followed by a mover-centric evaluation delta in braces {}.
-Output exactly one line per half-move in this format:
+      const ANALYSIS_PROMPT_TEMPLATE = Analyze the PGN where each SAN move is followed by a mover-centric evaluation delta in braces {}.
 
-<move> - {<eval>} <classification>: <comment>
+OUTPUT REQUIREMENTS
+- Output exactly ONE line per half-move in this format:
+  <move> - {<eval>} <classification>: <comment>
+- Only write a comment (the text after the colon) for these four categories:
+  Great, Brilliant, Blunder, Misclick??.
+- For all other classifications (Book, Good, Forced, Inaccuracy, Mistake), DO NOT write a comment; still include the colon but leave it empty (i.e., end the line right after the colon).
+- After all moves, add exactly these lines:
+  Summary: X Total Good = (Brilliant + Great + Good + Book + Forced); Y Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: X / Total moves * 100 = Accuracy percentage. Narrative Summary: One-sentence overview of the game from Eugenime’s perspective.
+  Move of the game: <move> - {<eval>} <classification>: <why it’s the most impactful (Great/Brilliant/Blunder/Misclick??)>
 
-At the end, add: Summary: X Total Good = (Brilliant + Great + Good + Book + Forced); Y Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: X / Total moves * 100 = Accuracy percentage. Narrative Summary: One-sentence overview of the game from eugenime’s perspective.
-Move of the game: <move> - {<eval>} <classification>: <why it’s the most impactful (Great/Brilliant/Blunder/Misclick??)>
+CLASSIFICATION RULES (use numeric thresholds only; do not override with opinions)
+- Delta meaning (mover-centric): Positive = mover improved White’s win probability; Negative = mover worsened it.
+- Thresholds:
+  • delta ≥ -2 → Book (plies 1–7); if not in plies 1–7, use Good instead
+  • -3 to -9 → Inaccuracy
+  • -10 to -20 → Mistake
+  • -21 to -49 → Blunder
+  • ≤ -50 → Misclick??
+- Mate tokens:
+  • {#N} = White has mate in N; {#-N} = Black has mate in N.
+  • After a White move: if eval is {#-N} → classify at least Blunder (or Misclick?? if delta ≤ -50).
+  • After a Black move: if eval is {#N} → classify at least Blunder (or Misclick?? if delta ≤ -50).
+  • If a side had {#N} and their move removes the forced mate, classify that move as Blunder (or Misclick?? if delta ≤ -50).
+- Special categories:
+  • Great: non-sacrificial, delta ≥ 0, and one of: (a) delivers mate; (b) initiates a forced mate; or (c) wins a queen or rook (based on SAN-visible captures).
+  • Brilliant: sacrifices a bishop, rook, knight, or queen and delta ≥ 0 (improves or holds) — sacrifice must be visible from SAN (e.g., a piece is given up).
+  • Forced: use only when the SAN itself makes it obvious (in check with a single plausible reply, or an immediate recapture). If unsure, don’t use Forced.
 
-Core rules
+EVIDENCE RULES FOR COMMENTS 
+- Keep comments SHORT and positional: explain why the move improves or worsens the position using only SAN-visible facts (checks +/#, captures and which piece was taken if clear from SAN, promotions, castling, square reached, obvious consequences like “wins the queen,” “wins a rook,” “recaptures,” “keeps check on the king,” “drives the king to the edge,” “isolates the pawn,” “opens the e-file,” “concedes dark squares”).
+- Do NOT mention numeric deltas in comments.
+- Mention pins, forks, “only move”, mate in X, etc. explicit in the SAN.
+- Deep board map required for commented move.
 
-Delta meaning (mover-centric): Positive = mover improved White’s win probability by that many points; Negative = mover worsened it.
+SUMMARY & MOVE OF THE GAME
+- X (Total Good) = Brilliant + Great + Good + Book + Forced.
+- Y (Total Bad) = Inaccuracies + Mistakes + Blunders + Misclicks.
+- Accuracy = X / (total half-moves) * 100; show to two decimals.
+- “Move of the game” must be one of Great/Brilliant/Blunder/Misclick??, chosen by most impactful swing (mate started/lost, queen/rook won/lost, or largest absolute delta). Provide a one-sentence why.
 
-Mate tokens: {#N} = White has mate in N. {#-N} = Black has mate in N.
-
-
-Mandatory numeric classification (never override with opinions)
-
-delta ≥ -2 → Book (only if opening theory; else Good)
-
--3 to -11 → Inaccuracy
-
--12 to -33 → Mistake
-
--34 to -55 → Blunder
-
-≤ -56 → Misclick??
-
-
-Mate overrides
-
-After a White move: if eval is {#-N} → at least Blunder (→ Misclick?? if delta ≤ -56).
-
-After a Black move: if eval is {#N} → at least Blunder (→ Misclick?? if delta ≤ -56).
-
-If a side had {#N} and their move removes the forced mate, classify that move as Blunder (or Misclick?? if delta ≤ -56).
-
-
-Special categories
-
-Book: only in the opening phase (plies 1–20) and delta ≥ -2; if unsure, use Good.
-
-Great: non-sacrificial, delta ≥ 0, and one of: (a) delivers mate, (b) initiates a forced mate, or (c) wins a queen or rook (verified by the material ledger).
-
-Brilliant: sacrifices a bishop, rook, knight, or queen and delta ≥ 0 (improves or holds).
-
-Forced: only if it’s clearly compelled (e.g., in check with a single legal reply or obvious recapture). If uncertain, do not use Forced.
-
-
-Board-state & material tracking (to prevent identity mistakes)
-
-1. Maintain a full piece map from the initial position; update after every SAN move (normal moves, captures “x”, checks “+”, mate “#”, promotions “=Q/R/B/N”, castling O-O/O-O-O).
-
-
-2. Capture identity check: For every capture, determine the exact captured piece from the current board map (e.g., “Rxb6” captures the piece on b6—queen if the queen was last placed there).
-
-
-3. Consistency audit: If a major piece (e.g., a queen on b6) hasn’t moved since last seen on that square, any later capture of that square must be treated as capturing that same piece.
-
-
-4. Material ledger: Keep a running inventory of material and explicitly compute net trades (e.g., “Rxb6 Kxb6” = rook for queen → net win for the side that took the queen). Reference this in comments.
-
-
-5. Post-capture sanity pass: After sequences like “…Qb6; Rxb6; …Kxb6”, confirm the net outcome and mention it.
-
-
-
-Comments (coach ‘eugenime’)
-
-Explain why the move helped or hurt using only facts visible from SAN and the board map: checks (+, #), captures (x) and which piece was taken, promotions, castling, the square reached, and clear consequences (e.g., “wins the queen,” “recaptures,” “keeps check on the king”).
-
-Do not mention numeric deltas; do not claim hidden tactics (pins/forks/“only move”/mate in X) unless they follow from the mate tokens or are clear from the SAN.
-
-When I (eugenime) am the player, include coaching phrased directly to me.
-
-
-Output discipline
-
-One line per half-move, no numbering.
-
-Toggle movers correctly (White, Black, White…).
-
-Apply mate overrides and the numeric thresholds exactly.
-
-Use Book only in plies 1–20 with ≥ -2; else Good.
-
-Choose Move of the game among Great / Brilliant / Blunder / Misclick?? based on the most impactful swing (mate started/lost, queen/rook won/lost, or largest absolute delta).
-
-Finish with the Summary in the specified format; compute totals and accuracy exactly.`;
+DISCIPLINE
+- Toggle movers correctly (White, Black, White…).
+- Use exactly the provided SAN and {delta or mate token}.
+- Do not add extra prose before or after the required sections.`;
 
       function getPlayerName() {
         const raw = $('#player-name-input').val();
