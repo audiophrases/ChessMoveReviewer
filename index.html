@@ -359,6 +359,7 @@
         updateFormState('annotatedPgn', '');
         $('#stockfish-output').val('');
         updateFormState('stockfishOutput', '');
+        automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         const detailParts = [];
         if (game.colorLabel && game.colorLabel !== 'Unknown color') detailParts.push(game.colorLabel);
         if (game.resultLabel) detailParts.push(game.resultLabel);
@@ -1170,6 +1171,215 @@ DISCIPLINE
       function getStyleForClassification(c) {
         return classificationStyles[normalizeClassificationKey(c)] || classificationStyles['default'];
       }
+      const CLASSIFICATION_CANONICAL = {
+        brilliant: 'Brilliant',
+        great: 'Great',
+        good: 'Good',
+        book: 'Book',
+        forced: 'Forced',
+        inaccuracy: 'Inaccuracy',
+        mistake: 'Mistake',
+        blunder: 'Blunder',
+        misclick: 'Misclick??'
+      };
+      const CLASSIFICATION_SEVERITY = {
+        misclick: 5,
+        blunder: 4,
+        mistake: 3,
+        inaccuracy: 2,
+        forced: 1,
+        good: 1,
+        book: 1,
+        great: 0,
+        brilliant: 0
+      };
+      const SACRIFICE_PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+      const PREVIOUS_ERROR_KEYS = new Set(['mistake', 'blunder', 'misclick']);
+      const MOVE_OF_GAME_TARGET_KEYS = new Set(['brilliant', 'great', 'blunder', 'misclick']);
+      let automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
+
+      function canonicalizeClassification(value) {
+        const key = normalizeClassificationKey(value);
+        return CLASSIFICATION_CANONICAL[key] || (value || '');
+      }
+
+      function simplifyMoveObject(moveObj) {
+        if (!moveObj) return null;
+        return {
+          san: moveObj.san,
+          from: moveObj.from,
+          to: moveObj.to,
+          piece: moveObj.piece,
+          captured: moveObj.captured || null,
+          promotion: moveObj.promotion || null,
+          color: moveObj.color,
+          flags: moveObj.flags || ''
+        };
+      }
+
+      function chooseMoreSevereClassification(current, target) {
+        const currentKey = normalizeClassificationKey(current);
+        const targetKey = normalizeClassificationKey(target);
+        const currentRank = CLASSIFICATION_SEVERITY[currentKey] ?? -Infinity;
+        const targetRank = CLASSIFICATION_SEVERITY[targetKey] ?? -Infinity;
+        if (targetRank > currentRank) {
+          return CLASSIFICATION_CANONICAL[targetKey] || canonicalizeClassification(target);
+        }
+        return canonicalizeClassification(current);
+      }
+
+      function computeBaseClassification(delta, plyIndex) {
+        if (!Number.isFinite(delta)) return plyIndex < 7 ? 'Book' : 'Good';
+        if (delta >= -2) return plyIndex < 7 ? 'Book' : 'Good';
+        if (delta >= -9) return 'Inaccuracy';
+        if (delta >= -20) return 'Mistake';
+        if (delta >= -49) return 'Blunder';
+        return 'Misclick??';
+      }
+
+      function isLikelySacrificeMove(moveRecord) {
+        if (!moveRecord || !moveRecord.move) return false;
+        const move = moveRecord.move;
+        const piece = move.piece;
+        if (!piece || piece === 'p' || piece === 'k') return false;
+        const captured = move.captured;
+        if (!captured) return false;
+        const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
+        const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
+        return moverValue >= capturedValue + 3;
+      }
+
+      function hadMateForMoverBefore(moveRecord) {
+        if (!moveRecord) return false;
+        const mateBefore = moveRecord.mateBefore;
+        if (!Number.isFinite(mateBefore)) return false;
+        if (moveRecord.color === 'w') return mateBefore > 0;
+        return mateBefore < 0;
+      }
+
+      function retainsMateForMover(moveRecord) {
+        if (!moveRecord) return false;
+        const mateAfter = moveRecord.mateAfter;
+        if (!Number.isFinite(mateAfter)) return false;
+        if (moveRecord.color === 'w') return mateAfter > 0;
+        return mateAfter < 0;
+      }
+
+      function opponentHasForcedMateAfter(moveRecord) {
+        if (!moveRecord) return false;
+        const mateAfter = moveRecord.mateAfter;
+        if (!Number.isFinite(mateAfter)) return false;
+        if (moveRecord.color === 'w') return mateAfter < 0;
+        return mateAfter > 0;
+      }
+
+      function computeImpactScore(moveRecord) {
+        if (!moveRecord) return -Infinity;
+        let score = Math.abs(Number(moveRecord.moverDelta || 0));
+        if (!Number.isFinite(score)) score = 0;
+        if (opponentHasForcedMateAfter(moveRecord)) {
+          score = Math.max(score, 950 - Math.min(100, Math.abs(moveRecord.mateAfter || 0)));
+        }
+        if (hadMateForMoverBefore(moveRecord) && !retainsMateForMover(moveRecord)) {
+          score = Math.max(score, 940);
+        }
+        if (retainsMateForMover(moveRecord)) {
+          score = Math.max(score, 960 - Math.min(100, Math.abs(moveRecord.mateAfter || 0)));
+        }
+        return score;
+      }
+
+      function computeAutomatedMoveInsights(rawMoves) {
+        if (!Array.isArray(rawMoves) || !rawMoves.length) {
+          return { moves: [], summary: null, moveOfGame: null };
+        }
+
+        const moves = rawMoves.map((mv, idx) => ({
+          ...mv,
+          classification: computeBaseClassification(mv.moverDelta, idx)
+        }));
+
+        moves.forEach((mv, idx) => {
+          const needsSevere = opponentHasForcedMateAfter(mv) || (hadMateForMoverBefore(mv) && !retainsMateForMover(mv));
+          if (needsSevere) {
+            const severeTarget = Number.isFinite(mv.moverDelta) && mv.moverDelta <= -50 ? 'Misclick??' : 'Blunder';
+            mv.classification = chooseMoreSevereClassification(mv.classification, severeTarget);
+          }
+        });
+
+        moves.forEach((mv, idx) => {
+          if (!Number.isFinite(mv.moverDelta) || mv.moverDelta < 0) return;
+          const prev = moves[idx - 1];
+          if (!prev) return;
+          const prevKey = normalizeClassificationKey(prev.classification);
+          if (!PREVIOUS_ERROR_KEYS.has(prevKey)) return;
+          mv.classification = isLikelySacrificeMove(mv) ? 'Brilliant' : 'Great';
+        });
+
+        const counts = {};
+        Object.values(CLASSIFICATION_CANONICAL).forEach(name => { counts[name] = 0; });
+        moves.forEach(mv => {
+          const name = canonicalizeClassification(mv.classification);
+          mv.classification = name;
+          if (counts[name] == null) counts[name] = 0;
+          counts[name] += 1;
+        });
+
+        const totalMoves = moves.length;
+        const totalGood = (counts['Brilliant'] || 0) + (counts['Great'] || 0) + (counts['Good'] || 0) + (counts['Book'] || 0) + (counts['Forced'] || 0);
+        const totalBad = (counts['Inaccuracy'] || 0) + (counts['Mistake'] || 0) + (counts['Blunder'] || 0) + (counts['Misclick??'] || 0);
+        const accuracy = totalMoves ? (totalGood / totalMoves) * 100 : 0;
+
+        let moveOfGame = null;
+        let bestImpact = -Infinity;
+        moves.forEach(mv => {
+          const key = normalizeClassificationKey(mv.classification);
+          if (!MOVE_OF_GAME_TARGET_KEYS.has(key)) return;
+          const impact = computeImpactScore(mv);
+          if (impact > bestImpact) {
+            bestImpact = impact;
+            moveOfGame = mv;
+          }
+        });
+
+        return {
+          moves,
+          summary: {
+            counts,
+            totalMoves,
+            totalGood,
+            totalBad,
+            accuracy
+          },
+          moveOfGame
+        };
+      }
+
+      function buildAutomatedSummaryLine(summaryData) {
+        if (!summaryData) return '';
+        const counts = summaryData.counts || {};
+        const brilliant = counts['Brilliant'] || 0;
+        const great = counts['Great'] || 0;
+        const mistakes = counts['Mistake'] || 0;
+        const blunders = counts['Blunder'] || 0;
+        const misclicks = counts['Misclick??'] || 0;
+        const totalGood = summaryData.totalGood || 0;
+        const totalBad = summaryData.totalBad || 0;
+        const accuracy = summaryData.totalMoves ? (summaryData.totalGood / summaryData.totalMoves) * 100 : 0;
+        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%.`;
+      }
+
+      function convertAutomatedMoveToFeatured(autoMove) {
+        if (!autoMove) return null;
+        return {
+          san: autoMove.san,
+          displaySan: null,
+          evaluation: autoMove.evaluation || null,
+          classification: autoMove.classification || null,
+          text: '',
+          index: autoMove.index
+        };
+      }
       function normalizeSanToken(value) {
         if (!value) return '';
         let san = String(value).trim();
@@ -1580,6 +1790,7 @@ DISCIPLINE
         updateFormState('annotatedPgn', '');
         $('#stockfish-output').val('');
         updateFormState('stockfishOutput', '');
+        automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
       });
       $('#clear-final-analysis-btn').on('click', function(){
         const finalAnalysisInput = $('#final-analysis-input');
@@ -1623,6 +1834,9 @@ DISCIPLINE
           const temp = new Chess();
           probSeries = [];
           let prevProb = 0.5;
+          let lastMateScore = null;
+          const engineMoveRecords = [];
+          automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
           for (let i = 0; i < sanMoves.length; i++) {
             const moveNumber = Math.floor(i / 2) + 1; const prefix = (i % 2 === 0) ? (moveNumber + '. ') : '';
             const move = sanMoves[i];
@@ -1634,6 +1848,7 @@ DISCIPLINE
             // 1. Make the move on the temporary board.
             const moveObj = temp.move(move);
             const lastMoveColor = moveObj.color; // 'w' or 'b'
+            const probBeforeMove = prevProb;
 
             // 2. Get the score for the new position *after* the move has been made.
             const score = await getScore(temp.fen(), ENGINE_GO_OPTIONS);
@@ -1653,10 +1868,14 @@ DISCIPLINE
             }
             prob = clampProb(prob);
             let moverDelta = null;
+            let whiteDelta = null;
             if (prob != null && prevProb != null) {
               const diff = (prob - prevProb) * 100;
               const moverSign = lastMoveColor === 'w' ? 1 : -1;
               moverDelta = diff * moverSign;
+              whiteDelta = diff;
+              prevProb = prob;
+            } else if (prob != null) {
               prevProb = prob;
             }
             const deltaStr = formatDeltaBraced(moverDelta);
@@ -1666,8 +1885,25 @@ DISCIPLINE
               evalStr = deltaStr || '{0}';
             }
             probSeries.push(prob);
+            engineMoveRecords.push({
+              index: i,
+              ply: i,
+              moveNumber,
+              color: lastMoveColor,
+              san: move,
+              moverDelta,
+              whiteDelta,
+              whiteProbBefore: probBeforeMove,
+              whiteProbAfter: prob,
+              mateBefore: lastMateScore,
+              mateAfter: mateScore,
+              evaluation: evalStr,
+              move: simplifyMoveObject(moveObj)
+            });
+            lastMateScore = mateScore;
             annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
           }
+          automatedMoveInsights = computeAutomatedMoveInsights(engineMoveRecords);
           lastAnnotatedPgn = annotatedPgn.trim();
           const combined = buildAnalysisPrompt(getPlayerName()) + '\n\n' + lastAnnotatedPgn;
           $('#progress-text').text('Analysis Complete!');
@@ -2171,8 +2407,14 @@ DISCIPLINE
         switchStep(4);
 
         const gameMoves = game.history({ verbose: true }); let cursor = 0;
-        let runningProb = 0.5;
-        movesWithAnalysis = gameMoves.map(m => {
+        const autoMoves = (Array.isArray(automatedMoveInsights.moves) && automatedMoveInsights.moves.length === gameMoves.length)
+          ? automatedMoveInsights.moves
+          : [];
+        const hasAutomatedMoves = autoMoves.length > 0;
+        let runningProb = autoMoves.length && autoMoves[0] && autoMoves[0].whiteProbBefore != null
+          ? autoMoves[0].whiteProbBefore
+          : 0.5;
+        movesWithAnalysis = gameMoves.map((m, index) => {
           let analysis = null;
           if (cursor < parsed.moves.length && parsed.moves[cursor].san !== m.san) {
             const found = parsed.moves.findIndex((pm, idx) => idx >= cursor && pm.san === m.san);
@@ -2180,7 +2422,10 @@ DISCIPLINE
           }
           if (cursor < parsed.moves.length && parsed.moves[cursor].san === m.san) analysis = parsed.moves[cursor++];
 
-          const baseProb = runningProb == null ? 0.5 : runningProb;
+          const autoMove = hasAutomatedMoves ? (autoMoves[index] || null) : null;
+          const baseProb = (autoMove && autoMove.whiteProbBefore != null)
+            ? autoMove.whiteProbBefore
+            : (runningProb == null ? 0.5 : runningProb);
           let prob = null;
           let moverDelta = null;
           let whiteDelta = null;
@@ -2209,8 +2454,38 @@ DISCIPLINE
             }
           }
 
+          if (!analysis && autoMove) {
+            if (autoMove.whiteProbAfter != null) {
+              prob = autoMove.whiteProbAfter;
+              runningProb = autoMove.whiteProbAfter;
+            }
+            if (autoMove.moverDelta != null && moverDelta == null) moverDelta = autoMove.moverDelta;
+            if (whiteDelta == null) {
+              if (autoMove.whiteDelta != null) {
+                whiteDelta = autoMove.whiteDelta;
+              } else if (autoMove.whiteProbBefore != null && autoMove.whiteProbAfter != null) {
+                whiteDelta = (autoMove.whiteProbAfter - autoMove.whiteProbBefore) * 100;
+              }
+            }
+          }
+
           if (prob == null) {
-            prob = runningProb == null ? baseProb : runningProb;
+            if (autoMove && autoMove.whiteProbAfter != null) {
+              prob = autoMove.whiteProbAfter;
+            } else {
+              prob = runningProb == null ? baseProb : runningProb;
+            }
+          }
+          if (prob != null) runningProb = prob;
+
+          if (moverDelta == null && autoMove && autoMove.moverDelta != null) {
+            moverDelta = autoMove.moverDelta;
+          }
+          if (whiteDelta == null && autoMove) {
+            if (autoMove.whiteDelta != null) whiteDelta = autoMove.whiteDelta;
+            else if (autoMove.whiteProbBefore != null && autoMove.whiteProbAfter != null) {
+              whiteDelta = (autoMove.whiteProbAfter - autoMove.whiteProbBefore) * 100;
+            }
           }
 
           let displayEvaluation = null;
@@ -2238,12 +2513,53 @@ DISCIPLINE
             analysis.displayEvaluation = displayEvaluation;
           }
 
-          return { ...m, analysis, criticalMoment: parsed.criticalMoments[m.san], prob, delta: moverDelta, displayEvaluation };
+          if (!displayEvaluation && autoMove) {
+            if (autoMove.evaluation) {
+              displayEvaluation = autoMove.evaluation;
+            } else if (Number.isFinite(autoMove.mateAfter)) {
+              displayEvaluation = `{#${autoMove.mateAfter}}`;
+            } else if (autoMove.whiteDelta != null) {
+              displayEvaluation = formatDeltaBraced(autoMove.whiteDelta);
+            }
+          }
+
+          let finalAnalysis = analysis ? { ...analysis } : null;
+          if (autoMove) {
+            if (!finalAnalysis) finalAnalysis = {};
+            if (finalAnalysis.delta == null && autoMove.moverDelta != null) finalAnalysis.delta = autoMove.moverDelta;
+            if (finalAnalysis.prob == null && autoMove.whiteProbAfter != null) finalAnalysis.prob = autoMove.whiteProbAfter;
+            if (finalAnalysis.mate == null && Number.isFinite(autoMove.mateAfter)) finalAnalysis.mate = autoMove.mateAfter;
+            const autoClass = autoMove.classification;
+            if (autoClass) {
+              if (finalAnalysis.classification && normalizeClassificationKey(finalAnalysis.classification) !== normalizeClassificationKey(autoClass)) {
+                finalAnalysis.originalClassification = finalAnalysis.originalClassification || finalAnalysis.classification;
+                finalAnalysis.classification = autoClass;
+              } else if (!finalAnalysis.classification) {
+                finalAnalysis.classification = autoClass;
+              }
+              finalAnalysis.automatedClassification = autoClass;
+            }
+            if (!finalAnalysis.displayEvaluation && displayEvaluation) {
+              finalAnalysis.displayEvaluation = displayEvaluation;
+            }
+          } else if (finalAnalysis && displayEvaluation && !finalAnalysis.displayEvaluation) {
+            finalAnalysis.displayEvaluation = displayEvaluation;
+          }
+
+          if (finalAnalysis && !finalAnalysis.text && !finalAnalysis.classification && finalAnalysis.delta == null && finalAnalysis.mate == null && !finalAnalysis.evaluation && !finalAnalysis.displayEvaluation && finalAnalysis.prob == null) {
+            finalAnalysis = null;
+          }
+
+          const automated = autoMove ? { ...autoMove } : null;
+
+          const displayEvalValue = displayEvaluation != null ? displayEvaluation : null;
+          return { ...m, analysis: finalAnalysis, criticalMoment: parsed.criticalMoments[m.san], prob, delta: moverDelta, displayEvaluation: displayEvalValue, automated };
         });
         probSeries = movesWithAnalysis.map(m => m.prob);
 
         // Summary text
-        const summary = parsed.summary || '';
+        const autoSummary = hasAutomatedMoves ? buildAutomatedSummaryLine(automatedMoveInsights.summary) : '';
+        const summary = parsed.summary || autoSummary || '';
         if (summary) {
           $('#game-summary').removeClass('hidden').html(formatSummaryLine(summary));
         } else {
@@ -2260,6 +2576,19 @@ DISCIPLINE
             featuredMoveIndex = idx;
             movesWithAnalysis[idx].isFeatured = true;
             movesWithAnalysis[idx].featuredMeta = meta;
+          }
+        }
+        if (!featuredMoveData && hasAutomatedMoves && automatedMoveInsights.moveOfGame) {
+          const autoFeatured = convertAutomatedMoveToFeatured(automatedMoveInsights.moveOfGame);
+          if (autoFeatured) {
+            const idx = typeof autoFeatured.index === 'number' ? autoFeatured.index : -1;
+            if (idx >= 0 && idx < movesWithAnalysis.length) {
+              const meta = { ...autoFeatured, index: idx };
+              featuredMoveData = meta;
+              featuredMoveIndex = idx;
+              movesWithAnalysis[idx].isFeatured = true;
+              movesWithAnalysis[idx].featuredMeta = meta;
+            }
           }
         }
         renderFeaturedMoveSummary();
@@ -2549,6 +2878,9 @@ DISCIPLINE
           const badgeHtml = mv.isFeatured
             ? '<span class="ml-auto text-xs uppercase tracking-wide text-yellow-300 font-semibold">Move of the Game</span>'
             : '';
+          const commentHtml = (mv.analysis && mv.analysis.text)
+            ? '<p class="pl-12 text-gray-300 text-sm">' + formatText(mv.analysis.text) + '</p>'
+            : '';
           const html =
             '<div class="' + moveClasses.join(' ') + '" data-move-index="' + i + '">' +
               '<div class="flex items-baseline gap-3">' +
@@ -2558,7 +2890,7 @@ DISCIPLINE
                 classificationHtml +
                 badgeHtml +
               '</div>' +
-              (mv.analysis ? '<p class="pl-12 text-gray-300 text-sm">' + formatText(mv.analysis.text) + '</p>' : '') +
+              commentHtml +
               (mv.criticalMoment ? '<p class="pl-12 mt-1 text-xs text-yellow-300 bg-yellow-900/40 p-2 rounded">' + formatText('**Critical Moment:** ' + mv.criticalMoment) + '</p>' : '') +
             '</div>';
           c.append(html);
