@@ -4225,13 +4225,35 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const container = document.getElementById('move-analysis-scroll');
         const item = document.querySelector('.move-item[data-move-index="' + idx + '"]');
         if (!container || !item) return;
+
         const itemRect = item.getBoundingClientRect();
         const containerRect = container.getBoundingClientRect();
         if (itemRect.top < containerRect.top || itemRect.bottom > containerRect.bottom) {
           item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
+
         if (window.innerWidth < 1024) {
-          document.getElementById('move-analysis-shell').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          const boardWrapper = document.querySelector('.board-sticky-wrapper');
+          const shell = document.getElementById('move-analysis-shell');
+          if (!shell) return;
+
+          const wrapperRect = boardWrapper ? boardWrapper.getBoundingClientRect() : null;
+          const wrapperHeight = wrapperRect ? wrapperRect.height : 0;
+          const offsetPadding = 12;
+          const minVisibleTop = wrapperHeight + offsetPadding;
+
+          const refreshedItemRect = item.getBoundingClientRect();
+          const itemOffset = refreshedItemRect.top - minVisibleTop;
+          if (itemOffset < 0) {
+            window.scrollBy({ top: itemOffset, behavior: 'smooth' });
+            return;
+          }
+
+          const shellRect = shell.getBoundingClientRect();
+          const shellOffset = shellRect.top - (wrapperHeight + offsetPadding);
+          if (shellOffset < 0) {
+            window.scrollBy({ top: shellOffset, behavior: 'smooth' });
+          }
         }
       }
 
