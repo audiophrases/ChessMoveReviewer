@@ -51,6 +51,10 @@
     .status-banner.status-error { background-color: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.35); color: #fecaca; }
     .status-banner .detail { color: rgba(191, 219, 254, 0.8); font-size: 0.75rem; margin-top: 0.25rem; }
     .status-banner.status-error .detail { color: rgba(254, 202, 202, 0.85); }
+    .board-sticky-wrapper { top: 0.5rem; }
+    @media (max-width: 1023px) {
+      .board-sticky-wrapper { top: 0; }
+    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col p-3 sm:p-4">
@@ -93,6 +97,9 @@
         </button>
         <button id="load-lichess-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">
           Browse Lichess games
+        </button>
+        <button type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap open-archive-btn">
+          Open Saved Reviews
         </button>
       </div>
       <p id="game-loader-feedback" class="hidden mt-3 text-xs text-gray-300" role="status"></p>
@@ -179,7 +186,7 @@
     <div class="w-full grid grid-cols-1 lg:grid-cols-2 gap-3">
       <!-- Column A: Board + evaluation graph (sticky) -->
       <div class="lg:col-span-1">
-        <div class="sticky top-2">
+        <div class="sticky top-2 board-sticky-wrapper">
           <!-- Evaluation graph -->
           <canvas id="eval-graph" class="w-full mb-2"></canvas>
 
@@ -197,7 +204,18 @@
       </div>
 
       <!-- Column B: Independently scrollable analysis (no titles) -->
-      <div class="lg:col-span-1">
+      <div class="lg:col-span-1 flex flex-col gap-3">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="save-archive-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>
+              Save to Archive
+            </button>
+            <button type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap open-archive-btn">
+              Open Archive
+            </button>
+          </div>
+          <p id="archive-feedback" class="hidden text-xs"></p>
+        </div>
         <div id="move-analysis-shell" class="bg-[#101522] p-3 rounded-lg">
           <div id="move-analysis-scroll" class="overflow-y-auto">
             <!-- One-line summary appears here (from "Summary:") -->
@@ -228,6 +246,21 @@
       <h3 class="text-2xl font-bold text-red-400 mb-4">Error</h3>
       <p id="error-message" class="text-gray-300 mb-6">Could not process the input.</p>
       <button id="close-modal-btn" class="py-2 px-6 font-semibold text-white rounded-lg btn-primary">Close</button>
+    </div>
+  </div>
+
+  <!-- Archive Modal -->
+  <div id="archive-modal" class="hidden fixed inset-0 z-50 bg-black bg-opacity-70 flex items-center justify-center px-4" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="bg-[#141926] w-full max-w-lg p-6 rounded-xl shadow-2xl border border-[#1f2937]">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h3 class="text-xl font-semibold text-white">Saved Reviews</h3>
+        <div class="flex items-center gap-2">
+          <button id="clear-archive-btn" type="button" class="py-1.5 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Clear All</button>
+          <button id="close-archive-btn" type="button" class="py-1.5 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Close</button>
+        </div>
+      </div>
+      <p id="archive-status" class="mt-3 text-sm text-gray-300"></p>
+      <div id="archive-list" class="mt-4 space-y-3 max-h-96 overflow-y-auto"></div>
     </div>
   </div>
 
@@ -314,6 +347,26 @@
       const closeGamePickerBtn = $('#close-game-picker-btn');
       let activeGameRequestToken = 0;
       let gamePickerReturnFocus = null;
+      const saveArchiveBtn = $('#save-archive-btn');
+      const archiveFeedback = $('#archive-feedback');
+      const openArchiveButtons = $('.open-archive-btn');
+      const archiveModal = $('#archive-modal');
+      const archiveList = $('#archive-list');
+      const archiveStatus = $('#archive-status');
+      const closeArchiveBtn = $('#close-archive-btn');
+      const clearArchiveBtn = $('#clear-archive-btn');
+      let archiveReturnFocus = null;
+      let archiveFeedbackTimeout = null;
+      const ARCHIVE_STORAGE_KEY = 'cmr.reviewArchive.v1';
+      const ARCHIVE_MAX_ENTRIES = 25;
+      let archiveEntries = [];
+      let storageAvailable = isLocalStorageAvailable();
+      if (storageAvailable) {
+        archiveEntries = loadArchiveEntriesFromStorage();
+      }
+      let lastFinalAnalysisText = '';
+      let currentReviewMetadata = null;
+      let pendingArchiveLoadNotice = null;
 
       applySavedFormState();
       bindPersistentInput('#player-name-input', 'playerName');
@@ -354,12 +407,56 @@
       }
       $(document).on('keydown', function (evt) {
         if (evt.key === 'Escape' || evt.key === 'Esc') {
+          if (archiveModal.length && !archiveModal.hasClass('hidden')) {
+            evt.preventDefault();
+            closeArchiveModal();
+            return;
+          }
           if (gamePickerModal.length && !gamePickerModal.hasClass('hidden')) {
             evt.preventDefault();
             closeGamePickerModal();
           }
         }
       });
+
+      if (saveArchiveBtn.length) {
+        saveArchiveBtn.on('click', function () {
+          handleSaveArchiveEntry();
+        });
+      }
+      if (openArchiveButtons.length) {
+        openArchiveButtons.on('click', function () {
+          if (!storageAvailable) {
+            showArchiveFeedback('Saving is unavailable in this browser session.', 'error');
+            return;
+          }
+          openArchiveModal();
+        });
+      }
+      if (archiveModal.length) {
+        archiveModal.on('click', function (evt) {
+          if (evt.target === this) { closeArchiveModal(); }
+        });
+      }
+      if (closeArchiveBtn.length) {
+        closeArchiveBtn.on('click', function () { closeArchiveModal(); });
+      }
+      if (clearArchiveBtn.length) {
+        clearArchiveBtn.on('click', function () {
+          handleClearArchive();
+        });
+      }
+      if (archiveList.length) {
+        archiveList.on('click', 'button[data-archive-action]', function () {
+          const action = $(this).attr('data-archive-action');
+          const id = $(this).attr('data-archive-id');
+          if (action === 'load') {
+            loadArchiveEntryById(id);
+          } else if (action === 'delete') {
+            handleDeleteArchiveEntry(id);
+          }
+        });
+      }
 
       function handleGameSelection(game) {
         if (!game || !game.pgn) {
@@ -387,6 +484,9 @@
         const opponent = game.opponent || 'opponent';
         const source = game.sourceLabel || 'Game';
         showGameLoaderFeedback(`Loaded ${source} game vs ${opponent}${detail}.`, 'success');
+        lastFinalAnalysisText = '';
+        currentReviewMetadata = null;
+        updateArchiveControls();
       }
 
       async function handleGameLoad(source) {
@@ -1876,6 +1976,440 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         // Disabled: Avoid persisting PGN or analysis data to storage.
       }
 
+      function isLocalStorageAvailable() {
+        try {
+          if (typeof window === 'undefined' || !window.localStorage) return false;
+          const testKey = '__cmr_storage_test__';
+          window.localStorage.setItem(testKey, '1');
+          window.localStorage.removeItem(testKey);
+          return true;
+        } catch (err) {
+          return false;
+        }
+      }
+
+      function loadArchiveEntriesFromStorage() {
+        if (typeof window === 'undefined' || !window.localStorage) return [];
+        try {
+          const raw = window.localStorage.getItem(ARCHIVE_STORAGE_KEY);
+          if (!raw) return [];
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) return [];
+          const normalized = parsed.map(normalizeArchiveEntry).filter(Boolean);
+          normalized.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+          return normalized;
+        } catch (err) {
+          console.warn('Failed to load saved reviews:', err);
+          return [];
+        }
+      }
+
+      function normalizeArchiveEntry(entry) {
+        if (!entry || typeof entry !== 'object') return null;
+        if (!entry.finalAnalysis) return null;
+        const createdAt = Number(entry.createdAt) || Date.now();
+        const updatedAt = Number(entry.updatedAt) || createdAt;
+        return {
+          id: entry.id || `archive-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
+          version: entry.version || 1,
+          title: entry.title || '',
+          finalAnalysis: String(entry.finalAnalysis),
+          pgn: entry.pgn || '',
+          annotatedPgn: entry.annotatedPgn || '',
+          stockfishOutput: entry.stockfishOutput || '',
+          summary: entry.summary || '',
+          playerColor: entry.playerColor || null,
+          playerName: entry.playerName || '',
+          opponent: entry.opponent || '',
+          resultCode: entry.resultCode || '',
+          resultLabel: entry.resultLabel || '',
+          headers: entry.headers && typeof entry.headers === 'object' ? entry.headers : {},
+          movesCount: Number.isFinite(Number(entry.movesCount)) ? Number(entry.movesCount) : null,
+          featuredMove: entry.featuredMove && typeof entry.featuredMove === 'object' ? entry.featuredMove : null,
+          createdAt,
+          updatedAt
+        };
+      }
+
+      function persistArchiveEntries(entries) {
+        if (!storageAvailable || typeof window === 'undefined' || !window.localStorage) return false;
+        try {
+          const payload = Array.isArray(entries) ? entries.map(entry => ({
+            id: entry.id,
+            version: entry.version || 1,
+            title: entry.title || '',
+            finalAnalysis: entry.finalAnalysis || '',
+            pgn: entry.pgn || '',
+            annotatedPgn: entry.annotatedPgn || '',
+            stockfishOutput: entry.stockfishOutput || '',
+            summary: entry.summary || '',
+            playerColor: entry.playerColor || null,
+            playerName: entry.playerName || '',
+            opponent: entry.opponent || '',
+            resultCode: entry.resultCode || '',
+            resultLabel: entry.resultLabel || '',
+            headers: entry.headers || {},
+            movesCount: entry.movesCount != null ? entry.movesCount : null,
+            featuredMove: entry.featuredMove || null,
+            createdAt: entry.createdAt || Date.now(),
+            updatedAt: entry.updatedAt || entry.createdAt || Date.now()
+          })) : [];
+          window.localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(payload));
+          return true;
+        } catch (err) {
+          console.warn('Failed to persist saved reviews:', err);
+          return false;
+        }
+      }
+
+      function openArchiveModal() {
+        if (!archiveModal.length) return;
+        archiveReturnFocus = document.activeElement;
+        renderArchiveList();
+        showArchiveStatus('', 'info');
+        archiveModal.removeClass('hidden').attr('aria-hidden', 'false');
+        if (closeArchiveBtn.length) {
+          setTimeout(() => { closeArchiveBtn.trigger('focus'); }, 0);
+        }
+      }
+
+      function closeArchiveModal() {
+        if (!archiveModal.length) return;
+        archiveModal.addClass('hidden').attr('aria-hidden', 'true');
+        showArchiveStatus('', 'info');
+        if (archiveReturnFocus && typeof archiveReturnFocus.focus === 'function') {
+          try { archiveReturnFocus.focus(); } catch (err) { /* ignore */ }
+        }
+        archiveReturnFocus = null;
+      }
+
+      function showArchiveStatus(message, tone) {
+        if (!archiveStatus.length) return;
+        archiveStatus
+          .removeClass('hidden text-red-300 text-emerald-300 text-sky-300 text-gray-300')
+          .addClass(message ? '' : 'hidden')
+          .text(message || '');
+        if (!message) return;
+        const toneClass = tone === 'error' ? 'text-red-300'
+          : tone === 'success' ? 'text-emerald-300'
+            : tone === 'info' ? 'text-sky-300'
+              : 'text-gray-300';
+        archiveStatus.addClass(toneClass);
+      }
+
+      function showArchiveFeedback(message, tone) {
+        if (!archiveFeedback.length) return;
+        if (archiveFeedbackTimeout) {
+          clearTimeout(archiveFeedbackTimeout);
+          archiveFeedbackTimeout = null;
+        }
+        if (!message) {
+          archiveFeedback.addClass('hidden').text('');
+          return;
+        }
+        const toneClass = tone === 'error' ? 'text-red-300'
+          : tone === 'success' ? 'text-emerald-300'
+            : 'text-sky-300';
+        archiveFeedback
+          .removeClass('hidden text-red-300 text-emerald-300 text-sky-300')
+          .addClass(toneClass)
+          .text(message);
+        archiveFeedbackTimeout = setTimeout(() => {
+          archiveFeedback.addClass('hidden');
+        }, 4500);
+      }
+
+      function syncArchiveModalControls() {
+        if (clearArchiveBtn.length) {
+          clearArchiveBtn.prop('disabled', !storageAvailable || archiveEntries.length === 0);
+        }
+      }
+
+      function renderArchiveList() {
+        if (!archiveList.length) return;
+        archiveList.empty();
+        if (!storageAvailable) {
+          showArchiveStatus('Saving is unavailable in this browser session.', 'error');
+          syncArchiveModalControls();
+          return;
+        }
+        if (!archiveEntries.length) {
+          showArchiveStatus('No saved reviews yet. Analyze a game and save it to build your archive.', 'info');
+          syncArchiveModalControls();
+          return;
+        }
+        showArchiveStatus('', 'info');
+        const ordered = archiveEntries.slice().sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+        ordered.forEach(entry => {
+          const item = $('<div class="bg-[#0b0e15] border border-[#1f2937] rounded-lg p-4"></div>');
+          const header = $('<div class="flex items-center justify-between gap-3"></div>').appendTo(item);
+          const textWrap = $('<div class="min-w-0 flex-1"></div>').appendTo(header);
+          const title = entry.title || buildArchiveTitle(entry);
+          $('<h4 class="text-lg font-semibold text-white truncate"></h4>').text(title).appendTo(textWrap);
+          const timestamp = entry.updatedAt || entry.createdAt || Date.now();
+          $('<p class="text-xs text-gray-400"></p>').text(formatDateTime(timestamp)).appendTo(textWrap);
+          const infoParts = [];
+          if (entry.opponent) infoParts.push('vs ' + entry.opponent);
+          if (entry.resultLabel) infoParts.push(entry.resultLabel);
+          else if (entry.resultCode) infoParts.push(entry.resultCode);
+          if (entry.playerColor === 'white') infoParts.push('You were White');
+          else if (entry.playerColor === 'black') infoParts.push('You were Black');
+          if (infoParts.length) {
+            $('<p class="text-xs text-gray-400"></p>').text(infoParts.join(' • ')).appendTo(textWrap);
+          }
+          const actions = $('<div class="flex items-center gap-2 shrink-0"></div>').appendTo(header);
+          $('<button type="button" class="py-1 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" data-archive-action="load"></button>')
+            .attr('data-archive-id', entry.id)
+            .text('Load')
+            .appendTo(actions);
+          $('<button type="button" class="py-1 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" data-archive-action="delete"></button>')
+            .attr('data-archive-id', entry.id)
+            .text('Delete')
+            .appendTo(actions);
+          if (entry.summary) {
+            $('<p class="text-sm text-gray-300 mt-2 whitespace-pre-wrap break-words"></p>').text(entry.summary).appendTo(item);
+          }
+          if (entry.featuredMove && entry.featuredMove.displaySan) {
+            $('<p class="text-xs text-yellow-300 mt-1"></p>').text('Move of the Game: ' + entry.featuredMove.displaySan).appendTo(item);
+          }
+          if (entry.movesCount) {
+            $('<p class="text-xs text-gray-500 mt-1"></p>').text(entry.movesCount + ' moves').appendTo(item);
+          }
+          archiveList.append(item);
+        });
+        syncArchiveModalControls();
+      }
+
+      function deriveOpponentFromHeaders(headers, color, playerNameInput) {
+        if (!headers || typeof headers !== 'object') return '';
+        const white = headers.White || '';
+        const black = headers.Black || '';
+        if (color === 'white') return black;
+        if (color === 'black') return white;
+        const normalized = playerNameInput ? String(playerNameInput).trim().toLowerCase() : '';
+        if (normalized && white && white.toLowerCase() === normalized) return black;
+        if (normalized && black && black.toLowerCase() === normalized) return white;
+        return white && black ? `${white} vs ${black}` : (white || black || '');
+      }
+
+      function buildArchiveTitle(meta) {
+        if (meta && meta.summary) {
+          const summaryText = String(meta.summary).trim();
+          if (summaryText) return summaryText;
+        }
+        const headers = meta && meta.headers ? meta.headers : (game && typeof game.header === 'function' ? game.header() : {});
+        const white = headers.White || 'White';
+        const black = headers.Black || 'Black';
+        const base = `${white} vs ${black}`;
+        const resultLabel = meta && meta.resultLabel ? meta.resultLabel : (headers.Result ? describeResult(headers.Result) : '');
+        if (resultLabel) return `${base} (${resultLabel})`;
+        if (headers.Result && headers.Result !== '*') return `${base} (${headers.Result})`;
+        return base;
+      }
+
+      function buildArchiveEntry(customTitle) {
+        if (!lastFinalAnalysisText) return null;
+        const now = Date.now();
+        const meta = currentReviewMetadata || {};
+        const headers = meta.headers && typeof meta.headers === 'object'
+          ? { ...meta.headers }
+          : (game && typeof game.header === 'function' ? { ...game.header() } : {});
+        const title = customTitle && customTitle.trim() ? customTitle.trim() : buildArchiveTitle({ ...meta, headers });
+        const pgnSnapshot = meta.pgn || (game && typeof game.pgn === 'function' ? game.pgn({ max_width: 0, newline_char: '\n' }) : '');
+        const opponent = meta.opponent || deriveOpponentFromHeaders(headers, meta.playerColor || reviewPlayerColor, meta.playerName || getPlayerName());
+        const resultCode = meta.resultCode || headers.Result || '';
+        const resultLabel = meta.resultLabel || describeResult(resultCode);
+        return {
+          id: '',
+          version: 1,
+          title,
+          finalAnalysis: lastFinalAnalysisText,
+          pgn: pgnSnapshot || '',
+          annotatedPgn: meta.annotatedPgn || lastAnnotatedPgn || '',
+          stockfishOutput: meta.stockfishOutput || ($('#stockfish-output').val() || ''),
+          summary: meta.summary || '',
+          playerColor: meta.playerColor || reviewPlayerColor,
+          playerName: meta.playerName || getPlayerName(),
+          opponent,
+          resultCode,
+          resultLabel,
+          headers,
+          movesCount: meta.movesCount != null ? meta.movesCount : (Array.isArray(movesWithAnalysis) ? movesWithAnalysis.length : null),
+          featuredMove: meta.featuredMove || null,
+          createdAt: now,
+          updatedAt: now
+        };
+      }
+
+      function updateArchiveControls() {
+        const reviewVisible = $('#review-section').is(':visible');
+        if (saveArchiveBtn.length) {
+          if (!storageAvailable) {
+            saveArchiveBtn.prop('disabled', true);
+            saveArchiveBtn.attr('title', 'Browser storage is unavailable in this session.');
+          } else if (!reviewVisible || !lastFinalAnalysisText) {
+            saveArchiveBtn.prop('disabled', true);
+            saveArchiveBtn.attr('title', 'Generate a review before saving it to your archive.');
+          } else {
+            saveArchiveBtn.prop('disabled', false);
+            saveArchiveBtn.attr('title', 'Save this review to your archive.');
+          }
+        }
+        if (openArchiveButtons.length) {
+          openArchiveButtons.each(function () {
+            if (!storageAvailable) {
+              $(this).prop('disabled', true);
+              $(this).attr('title', 'Browser storage is unavailable in this session.');
+            } else {
+              $(this).prop('disabled', false);
+              $(this).attr('title', 'Open your saved reviews.');
+            }
+          });
+        }
+        if (!reviewVisible) {
+          showArchiveFeedback('', 'info');
+        }
+        syncArchiveModalControls();
+      }
+
+      function handleSaveArchiveEntry() {
+        if (!storageAvailable) {
+          showArchiveFeedback('Saving is unavailable in this browser session.', 'error');
+          return;
+        }
+        if (!$('#review-section').is(':visible') || !lastFinalAnalysisText) {
+          showArchiveFeedback('Generate a review before saving.', 'error');
+          return;
+        }
+        const defaultTitle = buildArchiveTitle(currentReviewMetadata || {});
+        const response = window.prompt('Name this saved review:', defaultTitle);
+        if (response == null) return;
+        const entry = buildArchiveEntry(response);
+        if (!entry) {
+          showArchiveFeedback('Nothing to save yet.', 'error');
+          return;
+        }
+        const timestamp = Date.now();
+        entry.updatedAt = timestamp;
+        const existing = archiveEntries.find(e => e.finalAnalysis === entry.finalAnalysis);
+        if (existing) {
+          entry.id = existing.id;
+          entry.createdAt = existing.createdAt || timestamp;
+        } else {
+          entry.id = `archive-${timestamp}-${Math.random().toString(36).slice(2, 10)}`;
+          entry.createdAt = timestamp;
+        }
+        const previous = archiveEntries.slice();
+        archiveEntries = [entry, ...archiveEntries.filter(e => e.id !== entry.id)];
+        if (archiveEntries.length > ARCHIVE_MAX_ENTRIES) {
+          archiveEntries = archiveEntries.slice(0, ARCHIVE_MAX_ENTRIES);
+        }
+        if (!persistArchiveEntries(archiveEntries)) {
+          archiveEntries = previous;
+          showArchiveFeedback('Unable to save review. Storage may be full.', 'error');
+          return;
+        }
+        showArchiveFeedback(`Saved "${entry.title}".`, 'success');
+        if (archiveModal.length && !archiveModal.hasClass('hidden')) {
+          renderArchiveList();
+        }
+        updateArchiveControls();
+      }
+
+      function handleDeleteArchiveEntry(id) {
+        if (!storageAvailable || !id) return;
+        if (!window.confirm('Delete this saved review?')) return;
+        const previous = archiveEntries.slice();
+        archiveEntries = archiveEntries.filter(entry => entry.id !== id);
+        if (!persistArchiveEntries(archiveEntries)) {
+          archiveEntries = previous;
+          showArchiveStatus('Unable to delete the saved review.', 'error');
+          return;
+        }
+        showArchiveStatus('Saved review deleted.', 'success');
+        renderArchiveList();
+        updateArchiveControls();
+      }
+
+      function handleClearArchive() {
+        if (!storageAvailable || !archiveEntries.length) {
+          showArchiveStatus(archiveEntries.length ? 'Saving is unavailable in this session.' : 'No saved reviews to clear.', archiveEntries.length ? 'error' : 'info');
+          return;
+        }
+        if (!window.confirm('Remove all saved reviews? This cannot be undone.')) return;
+        archiveEntries = [];
+        if (!persistArchiveEntries(archiveEntries)) {
+          showArchiveStatus('Unable to clear saved reviews.', 'error');
+          archiveEntries = loadArchiveEntriesFromStorage();
+          renderArchiveList();
+          updateArchiveControls();
+          return;
+        }
+        showArchiveStatus('Archive cleared.', 'success');
+        renderArchiveList();
+        updateArchiveControls();
+      }
+
+      function loadArchiveEntryById(id) {
+        if (!id) return false;
+        const entry = archiveEntries.find(e => e.id === id);
+        if (!entry) {
+          showArchiveStatus('Could not find the selected review.', 'error');
+          return false;
+        }
+        const analysisText = entry.finalAnalysis || '';
+        if (!analysisText.trim()) {
+          showArchiveStatus('This saved review is missing its analysis text.', 'error');
+          return false;
+        }
+        if ($('#player-name-input').length) {
+          $('#player-name-input').val(entry.playerName || '');
+          updateFormState('playerName', entry.playerName || '');
+          $('#player-name-input').trigger('input');
+        }
+        if ($('#pgn-input').length) {
+          $('#pgn-input').val(entry.pgn || '');
+          updateFormState('pgnInput', entry.pgn || '');
+        }
+        if ($('#final-analysis-input').length) {
+          $('#final-analysis-input').val(analysisText);
+          updateFormState('finalAnalysisInput', analysisText);
+        }
+        if (entry.annotatedPgn) {
+          lastAnnotatedPgn = entry.annotatedPgn;
+          updateFormState('annotatedPgn', lastAnnotatedPgn);
+        }
+        if (entry.stockfishOutput) {
+          $('#stockfish-output').val(entry.stockfishOutput);
+          updateFormState('stockfishOutput', entry.stockfishOutput);
+        }
+        if (entry.playerColor) {
+          setReviewPlayerColor(entry.playerColor);
+        }
+        lastFinalAnalysisText = analysisText;
+        currentReviewMetadata = {
+          headers: entry.headers || {},
+          summary: entry.summary || '',
+          playerColor: entry.playerColor || null,
+          playerName: entry.playerName || '',
+          opponent: entry.opponent || '',
+          annotatedPgn: entry.annotatedPgn || '',
+          stockfishOutput: entry.stockfishOutput || '',
+          pgn: entry.pgn || '',
+          resultCode: entry.resultCode || '',
+          resultLabel: entry.resultLabel || '',
+          movesCount: entry.movesCount || null,
+          featuredMove: entry.featuredMove || null
+        };
+        closeArchiveModal();
+        pendingArchiveLoadNotice = entry.title || 'Review';
+        switchStep(3);
+        setTimeout(() => {
+          $('#generate-review-btn').trigger('click');
+        }, 0);
+        return true;
+      }
+
       const TRANSIENT_FORM_KEYS = new Set(['pgnInput', 'finalAnalysisInput', 'stockfishOutput']);
 
       function updateFormState(key, value) {
@@ -1982,6 +2516,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           $('#app-header, #step-indicators').removeClass('hidden');
         }
 
+        if (normalized !== 4) {
+          currentReviewMetadata = null;
+        }
+
+        updateArchiveControls();
+
         if (!opts.skipHistory && window.history && window.history.pushState) {
           try {
             const targetHash = STEP_HASHES[normalized] != null ? STEP_HASHES[normalized] : STEP_HASHES[1];
@@ -2024,6 +2564,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         window.history.replaceState({ step: initialStep }, '', initialUrl);
       }
 
+      updateArchiveControls();
+
       window.addEventListener('popstate', function (event) {
         const stateStep = event.state && typeof event.state.step === 'number'
           ? normalizeStep(event.state.step)
@@ -2047,11 +2589,17 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         lastEngineMoveRecords = null;
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         automatedReviewText = '';
+        lastFinalAnalysisText = '';
+        currentReviewMetadata = null;
+        updateArchiveControls();
       });
       $('#clear-final-analysis-btn').on('click', function(){
         const finalAnalysisInput = $('#final-analysis-input');
         finalAnalysisInput.val('').focus();
         updateFormState('finalAnalysisInput', '');
+        lastFinalAnalysisText = '';
+        currentReviewMetadata = null;
+        updateArchiveControls();
       });
 
       $('#analyze-pgn-btn').on('click', async function () {
@@ -2654,6 +3202,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       // ====== Step 3: accept PGN or comments-only and build review ======
       $('#generate-review-btn').on('click', function () {
+        currentReviewMetadata = null;
+        lastFinalAnalysisText = '';
+        updateArchiveControls();
         let finalAnalysisRaw = $('#final-analysis-input').val().trim();
         if (!finalAnalysisRaw) {
           if (automatedReviewText) {
@@ -2683,12 +3234,18 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           return;
         }
 
+        lastFinalAnalysisText = finalAnalysisRaw;
+
         const rawNameForReview = getRawPlayerNameInput();
         if (rawNameForReview) {
           updateReviewPlayerColorFromGame(game, rawNameForReview);
         }
 
         switchStep(4);
+
+        const headersSnapshot = game && typeof game.header === 'function' ? { ...game.header() } : {};
+        const pgnSnapshot = game && typeof game.pgn === 'function' ? game.pgn({ max_width: 0, newline_char: '\n' }) : '';
+        const playerNameValue = getPlayerName();
 
         const gameMoves = game.history({ verbose: true }); let cursor = 0;
         const autoMoves = (Array.isArray(automatedMoveInsights.moves) && automatedMoveInsights.moves.length === gameMoves.length)
@@ -2907,6 +3464,27 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         board.resize();
         resizeEvalGraph();
         renderEvalGraph(-1);
+
+        const opponentLabel = deriveOpponentFromHeaders(headersSnapshot, reviewPlayerColor, playerNameValue);
+        currentReviewMetadata = {
+          headers: headersSnapshot,
+          summary,
+          playerColor: reviewPlayerColor,
+          playerName: playerNameValue,
+          opponent: opponentLabel,
+          annotatedPgn: lastAnnotatedPgn,
+          stockfishOutput: $('#stockfish-output').val() || '',
+          pgn: pgnSnapshot,
+          resultCode: headersSnapshot.Result || '',
+          resultLabel: describeResult(headersSnapshot.Result || ''),
+          movesCount: movesWithAnalysis.length,
+          featuredMove: featuredMoveData ? { ...featuredMoveData } : null
+        };
+        updateArchiveControls();
+        if (pendingArchiveLoadNotice) {
+          showArchiveFeedback(`Loaded saved review "${pendingArchiveLoadNotice}".`, 'success');
+          pendingArchiveLoadNotice = null;
+        }
       });
 
       // Build PGN from SAN list
@@ -3188,24 +3766,40 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       }
 
       function adjustAnalysisHeight() {
-        // Make the analysis pane scrollable and tall enough to show last moves without the board scrolling away
-        const shell = document.getElementById('move-analysis-shell');
         const scroll = document.getElementById('move-analysis-scroll');
+        if (!scroll) return;
         const boardEl = document.getElementById('board');
         const controls = document.getElementById('controls');
-        if (!shell || !scroll || !boardEl || !controls) return;
-        // Available viewport height minus some margins
-        const vh = window.innerHeight;
-        const boardH = boardEl.clientWidth; // board is square: height ~ width
-        const controlsH = controls.offsetHeight || 0;
-        const headerHidden = document.getElementById('app-header').classList.contains('hidden');
-        const topPadding = headerHidden ? 8 : 16;
-        // On mobile: place analysis below; give it remaining height
-        let target = vh - (boardH + controlsH + topPadding + 24);
-        target = Math.floor(target * 2 / 3); // make scrollable area 1/3 shorter
-        if (target < 120) target = 120; // minimum height after reduction
-        scroll.style.maxHeight = target + 'px';
-        scroll.style.height = target + 'px';
+        const graphEl = document.getElementById('eval-graph');
+        const isPortrait = window.matchMedia ? window.matchMedia('(orientation: portrait)').matches : false;
+        const isNarrow = window.innerWidth < 1024;
+        if (isPortrait || isNarrow) {
+          scroll.style.height = '';
+          scroll.style.maxHeight = '';
+          return;
+        }
+        let boardHeight = 0;
+        if (boardEl) {
+          const boardRect = boardEl.getBoundingClientRect();
+          boardHeight = boardRect.height || boardRect.width || boardEl.clientHeight || boardEl.clientWidth || 0;
+        }
+        let graphHeight = 0;
+        if (graphEl) {
+          const graphRect = graphEl.getBoundingClientRect();
+          graphHeight = graphRect.height || graphEl.offsetHeight || 0;
+        }
+        let controlsHeight = 0;
+        if (controls) {
+          const controlsRect = controls.getBoundingClientRect();
+          controlsHeight = controlsRect.height || controls.offsetHeight || 0;
+        }
+        let total = boardHeight + graphHeight + controlsHeight;
+        if (!Number.isFinite(total) || total <= 0) {
+          total = boardEl && boardEl.clientWidth ? boardEl.clientWidth + (graphEl ? graphEl.offsetHeight || 0 : 0) : 0;
+        }
+        total = Math.max(200, Math.round(total + 24));
+        scroll.style.height = total + 'px';
+        scroll.style.maxHeight = total + 'px';
       }
 
       function updateEvalGraphInteractivity() {
