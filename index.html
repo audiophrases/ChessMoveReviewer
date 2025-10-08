@@ -332,6 +332,7 @@
       let featuredMoveData = null;
       let featuredMoveIndex = -1;
       let lastAnnotatedPgn = '';
+      let playerGameOutcome = null;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
@@ -382,8 +383,9 @@
         } else {
           setReviewPlayerColor(null);
         }
+        updatePlayerOutcomeFromGame(game);
         if (Array.isArray(lastEngineMoveRecords) && lastEngineMoveRecords.length) {
-          automatedMoveInsights = computeAutomatedMoveInsights(lastEngineMoveRecords, reviewPlayerColor);
+          automatedMoveInsights = computeAutomatedMoveInsights(lastEngineMoveRecords, reviewPlayerColor, playerGameOutcome);
           automatedReviewText = buildAutomatedReviewText(automatedMoveInsights);
         }
         refreshStockfishOutput();
@@ -470,10 +472,12 @@
         updateFormState('annotatedPgn', '');
         $('#stockfish-output').val('');
         updateFormState('stockfishOutput', '');
+        const headers = parsePgnHeaders(game.pgn);
         setReviewPlayerColor(game && game.color ? game.color : null);
         if (getRawPlayerNameInput()) {
-          updateReviewPlayerColorFromHeaders(parsePgnHeaders(game.pgn), getPlayerName());
+          updateReviewPlayerColorFromHeaders(headers, getPlayerName());
         }
+        updatePlayerOutcomeFromHeaders(headers);
         lastEngineMoveRecords = null;
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         automatedReviewText = '';
@@ -1309,6 +1313,46 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return updateReviewPlayerColorFromHeaders(headers, playerName);
       }
 
+      function normalizeResultCodeForOutcome(code) {
+        if (code == null) return '';
+        let normalized = String(code).trim();
+        if (!normalized) return '';
+        normalized = normalized.replace(/½/g, '1/2');
+        normalized = normalized.replace(/\s+/g, '');
+        return normalized.toLowerCase();
+      }
+
+      function derivePlayerOutcome(resultCode, playerColor) {
+        if (playerColor !== 'w' && playerColor !== 'b') return null;
+        const normalized = normalizeResultCodeForOutcome(resultCode);
+        if (!normalized || normalized === '*') return null;
+        if (normalized.startsWith('1-0')) {
+          return playerColor === 'w' ? 'win' : 'loss';
+        }
+        if (normalized.startsWith('0-1')) {
+          return playerColor === 'b' ? 'win' : 'loss';
+        }
+        if (normalized.startsWith('1/2-1/2') || normalized.startsWith('0.5-0.5')) {
+          return 'draw';
+        }
+        return null;
+      }
+
+      function updatePlayerOutcomeFromHeaders(headers) {
+        const resultCode = headers && headers.Result ? headers.Result : '';
+        playerGameOutcome = derivePlayerOutcome(resultCode, reviewPlayerColor);
+        return playerGameOutcome;
+      }
+
+      function updatePlayerOutcomeFromGame(chess) {
+        if (!chess || typeof chess.header !== 'function') {
+          playerGameOutcome = null;
+          return playerGameOutcome;
+        }
+        const headers = chess.header();
+        return updatePlayerOutcomeFromHeaders(headers);
+      }
+
       function buildAnalysisPrompt(playerName) {
         const target = (playerName == null ? '' : String(playerName)).trim() || DEFAULT_PLAYER_NAME;
         return ANALYSIS_PROMPT_TEMPLATE.replace(/eugenime/gi, target);
@@ -1472,7 +1516,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return score;
       }
 
-      function computeAutomatedMoveInsights(rawMoves, playerColor) {
+      function computeAutomatedMoveInsights(rawMoves, playerColor, playerOutcome) {
         if (!Array.isArray(rawMoves) || !rawMoves.length) {
           return { moves: [], summary: null, moveOfGame: null };
         }
@@ -1515,6 +1559,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             : playerColor === 'black'
               ? 'b'
               : null;
+        const normalizedOutcome = playerOutcome === 'win' || playerOutcome === 'loss' || playerOutcome === 'draw'
+          ? playerOutcome
+          : null;
         const relevantMoves = normalizedColor ? moves.filter(mv => mv.color === normalizedColor) : moves;
         relevantMoves.forEach(mv => {
           if (summaryCounts[mv.classification] == null) summaryCounts[mv.classification] = 0;
@@ -1543,8 +1590,61 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         });
 
         let moveOfGame = null;
-        if (largestDrop) moveOfGame = largestDrop;
-        else if (bestNonNegative) moveOfGame = bestNonNegative;
+        const opponentColor = normalizedColor === 'w' ? 'b' : normalizedColor === 'b' ? 'w' : null;
+        const strongReplyClasses = new Set(['Good', 'Great', 'Brilliant']);
+        const highlightFollowupClasses = new Set(['Brilliant', 'Great', 'Good']);
+        const opponentErrorClasses = new Set(['Blunder', 'Misclick??', 'Inaccuracy']);
+
+        if (normalizedColor && normalizedOutcome === 'loss' && opponentColor) {
+          let targetedLossMove = null;
+          moves.forEach((mv, idx) => {
+            if (mv.color !== normalizedColor) return;
+            const delta = Number(mv.moverDelta);
+            if (!Number.isFinite(delta) || delta >= 0) return;
+            const reply = moves[idx + 1];
+            if (!reply || reply.color !== opponentColor) return;
+            if (!strongReplyClasses.has(reply.classification)) return;
+            if (!targetedLossMove || delta < Number(targetedLossMove.moverDelta) || (delta === Number(targetedLossMove.moverDelta) && idx < targetedLossMove.index)) {
+              targetedLossMove = mv;
+            }
+          });
+          if (targetedLossMove) {
+            targetedLossMove.moveOfGameContext = 'loss-critical';
+            moveOfGame = targetedLossMove;
+          }
+        } else if (normalizedColor && normalizedOutcome === 'win' && opponentColor) {
+          let bestPunishingFollow = null;
+          let bestRelatedMistake = null;
+          moves.forEach((mv, idx) => {
+            if (mv.color !== opponentColor) return;
+            if (!opponentErrorClasses.has(mv.classification)) return;
+            const delta = Number(mv.moverDelta);
+            if (!Number.isFinite(delta)) return;
+            const follow = moves[idx + 1];
+            if (!follow || follow.color !== normalizedColor) return;
+            if (!highlightFollowupClasses.has(follow.classification)) return;
+            const currentBestDelta = bestRelatedMistake ? Number(bestRelatedMistake.moverDelta) : null;
+            if (
+              !bestPunishingFollow
+              || currentBestDelta == null
+              || delta < currentBestDelta
+              || (delta === currentBestDelta && idx < bestRelatedMistake.index)
+            ) {
+              bestPunishingFollow = follow;
+              bestRelatedMistake = mv;
+            }
+          });
+          if (bestPunishingFollow && bestRelatedMistake) {
+            bestPunishingFollow.moveOfGameContext = 'win-conversion';
+            bestPunishingFollow.relatedMistakeIndex = bestRelatedMistake.index;
+            moveOfGame = bestPunishingFollow;
+          }
+        }
+
+        if (!moveOfGame) {
+          if (largestDrop) moveOfGame = largestDrop;
+          else if (bestNonNegative) moveOfGame = bestNonNegative;
+        }
 
         return {
           moves,
@@ -1608,6 +1708,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       function buildAutomatedMoveOfGameComment(move) {
         if (!move) return '';
         const key = normalizeClassificationKey(move.classification);
+        const context = move.moveOfGameContext || '';
+        if (context === 'win-conversion' && (key === 'brilliant' || key === 'great' || key === 'good')) {
+          return 'Auto insight: capitalizes on the opponent\'s slip to convert the game.';
+        }
+        if (context === 'loss-critical' && (key === 'mistake' || key === 'blunder' || key === 'misclick' || key === 'inaccuracy')) {
+          return 'Auto insight: decisive error that the opponent punished with precise play.';
+        }
         if (key === 'brilliant' || key === 'great') {
           if (retainsMateForMover(move)) {
             return 'Auto insight: decisive tactic that keeps the mate on the board.';
@@ -2384,7 +2491,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           updateFormState('stockfishOutput', entry.stockfishOutput);
         }
         if (entry.playerColor) {
-          setReviewPlayerColor(entry.playerColor);
+          const assignedColor = setReviewPlayerColor(entry.playerColor);
+          playerGameOutcome = derivePlayerOutcome(entry.resultCode || '', assignedColor);
+        } else {
+          setReviewPlayerColor(null);
+          playerGameOutcome = null;
         }
         lastFinalAnalysisText = analysisText;
         currentReviewMetadata = {
@@ -2586,6 +2697,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         $('#stockfish-output').val('');
         updateFormState('stockfishOutput', '');
         setReviewPlayerColor(null);
+        playerGameOutcome = null;
         lastEngineMoveRecords = null;
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         automatedReviewText = '';
@@ -2613,6 +2725,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (rawNameForAnalysis) {
           updateReviewPlayerColorFromGame(game, rawNameForAnalysis);
         }
+        updatePlayerOutcomeFromGame(game);
         await waitForEngineReady();
         if (!engineReady) { handleEngineLoadFailure('Stockfish failed to initialize.'); return; }
         switchStep(2);
@@ -2720,7 +2833,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             ...mv,
             move: mv.move ? { ...mv.move } : null
           }));
-          automatedMoveInsights = computeAutomatedMoveInsights(engineMoveRecords, reviewPlayerColor);
+          const outcome = updatePlayerOutcomeFromGame(game);
+          automatedMoveInsights = computeAutomatedMoveInsights(engineMoveRecords, reviewPlayerColor, outcome);
           automatedReviewText = buildAutomatedReviewText(automatedMoveInsights);
           lastAnnotatedPgn = annotatedPgn.trim();
           const combined = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
@@ -3234,6 +3348,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           return;
         }
 
+        updatePlayerOutcomeFromGame(game);
         lastFinalAnalysisText = finalAnalysisRaw;
 
         const rawNameForReview = getRawPlayerNameInput();
