@@ -55,6 +55,14 @@
     @media (max-width: 1023px) {
       .board-sticky-wrapper { top: 0; }
     }
+    .portrait-panel { width: 100%; }
+    @media (orientation: portrait) {
+      .portrait-panel {
+        max-width: 36rem;
+        margin-left: auto;
+        margin-right: auto;
+      }
+    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col p-3 sm:p-4">
@@ -214,7 +222,7 @@
           </div>
           <p id="archive-feedback" class="hidden text-xs"></p>
         </div>
-        <div id="move-analysis-shell" class="bg-[#101522] p-3 rounded-lg">
+        <div id="move-analysis-shell" class="bg-[#101522] p-3 rounded-lg portrait-panel">
           <div id="move-analysis-scroll" class="overflow-y-auto">
             <!-- One-line summary appears here (from "Summary:") -->
             <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
@@ -4004,7 +4012,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             const targetIdx = Number($(this).data('move-index'));
             if (Number.isNaN(targetIdx)) return;
             clearExploration();
-            goToMove(targetIdx);
+            goToMove(targetIdx, { scrollMode: 'none' });
           });
         }
       }
@@ -4044,7 +4052,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const idx = Number($(this).data('move-index'));
           if (Number.isNaN(idx)) return;
           clearExploration();
-          goToMove(idx);
+          goToMove(idx, { scrollMode: 'none' });
         });
       }
 
@@ -4106,7 +4114,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const x = e.clientX - rect.left;
           const maxIdx = Math.max(probSeries.length - 1, 0);
           const idx = Math.round((x / evalCanvas.width) * maxIdx);
-          goToMove(idx);
+          goToMove(idx, { scrollMode: 'none' });
         });
         updateEvalGraphInteractivity();
         resizeEvalGraph();
@@ -4221,38 +4229,26 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
-      function ensureMoveVisible(idx) {
+      function scrollMoveList(idx, previousIndex, options) {
         const container = document.getElementById('move-analysis-scroll');
-        const item = document.querySelector('.move-item[data-move-index="' + idx + '"]');
-        if (!container || !item) return;
-
-        const itemRect = item.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        if (itemRect.top < containerRect.top || itemRect.bottom > containerRect.bottom) {
-          item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-
-        if (window.innerWidth < 1024) {
-          const boardWrapper = document.querySelector('.board-sticky-wrapper');
-          const shell = document.getElementById('move-analysis-shell');
-          if (!shell) return;
-
-          const wrapperRect = boardWrapper ? boardWrapper.getBoundingClientRect() : null;
-          const wrapperHeight = wrapperRect ? wrapperRect.height : 0;
-          const offsetPadding = 12;
-          const minVisibleTop = wrapperHeight + offsetPadding;
-
-          const refreshedItemRect = item.getBoundingClientRect();
-          const itemOffset = refreshedItemRect.top - minVisibleTop;
-          if (itemOffset < 0) {
-            window.scrollBy({ top: itemOffset, behavior: 'smooth' });
-            return;
-          }
-
-          const shellRect = shell.getBoundingClientRect();
-          const shellOffset = shellRect.top - (wrapperHeight + offsetPadding);
-          if (shellOffset < 0) {
-            window.scrollBy({ top: shellOffset, behavior: 'smooth' });
+        if (!container) return;
+        const opts = options || {};
+        const mode = opts.scrollMode || 'none';
+        if (mode === 'step') {
+          if (!Number.isFinite(idx) || !Number.isFinite(previousIndex)) return;
+          if (previousIndex < 0) return;
+          const item = document.querySelector('.move-item[data-move-index="' + idx + '"]');
+          if (!item) return;
+          const direction = Math.sign(idx - previousIndex);
+          if (!direction) return;
+          const distance = item.offsetHeight || item.getBoundingClientRect().height || 0;
+          if (!distance) return;
+          const hasScrollableContainer = container.scrollHeight > (container.clientHeight + 1);
+          const scrollOptions = { top: direction * distance, behavior: 'smooth' };
+          if (hasScrollableContainer) {
+            container.scrollBy(scrollOptions);
+          } else {
+            window.scrollBy(scrollOptions);
           }
         }
       }
@@ -4272,8 +4268,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
-        function goToMove(idx) {
+        function goToMove(idx, options) {
           if (idx < -1 || idx >= movesWithAnalysis.length) return;
+          const previousIndex = currentMoveIndex;
           currentMoveIndex = idx;
           game.reset();
           for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
@@ -4282,7 +4279,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
           adjustAnalysisHeight();
           renderEvalGraph(idx);
-          ensureMoveVisible(idx);
+          scrollMoveList(idx, previousIndex, options);
           clearBestMoveHighlight();
           if (showBestMove) {
             showBestMoveAnalyzingDisplay();
@@ -4295,14 +4292,14 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (isExploring()) {
             if (!stepExploration(1)) return;
           } else {
-            goToMove(currentMoveIndex + 1);
+            goToMove(currentMoveIndex + 1, { scrollMode: 'step' });
           }
         });
         $('#prev-btn').on('click', function(){
           if (isExploring()) {
             if (!stepExploration(-1)) return;
           } else {
-            goToMove(currentMoveIndex - 1);
+            goToMove(currentMoveIndex - 1, { scrollMode: 'step' });
           }
         });
         $('#flip-btn').on('click', function(){
@@ -4342,13 +4339,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             if (isExploring()) {
               stepExploration(1);
             } else {
-              goToMove(currentMoveIndex + 1);
+              goToMove(currentMoveIndex + 1, { scrollMode: 'step' });
             }
           } else if (e.key === 'ArrowLeft') {
             if (isExploring()) {
               stepExploration(-1);
             } else {
-              goToMove(currentMoveIndex - 1);
+              goToMove(currentMoveIndex - 1, { scrollMode: 'step' });
             }
           }
         });
