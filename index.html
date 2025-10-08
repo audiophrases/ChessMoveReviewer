@@ -2297,19 +2297,118 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return white && black ? `${white} vs ${black}` : (white || black || '');
       }
 
-      function buildArchiveTitle(meta) {
-        if (meta && meta.summary) {
-          const summaryText = String(meta.summary).trim();
-          if (summaryText) return summaryText;
+      function normalizeArchiveDateToken(value) {
+        if (!value) return null;
+        let str = String(value).trim();
+        if (!str) return null;
+        if (/[?]/.test(str)) return null;
+        str = str.replace(/\s+/g, '');
+        const dotMatch = str.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})$/);
+        if (dotMatch) {
+          const [, y, m, d] = dotMatch;
+          const month = m.padStart(2, '0');
+          const day = d.padStart(2, '0');
+          return `${y}-${month}-${day}`;
         }
+        const compactMatch = str.match(/^(\d{4})(\d{2})(\d{2})$/);
+        if (compactMatch) {
+          const [, y, m, d] = compactMatch;
+          return `${y}-${m}-${d}`;
+        }
+        const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (isoMatch) {
+          return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+        }
+        return null;
+      }
+
+      function formatDateForArchive(date) {
+        if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+
+      function deriveArchiveDateLabel(meta, headers) {
+        const headerSource = headers && typeof headers === 'object' ? headers : {};
+        const dateCandidates = [];
+        ['Date', 'UTCDate', 'EndDate'].forEach(key => {
+          if (headerSource[key]) dateCandidates.push(headerSource[key]);
+        });
+        for (const candidate of dateCandidates) {
+          const normalized = normalizeArchiveDateToken(candidate);
+          if (normalized) return normalized;
+        }
+        if (meta && Number.isFinite(meta.createdAt)) {
+          const created = new Date(meta.createdAt);
+          const createdLabel = formatDateForArchive(created);
+          if (createdLabel) return createdLabel;
+        }
+        const todayLabel = formatDateForArchive(new Date());
+        return todayLabel || 'Unknown Date';
+      }
+
+      function extractFeaturedMoveMeta(meta) {
+        if (meta && meta.featuredMove && typeof meta.featuredMove === 'object') {
+          return meta.featuredMove;
+        }
+        if (meta && meta.featuredMoveData && typeof meta.featuredMoveData === 'object') {
+          return meta.featuredMoveData;
+        }
+        if (featuredMoveData && typeof featuredMoveData === 'object') {
+          return featuredMoveData;
+        }
+        return null;
+      }
+
+      function extractFeaturedDelta(featured) {
+        if (!featured || typeof featured !== 'object') return null;
+        const candidates = [featured.delta, featured.moverDelta];
+        for (const candidate of candidates) {
+          const numeric = Number(candidate);
+          if (Number.isFinite(numeric)) return numeric;
+        }
+        if (featured.evaluation) {
+          const evalInfo = parseEvaluationToken(featured.evaluation);
+          if (evalInfo && Number.isFinite(evalInfo.delta)) return Number(evalInfo.delta);
+        }
+        return null;
+      }
+
+      function formatDeltaForArchiveTitle(delta) {
+        if (!Number.isFinite(delta)) return '';
+        const sign = delta > 0 ? '+' : delta < 0 ? '-' : '';
+        const magnitude = Math.abs(delta);
+        let formatted;
+        if (magnitude >= 100) {
+          formatted = Math.round(magnitude).toString();
+        } else if (magnitude >= 10) {
+          formatted = Math.round(magnitude).toString();
+        } else if (magnitude >= 1) {
+          formatted = (Math.round(magnitude * 10) / 10).toFixed(1);
+        } else {
+          formatted = (Math.round(magnitude * 100) / 100).toFixed(2);
+        }
+        formatted = formatted.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+        return `Δ${sign}${formatted}`;
+      }
+
+      function buildArchiveTitle(meta) {
         const headers = meta && meta.headers ? meta.headers : (game && typeof game.header === 'function' ? game.header() : {});
-        const white = headers.White || 'White';
-        const black = headers.Black || 'Black';
-        const base = `${white} vs ${black}`;
-        const resultLabel = meta && meta.resultLabel ? meta.resultLabel : (headers.Result ? describeResult(headers.Result) : '');
-        if (resultLabel) return `${base} (${resultLabel})`;
-        if (headers.Result && headers.Result !== '*') return `${base} (${headers.Result})`;
-        return base;
+        const dateLabel = deriveArchiveDateLabel(meta, headers);
+        const featured = extractFeaturedMoveMeta(meta);
+        const classification = featured && featured.classification
+          ? String(featured.classification).trim()
+          : '';
+        const deltaValue = extractFeaturedDelta(featured);
+        let deltaLabel = formatDeltaForArchiveTitle(deltaValue);
+        if (!deltaLabel) {
+          deltaLabel = 'Δ0';
+        }
+        const classLabel = classification || 'Unclassified';
+        const parts = [dateLabel || 'Unknown Date', classLabel, deltaLabel];
+        return parts.join(' - ');
       }
 
       function buildArchiveEntry(customTitle) {
@@ -3526,6 +3625,39 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const idx = findFeaturedMoveIndex(movesWithAnalysis, featuredMoveData);
           if (idx >= 0) {
             const meta = { ...featuredMoveData, index: idx };
+            const moveRecord = movesWithAnalysis[idx];
+            if (moveRecord) {
+              const deltaCandidates = [
+                meta.delta,
+                moveRecord.delta,
+                moveRecord.analysis && moveRecord.analysis.delta,
+                moveRecord.automated && moveRecord.automated.moverDelta
+              ];
+              const resolvedDelta = deltaCandidates.find(value => {
+                if (value == null || value === '') return false;
+                const numeric = Number(value);
+                return Number.isFinite(numeric);
+              });
+              if (resolvedDelta != null) {
+                meta.delta = Number(resolvedDelta);
+              }
+              if (!meta.evaluation) {
+                const evaluationCandidates = [
+                  moveRecord.analysis && moveRecord.analysis.displayEvaluation,
+                  moveRecord.displayEvaluation,
+                  moveRecord.analysis && moveRecord.analysis.evaluation
+                ];
+                const evaluationValue = evaluationCandidates.find(value => value);
+                if (evaluationValue) {
+                  meta.evaluation = evaluationValue;
+                } else if (meta.delta != null && Number.isFinite(meta.delta)) {
+                  meta.evaluation = formatDeltaBraced(meta.delta);
+                }
+              }
+              if (!meta.classification && moveRecord.analysis && moveRecord.analysis.classification) {
+                meta.classification = moveRecord.analysis.classification;
+              }
+            }
             featuredMoveData = meta;
             featuredMoveIndex = idx;
             movesWithAnalysis[idx].isFeatured = true;
@@ -3538,6 +3670,44 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             const idx = typeof autoFeatured.index === 'number' ? autoFeatured.index : -1;
             if (idx >= 0 && idx < movesWithAnalysis.length) {
               const meta = { ...autoFeatured, index: idx };
+              const moveRecord = movesWithAnalysis[idx];
+              if (moveRecord) {
+                const deltaCandidates = [
+                  meta.delta,
+                  moveRecord.delta,
+                  moveRecord.analysis && moveRecord.analysis.delta,
+                  moveRecord.automated && moveRecord.automated.moverDelta
+                ];
+                const resolvedDelta = deltaCandidates.find(value => {
+                  if (value == null || value === '') return false;
+                  const numeric = Number(value);
+                  return Number.isFinite(numeric);
+                });
+                if (resolvedDelta != null) {
+                  meta.delta = Number(resolvedDelta);
+                }
+                if (!meta.evaluation) {
+                  const evaluationCandidates = [
+                    moveRecord.analysis && moveRecord.analysis.displayEvaluation,
+                    moveRecord.displayEvaluation,
+                    moveRecord.analysis && moveRecord.analysis.evaluation
+                  ];
+                  const evaluationValue = evaluationCandidates.find(value => value);
+                  if (evaluationValue) {
+                    meta.evaluation = evaluationValue;
+                  } else if (meta.delta != null && Number.isFinite(meta.delta)) {
+                    meta.evaluation = formatDeltaBraced(meta.delta);
+                  }
+                }
+                if (!meta.classification) {
+                  const classCandidates = [
+                    moveRecord.analysis && moveRecord.analysis.classification,
+                    moveRecord.automated && moveRecord.automated.classification
+                  ];
+                  const classValue = classCandidates.find(value => value);
+                  if (classValue) meta.classification = classValue;
+                }
+              }
               featuredMoveData = meta;
               featuredMoveIndex = idx;
               movesWithAnalysis[idx].isFeatured = true;
