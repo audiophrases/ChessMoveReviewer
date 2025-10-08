@@ -185,20 +185,18 @@
     </div>
     <div class="w-full grid grid-cols-1 lg:grid-cols-2 gap-3">
       <!-- Column A: Board + evaluation graph (sticky) -->
-      <div class="lg:col-span-1">
-        <div class="sticky top-2 board-sticky-wrapper">
-          <!-- Evaluation graph -->
-          <canvas id="eval-graph" class="w-full mb-2"></canvas>
+      <div class="lg:col-span-1 sticky top-2 board-sticky-wrapper">
+        <!-- Evaluation graph -->
+        <canvas id="eval-graph" class="w-full mb-2"></canvas>
 
-          <!-- Board -->
-          <div class="w-full max-w-xl mx-auto">
-            <div id="board" class="chessboard-container"></div>
-            <div id="controls" class="mt-3 flex items-center justify-end gap-2 w-full">
-              <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Analyze</button>
-              <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
-              <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
-              <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
-            </div>
+        <!-- Board -->
+        <div class="w-full max-w-xl mx-auto">
+          <div id="board" class="chessboard-container"></div>
+          <div id="controls" class="mt-3 flex items-center justify-end gap-2 w-full">
+            <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Analyze</button>
+            <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
+            <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
+            <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
           </div>
         </div>
       </div>
