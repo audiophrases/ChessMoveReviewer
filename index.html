@@ -2410,7 +2410,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           formatted = (Math.round(magnitude * 100) / 100).toFixed(2);
         }
         formatted = formatted.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
-        return `Δ${sign}${formatted}`;
+        return `${sign}${formatted}`;
       }
 
       function buildArchiveTitle(meta) {
@@ -2423,11 +2423,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const deltaValue = extractFeaturedDelta(featured);
         let deltaLabel = formatDeltaForArchiveTitle(deltaValue);
         if (!deltaLabel) {
-          deltaLabel = 'Δ0';
+          deltaLabel = '0';
         }
         const classLabel = classification || 'Unclassified';
-        const parts = [dateLabel || 'Unknown Date', classLabel, deltaLabel];
-        return parts.join(' - ');
+        const baseLabel = [dateLabel || 'Unknown Date', classLabel].join(' - ');
+        return `${baseLabel}: ${deltaLabel}`;
       }
 
       function buildArchiveEntry(customTitle) {
