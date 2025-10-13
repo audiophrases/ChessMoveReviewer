@@ -1517,6 +1517,32 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return mateAfter > 0;
       }
 
+      function opponentHadForcedMateBefore(moveRecord) {
+        if (!moveRecord) return false;
+        const mateBefore = moveRecord.mateBefore;
+        if (!Number.isFinite(mateBefore)) return false;
+        if (moveRecord.color === 'w') return mateBefore < 0;
+        return mateBefore > 0;
+      }
+
+      function mateDistance(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return Infinity;
+        return Math.abs(numeric);
+      }
+
+      function isForcedDefenseMove(moveRecord) {
+        if (!moveRecord) return false;
+        if (!opponentHasForcedMateAfter(moveRecord)) return false;
+        if (!opponentHadForcedMateBefore(moveRecord)) return false;
+        const mateAfterDistance = mateDistance(moveRecord.mateAfter);
+        const mateBeforeDistance = mateDistance(moveRecord.mateBefore);
+        if (!Number.isFinite(mateAfterDistance) || !Number.isFinite(mateBeforeDistance)) return false;
+        if (mateBeforeDistance > mateAfterDistance) return false;
+        const delta = Number(moveRecord.moverDelta);
+        return Number.isFinite(delta) && delta >= 0;
+      }
+
       function computeImpactScore(moveRecord) {
         if (!moveRecord) return -Infinity;
         let score = Math.abs(Number(moveRecord.moverDelta || 0));
@@ -1544,8 +1570,19 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           classification: computeBaseClassification(mv.moverDelta, idx)
         }));
 
-        moves.forEach((mv, idx) => {
-          const needsSevere = opponentHasForcedMateAfter(mv) || (hadMateForMoverBefore(mv) && !retainsMateForMover(mv));
+        moves.forEach((mv) => {
+          const opponentMateAfter = opponentHasForcedMateAfter(mv);
+          const opponentMateBefore = opponentHadForcedMateBefore(mv);
+          const mateAfterDistance = mateDistance(mv.mateAfter);
+          const mateBeforeDistance = mateDistance(mv.mateBefore);
+          const createdNewMate = opponentMateAfter && !opponentMateBefore;
+          const worsenedExistingMate = opponentMateAfter && opponentMateBefore && mateAfterDistance < mateBeforeDistance;
+          const maintainsOpponentMate = opponentMateAfter && opponentMateBefore && !worsenedExistingMate;
+          mv._maintainsOpponentMate = maintainsOpponentMate;
+
+          const lostMateForMover = hadMateForMoverBefore(mv) && !retainsMateForMover(mv);
+          const needsSevere = createdNewMate || worsenedExistingMate || lostMateForMover;
+
           if (needsSevere) {
             const severeTarget = Number.isFinite(mv.moverDelta) && mv.moverDelta <= -50 ? 'Misclick??' : 'Blunder';
             mv.classification = chooseMoreSevereClassification(mv.classification, severeTarget);
@@ -1567,6 +1604,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const name = canonicalizeClassification(mv.classification);
           mv.classification = name;
           if (summaryCounts[name] == null) summaryCounts[name] = 0;
+        });
+
+        moves.forEach(mv => {
+          if (mv._maintainsOpponentMate || isForcedDefenseMove(mv)) {
+            mv.classification = 'Forced';
+          }
+          delete mv._maintainsOpponentMate;
         });
 
         const normalizedColor = playerColor === 'w' || playerColor === 'b'
@@ -1719,6 +1763,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           }
           return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} collapse detected by Stockfish.`;
         }
+        if (key === 'forced') {
+          return 'Auto insight: only defensive move available in an unavoidable mate.';
+        }
         return '';
       }
 
@@ -1753,7 +1800,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           }
           return 'Auto insight: largest collapse in evaluation during the game.';
         }
-        if (key === 'good' || key === 'book' || key === 'forced') {
+        if (key === 'forced') {
+          return 'Auto insight: best defensive try while staring down a forced mate.';
+        }
+        if (key === 'good' || key === 'book') {
           if (Number.isFinite(move.moverDelta) && move.moverDelta > 0) {
             return 'Auto insight: precise move that kept or grew the initiative.';
           }
