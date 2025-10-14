@@ -1101,13 +1101,14 @@
           return path;
         }
       }
-        const ENGINE_GO_OPTIONS = { depth: 24 };
-        let engineWorker = null;
-        let engineReady = false;
-        let engineInitTimeout = null;
-        let lastInfoMsg = '';
-        let currentScoreResolver = null;
-        let showBestMove = false;
+      const ENGINE_GO_OPTIONS = { depth: 24 };
+      let engineWorker = null;
+      let engineReady = false;
+      let currentMultiPvSetting = 1;
+      let engineInitTimeout = null;
+      let lastInfoMsg = '';
+      let currentScoreResolver = null;
+      let showBestMove = false;
         const toggleBestBtn = $('#toggle-eval-btn');
         const defaultBestButtonLabel = toggleBestBtn.length ? (toggleBestBtn.text().trim() || 'Analyze') : 'Analyze';
         let primaryBestMoveSquares = null;
@@ -1134,6 +1135,16 @@
         const BEST_MOVE_RESPONSE_TIMEOUT = 2500;
         const BEST_MOVE_STALL_TIMEOUT = 9000;
 
+      function setEngineMultiPv(value, options = {}) {
+        const numeric = Number.parseInt(value, 10);
+        if (!Number.isFinite(numeric) || numeric < 1) return;
+        const force = options && options.force;
+        if (!force && currentMultiPvSetting === numeric) return;
+        currentMultiPvSetting = numeric;
+        if (!engineWorker) return;
+        engineWorker.postMessage(`setoption name MultiPV value ${numeric}`);
+      }
+
       function configureEngineOptions() {
         if (!engineWorker) return;
         engineReady = false;
@@ -1149,6 +1160,7 @@
         Object.entries(options).forEach(([name, value]) => {
           engineWorker.postMessage(`setoption name ${name} value ${value}`);
         });
+        setEngineMultiPv(1);
         engineWorker.postMessage('isready');
       }
 
@@ -1201,6 +1213,7 @@
       function initEngine(initial = false) {
         if (engineWorker) engineWorker.terminate();
         engineReady = false;
+        currentMultiPvSetting = 1;
         if (initial) {
           $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
         } else {
@@ -1956,6 +1969,45 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return san;
       }
       let selectedSquare = null;
+      let moveSound = null;
+      let captureSound = null;
+
+      function ensureMoveSounds() {
+        if (!moveSound) moveSound = createSoundEffect('sounds/move.mp3');
+        if (!captureSound) captureSound = createSoundEffect('sounds/capture.mp3');
+      }
+
+      function createSoundEffect(src) {
+        try {
+          const audio = new Audio(src);
+          audio.preload = 'auto';
+          return audio;
+        } catch (err) {
+          console.warn('Unable to initialize sound asset:', src, err);
+          return null;
+        }
+      }
+
+      function playSoundEffect(audio) {
+        if (!audio) return;
+        try {
+          audio.currentTime = 0;
+          const playPromise = audio.play();
+          if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch(() => {});
+          }
+        } catch (err) {
+          // Ignore playback errors (e.g., autoplay restrictions).
+        }
+      }
+
+      function playMoveSound(move) {
+        if (!move) return;
+        ensureMoveSounds();
+        const flags = move.flags || '';
+        const isCapture = !!(move.captured || flags.includes('c') || flags.includes('e'));
+        playSoundEffect(isCapture ? captureSound : moveSound);
+      }
       function clearSelected() {
         $('#board .square-55d63').removeClass('selected');
         selectedSquare = null;
@@ -1997,6 +2049,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           game.reset();
         }
         explorationState.cursor = 0;
+        let lastAppliedMove = null;
         for (let i = 0; i < safeTarget; i++) {
           const mv = explorationState.moves[i];
           if (!mv) break;
@@ -2008,9 +2061,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             applied = game.move(moveSpec);
           }
           if (!applied) break;
+          lastAppliedMove = applied;
           explorationState.cursor = i + 1;
         }
         if (board) board.position(game.fen());
+        if (lastAppliedMove) playMoveSound(lastAppliedMove);
       }
 
       function stepExploration(delta) {
@@ -2041,6 +2096,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
               clearPuzzleBoardHighlights();
             }
             if (board) board.position(game.fen());
+            playMoveSound(move);
             clearSelected();
             handleExplorationPositionChanged();
           } else {
@@ -3029,6 +3085,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             handleEngineLoadFailure('Stockfish failed to initialize.');
             return;
           }
+          setEngineMultiPv(1);
           const rawNameDuringAnalysis = getRawPlayerNameInput();
           if (rawNameDuringAnalysis) {
             updateReviewPlayerColorFromGame(game, rawNameDuringAnalysis);
@@ -3134,6 +3191,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           return new Promise(resolve => {
             currentScoreResolver = resolve; lastInfoMsg = '';
             engineWorker.postMessage('position fen ' + fen);
+            setEngineMultiPv(1);
             const o = opts || ENGINE_GO_OPTIONS || {};
             const parts = ['go'];
             if (o.depth != null) parts.push('depth ' + o.depth);
@@ -3281,6 +3339,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (currentNormalized !== bestMoveFenNormalized) return;
           engineWorker.postMessage('stop');
           engineWorker.postMessage('position fen ' + currentFen);
+          setEngineMultiPv(2, { force: true });
           engineWorker.postMessage('go infinite');
           scheduleBestMoveResponseTimer(token);
         }
@@ -3319,6 +3378,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           showBestMoveAnalyzingDisplay();
           cancelPendingBestMoveUpdates();
           engineWorker.postMessage('position fen ' + currentFen);
+          setEngineMultiPv(2, { force: true });
           engineWorker.postMessage('go infinite');
           scheduleBestMoveResponseTimer(token);
           scheduleBestMoveStallTimer(token);
@@ -3531,6 +3591,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           bestMoveFen = null;
           bestMoveFenNormalized = null;
           if (engineWorker) engineWorker.postMessage('stop');
+          setEngineMultiPv(1);
           clearTrackedMoveSquares();
           clearArrowCanvas();
           lastBestMove = null;
@@ -3706,6 +3767,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             showBestMoveAnalyzingDisplay();
             if (engineWorker) {
               engineWorker.postMessage('position fen ' + currentFen);
+              setEngineMultiPv(2, { force: true });
               engineWorker.postMessage('go infinite');
             }
             scheduleBestMoveResponseTimer(token);
@@ -4919,8 +4981,15 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const previousIndex = currentMoveIndex;
           currentMoveIndex = idx;
           game.reset();
-          for (let i = 0; i <= idx; i++) game.move(movesWithAnalysis[i].san);
+          let lastAppliedMove = null;
+          for (let i = 0; i <= idx; i++) {
+            const moveRecord = movesWithAnalysis[i];
+            if (!moveRecord || !moveRecord.san) continue;
+            const applied = game.move(moveRecord.san);
+            if (applied) lastAppliedMove = applied;
+          }
           if (board) board.position(game.fen());
+          if (idx >= 0 && lastAppliedMove) playMoveSound(lastAppliedMove);
           $('.move-item').removeClass('highlight');
           if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
           adjustAnalysisHeight();
