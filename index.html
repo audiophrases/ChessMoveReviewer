@@ -1108,10 +1108,12 @@
         let showBestMove = false;
         const toggleBestBtn = $('#toggle-eval-btn');
         const defaultBestButtonLabel = toggleBestBtn.length ? (toggleBestBtn.text().trim() || 'Analyze') : 'Analyze';
-        let bestMoveSquares = null;
+        let primaryBestMoveSquares = null;
+        let secondaryBestMoveSquares = null;
         let arrowCanvas = null;
         let arrowCtx = null;
         let lastBestMove = null;
+        let lastSecondBestMove = null;
         let bestMoveAnalysisToken = 0;
         let bestMoveActiveToken = 0;
         let bestMoveUpdateTimeout = null;
@@ -1123,6 +1125,7 @@
         let bestMoveVisualRetryHandle = null;
         let bestMoveResponseTimeoutHandle = null;
         let bestMoveStallTimeoutHandle = null;
+        let bestMovePvMap = {};
         const BEST_MOVE_UPDATE_INTERVAL = 250;
         const BEST_MOVE_VISUAL_RETRY_DELAY = 50;
         const BEST_MOVE_VISUAL_RETRY_LIMIT = 20;
@@ -3181,11 +3184,23 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           }
           const depthMatch = msg.match(/\bdepth\s+(\d+)/);
           const depth = depthMatch ? parseInt(depthMatch[1], 10) : null;
+          const multipvMatch = msg.match(/\bmultipv\s+(\d+)/);
+          let multipv = multipvMatch ? parseInt(multipvMatch[1], 10) : 1;
+          if (!Number.isFinite(multipv) || multipv < 1) multipv = 1;
+          if (multipv <= 2) {
+            bestMovePvMap[multipv] = {
+              move,
+              evalType,
+              evalValue,
+              depth
+            };
+          }
+          const primary = bestMovePvMap[1] ? { ...bestMovePvMap[1] } : null;
+          if (!primary) return;
+          const secondary = bestMovePvMap[2] && bestMovePvMap[2].move ? { ...bestMovePvMap[2] } : null;
           queueBestMoveUpdate({
-            move,
-            evalType,
-            evalValue,
-            depth,
+            primary,
+            secondary,
             token: bestMoveActiveToken
           });
         }
@@ -3334,6 +3349,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         function resetBestMoveVisualState() {
           cancelBestMoveVisualRetryTimer();
           pendingBestMoveVisualData = null;
+          bestMovePvMap = {};
         }
 
         function scheduleBestMoveVisualRetry() {
@@ -3351,10 +3367,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             pendingBestMoveVisualData = null;
             return;
           }
-          const fromSquareEl = $('#board .square-' + data.from);
-          let pieceReady = false;
-          if (fromSquareEl.length) {
-            pieceReady = fromSquareEl.find('[data-piece]').length > 0;
+          const primary = data.primary || null;
+          let pieceReady = true;
+          if (primary && primary.from) {
+            const fromSquareEl = $('#board .square-' + primary.from);
+            pieceReady = fromSquareEl.length ? fromSquareEl.find('[data-piece]').length > 0 : false;
           }
           if (!pieceReady && data.attempts < BEST_MOVE_VISUAL_RETRY_LIMIT) {
             data.attempts += 1;
@@ -3363,43 +3380,90 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           }
           pendingBestMoveVisualData = null;
           cancelBestMoveVisualRetryTimer();
-          if (bestMoveSquares) {
-            bestMoveSquares.forEach(sq => {
-              $('#board .square-' + sq).css('box-shadow', '');
-            });
-          }
-          if (arrowCtx && arrowCanvas) arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
-          drawBestMoveArrow(data.from, data.to);
-          highlightBestMoveSquares(data.from, data.to);
-          lastBestMove = data.move;
+          renderBestMoveOverlays(primary, data.secondary || null);
+          lastBestMove = primary && primary.move ? primary.move : null;
+          lastSecondBestMove = data.secondary && data.secondary.move ? data.secondary.move : null;
         }
 
         function updateBestMoveVisual(info) {
-          if (!info || !info.move) return;
-          const moveStr = String(info.move).trim();
-          const from = moveStr.substring(0, 2);
-          const to = moveStr.substring(2, 4);
-          if (!from || !to) return;
-          const sanMove = uciToSan(moveStr, bestMoveFen);
-          if (!sanMove) return;
-          updateBestEvalDisplay(info, sanMove);
+          if (!info || !info.primary || !info.primary.move) return;
+          const primaryParsed = parseUciMove(info.primary.move);
+          if (!primaryParsed) return;
+          const primarySan = uciToSan(primaryParsed.move, bestMoveFen);
+          if (!primarySan) return;
+          const primaryForDisplay = { ...info.primary, san: primarySan };
+
+          let secondaryParsed = null;
+          let secondaryForDisplay = null;
+          if (info.secondary && info.secondary.move) {
+            const parsed = parseUciMove(info.secondary.move);
+            if (parsed) {
+              const san = uciToSan(parsed.move, bestMoveFen);
+              if (san) {
+                secondaryParsed = parsed;
+                secondaryForDisplay = { ...info.secondary, san };
+              }
+            }
+          }
+
+          updateBestEvalDisplay(primaryForDisplay, secondaryForDisplay);
           cancelBestMoveVisualRetryTimer();
           pendingBestMoveVisualData = {
-            move: moveStr,
-            from,
-            to,
+            primary: primaryParsed,
+            secondary: secondaryParsed,
             token: info.token,
             attempts: 0
           };
           attemptApplyBestMoveVisual();
         }
 
-        function updateBestEvalDisplay(info, sanMove) {
+        function updateBestEvalDisplay(primary, secondary) {
           if (!toggleBestBtn.length) return;
-          const evalText = formatBestEval(info);
-          const moveText = sanMove ? ' ' + sanMove : '';
-          const combined = evalText ? `${evalText}${moveText}` : 'Analyzing…';
-          setBestButtonState(combined.trim(), true);
+          const combined = formatBestEvalDisplay(primary, secondary);
+          const label = combined || 'Analyzing…';
+          setBestButtonState(label.trim(), true);
+        }
+
+        function formatBestEvalDisplay(primary, secondary) {
+          if (!primary) return '';
+          const best = formatEvalForMove('Best', primary);
+          const second = secondary ? formatEvalForMove('2nd', secondary) : '';
+          return [best, second].filter(Boolean).join(' | ');
+        }
+
+        function formatEvalForMove(prefix, moveInfo) {
+          if (!moveInfo) return '';
+          const san = moveInfo.san || '';
+          const prob = getWhiteWinProbabilityForMove(moveInfo);
+          if (prob != null) {
+            const pct = Math.round(prob * 100);
+            return `${prefix}: ${pct}% ${san}`.trim();
+          }
+          const evalText = formatBestEval(moveInfo);
+          if (evalText) {
+            const moveText = san ? ' ' + san : '';
+            return `${prefix}: ${evalText}${moveText}`.trim();
+          }
+          return san ? `${prefix}: ${san}` : '';
+        }
+
+        function getWhiteWinProbabilityForMove(moveInfo) {
+          if (!moveInfo) return null;
+          const sideToMove = getSideToMoveForBestEval();
+          if (moveInfo.evalType === 'mate') {
+            let mate = Number(moveInfo.evalValue);
+            if (!Number.isFinite(mate)) return null;
+            if (sideToMove === 'b') mate = -mate;
+            if (mate === 0) return sideToMove === 'w' ? 1 : 0;
+            return mate > 0 ? 1 : 0;
+          }
+          if (moveInfo.evalType === 'cp') {
+            let cp = Number(moveInfo.evalValue);
+            if (!Number.isFinite(cp)) return null;
+            if (sideToMove === 'b') cp = -cp;
+            return clampProb(cpToProb(cp));
+          }
+          return null;
         }
 
         function getSideToMoveForBestEval() {
@@ -3430,6 +3494,16 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           return (pawns >= 0 ? '+' : '') + pawns.toFixed(2);
         }
 
+        function parseUciMove(uciMove) {
+          if (!uciMove) return null;
+          const moveStr = String(uciMove).trim();
+          if (!/^[a-h][1-8][a-h][1-8][nbrq]?$/i.test(moveStr)) return null;
+          const from = moveStr.substring(0, 2);
+          const to = moveStr.substring(2, 4);
+          if (!from || !to) return null;
+          return { move: moveStr, from, to };
+        }
+
         function uciToSan(uciMove, fenOverride) {
           if (!uciMove) return null;
           try {
@@ -3455,14 +3529,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           bestMoveFen = null;
           bestMoveFenNormalized = null;
           if (engineWorker) engineWorker.postMessage('stop');
-          if (bestMoveSquares) {
-            bestMoveSquares.forEach(sq => {
-              $('#board .square-' + sq).css('box-shadow', '');
-            });
-            bestMoveSquares = null;
-          }
-          if (arrowCtx && arrowCanvas) arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
+          clearTrackedMoveSquares();
+          clearArrowCanvas();
           lastBestMove = null;
+          lastSecondBestMove = null;
+          bestMovePvMap = {};
           hideBestMoveEvalDisplay();
         }
 
@@ -3484,56 +3555,119 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           arrowCanvas.height = boardEl.clientHeight;
         }
 
-        function drawBestMoveArrow(from, to) {
+        function clearArrowCanvas() {
+          if (arrowCtx && arrowCanvas) {
+            arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
+          }
+        }
+
+        function drawMoveArrow(from, to, options = {}) {
           ensureArrowCanvas();
-          if (!arrowCtx) return;
-          arrowCtx.clearRect(0, 0, arrowCanvas.width, arrowCanvas.height);
+          if (!arrowCtx || !arrowCanvas) return;
           const boardEl = document.getElementById('board');
+          if (!boardEl) return;
           const boardRect = boardEl.getBoundingClientRect();
           const fromEl = document.querySelector('#board .square-' + from);
           const toEl = document.querySelector('#board .square-' + to);
           if (!fromEl || !toEl) return;
           const fromRect = fromEl.getBoundingClientRect();
-            const toRect = toEl.getBoundingClientRect();
-            const fx = fromRect.left + fromRect.width / 2 - boardRect.left;
-            const fy = fromRect.top + fromRect.height / 2 - boardRect.top;
-            const tx = toRect.left + toRect.width / 2 - boardRect.left;
-            const ty = toRect.top + toRect.height / 2 - boardRect.top;
-            const baseLineWidth = arrowCanvas.width / 35;
-            const lineWidth = Math.max(2, baseLineWidth * (2 / 3));
-            const baseHeadlen = arrowCanvas.width / 10;
-            const headlen = Math.max(8, baseHeadlen * (2 / 3));
-            arrowCtx.strokeStyle = 'rgb(255, 255, 0)';
-            arrowCtx.fillStyle = 'rgb(255, 255, 0)';
-            arrowCtx.lineWidth = lineWidth;
-            arrowCtx.lineCap = 'butt';
-            arrowCtx.lineJoin = 'miter';
-            const angle = Math.atan2(ty - fy, tx - fx);
-            arrowCtx.beginPath();
-            arrowCtx.moveTo(fx, fy);
-            arrowCtx.lineTo(
-                tx - headlen * Math.cos(angle),
-                ty - headlen * Math.sin(angle)
-            );
-            arrowCtx.stroke();
-            arrowCtx.beginPath();
-            arrowCtx.moveTo(tx, ty);
-            arrowCtx.lineTo(tx - headlen * Math.cos(angle - Math.PI / 6), ty - headlen * Math.sin(angle - Math.PI / 6));
-            arrowCtx.lineTo(tx - headlen * Math.cos(angle + Math.PI / 6), ty - headlen * Math.sin(angle + Math.PI / 6));
-            arrowCtx.closePath();
-            arrowCtx.fill();
+          const toRect = toEl.getBoundingClientRect();
+          const fx = fromRect.left + fromRect.width / 2 - boardRect.left;
+          const fy = fromRect.top + fromRect.height / 2 - boardRect.top;
+          const tx = toRect.left + toRect.width / 2 - boardRect.left;
+          const ty = toRect.top + toRect.height / 2 - boardRect.top;
+          const color = options.color || 'rgb(255, 255, 0)';
+          const lineWidthScale = options.lineWidthScale != null ? options.lineWidthScale : (2 / 3);
+          const headLengthScale = options.headLengthScale != null ? options.headLengthScale : (2 / 3);
+          const baseLineWidth = arrowCanvas.width / 35;
+          const lineWidth = Math.max(2, baseLineWidth * lineWidthScale);
+          const baseHeadlen = arrowCanvas.width / 10;
+          const headlen = Math.max(8, baseHeadlen * headLengthScale);
+          arrowCtx.strokeStyle = color;
+          arrowCtx.fillStyle = color;
+          arrowCtx.lineWidth = lineWidth;
+          arrowCtx.lineCap = 'butt';
+          arrowCtx.lineJoin = 'miter';
+          const angle = Math.atan2(ty - fy, tx - fx);
+          arrowCtx.beginPath();
+          arrowCtx.moveTo(fx, fy);
+          arrowCtx.lineTo(
+            tx - headlen * Math.cos(angle),
+            ty - headlen * Math.sin(angle)
+          );
+          arrowCtx.stroke();
+          arrowCtx.beginPath();
+          arrowCtx.moveTo(tx, ty);
+          arrowCtx.lineTo(
+            tx - headlen * Math.cos(angle - Math.PI / 6),
+            ty - headlen * Math.sin(angle - Math.PI / 6)
+          );
+          arrowCtx.lineTo(
+            tx - headlen * Math.cos(angle + Math.PI / 6),
+            ty - headlen * Math.sin(angle + Math.PI / 6)
+          );
+          arrowCtx.closePath();
+          arrowCtx.fill();
         }
 
-        function highlightBestMoveSquares(from, to) {
+        function highlightMoveSquares(from, to, color, scale = 2 / 3) {
           ensureArrowCanvas();
-          if (!arrowCanvas) return;
+          if (!arrowCanvas) return null;
           const baseBorder = arrowCanvas.width / 35;
-          const borderWidth = Math.max(2, baseBorder * (2 / 3));
-          const color = 'rgb(255, 255, 0)';
+          const borderWidth = Math.max(2, baseBorder * scale);
           [from, to].forEach(sq => {
             $('#board .square-' + sq).css('box-shadow', `inset 0 0 0 ${borderWidth}px ${color}`);
           });
-          bestMoveSquares = [from, to];
+          return [from, to];
+        }
+
+        function clearTrackedMoveSquares() {
+          if (primaryBestMoveSquares) {
+            primaryBestMoveSquares.forEach(sq => {
+              $('#board .square-' + sq).css('box-shadow', '');
+            });
+            primaryBestMoveSquares = null;
+          }
+          if (secondaryBestMoveSquares) {
+            secondaryBestMoveSquares.forEach(sq => {
+              $('#board .square-' + sq).css('box-shadow', '');
+            });
+            secondaryBestMoveSquares = null;
+          }
+        }
+
+        function renderBestMoveOverlays(primary, secondary) {
+          if (!primary && !secondary) {
+            clearTrackedMoveSquares();
+            clearArrowCanvas();
+            return;
+          }
+          clearTrackedMoveSquares();
+          clearArrowCanvas();
+          if (secondary && secondary.from && secondary.to) {
+            secondaryBestMoveSquares = highlightMoveSquares(secondary.from, secondary.to, 'rgba(255, 255, 0, 0.45)', 0.5);
+            drawMoveArrow(secondary.from, secondary.to, {
+              color: 'rgba(255, 255, 0, 0.55)',
+              lineWidthScale: 0.5,
+              headLengthScale: 0.5
+            });
+          }
+          if (primary && primary.from && primary.to) {
+            primaryBestMoveSquares = highlightMoveSquares(primary.from, primary.to, 'rgb(255, 255, 0)', 2 / 3);
+            drawMoveArrow(primary.from, primary.to, {
+              color: 'rgb(255, 255, 0)',
+              lineWidthScale: 2 / 3,
+              headLengthScale: 2 / 3
+            });
+          }
+        }
+
+        function reapplyStoredBestMoveVisuals() {
+          if (!showBestMove) return;
+          const primary = lastBestMove ? parseUciMove(lastBestMove) : null;
+          const secondary = lastSecondBestMove ? parseUciMove(lastSecondBestMove) : null;
+          if (!primary && !secondary) return;
+          renderBestMoveOverlays(primary, secondary);
         }
 
         function showBestMoveForCurrentPosition() {
@@ -3920,11 +4054,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             board.resize();
             adjustAnalysisHeight();
             resizeEvalGraph();
-            if (showBestMove && lastBestMove) {
-              const from = lastBestMove.substring(0,2);
-              const to = lastBestMove.substring(2,4);
-              drawBestMoveArrow(from, to);
-              highlightBestMoveSquares(from, to);
+            if (showBestMove && (lastBestMove || lastSecondBestMove)) {
+              reapplyStoredBestMoveVisuals();
             }
           });
           initEvalGraph();
@@ -4819,11 +4950,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         $('#flip-btn').on('click', function(){
           if (board) {
             board.flip();
-            if (showBestMove && lastBestMove) {
-              const from = lastBestMove.substring(0,2);
-              const to = lastBestMove.substring(2,4);
-              drawBestMoveArrow(from, to);
-              highlightBestMoveSquares(from, to);
+            if (showBestMove && (lastBestMove || lastSecondBestMove)) {
+              reapplyStoredBestMoveVisuals();
             }
           }
         });
@@ -4843,11 +4971,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         $(window).on('resize', function(){
           adjustAnalysisHeight();
           resizeEvalGraph();
-          if (showBestMove && lastBestMove) {
-            const from = lastBestMove.substring(0,2);
-            const to = lastBestMove.substring(2,4);
-            drawBestMoveArrow(from, to);
-            highlightBestMoveSquares(from, to);
+          if (showBestMove && (lastBestMove || lastSecondBestMove)) {
+            reapplyStoredBestMoveVisuals();
           }
         });
         $(document).on('keydown', function(e){
