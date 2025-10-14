@@ -513,7 +513,7 @@
         const headers = parsePgnHeaders(game.pgn);
         setReviewPlayerColor(game && game.color ? game.color : null);
         if (getRawPlayerNameInput()) {
-          updateReviewPlayerColorFromHeaders(headers, getPlayerName());
+          updateReviewPlayerColorFromHeaders(headers, getPlayerName(), { clearOnMiss: false });
         }
         updatePlayerOutcomeFromHeaders(headers);
         lastEngineMoveRecords = null;
@@ -1337,18 +1337,22 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return null;
       }
 
-      function updateReviewPlayerColorFromHeaders(headers, playerName) {
+      function updateReviewPlayerColorFromHeaders(headers, playerName, opts) {
         const detected = determinePlayerColorFromHeaders(headers, playerName);
+        opts = opts || {};
         if (detected) return setReviewPlayerColor(detected);
+        if (opts.clearOnMiss === false) return reviewPlayerColor;
         return setReviewPlayerColor(null);
       }
 
-      function updateReviewPlayerColorFromGame(chess, playerName) {
+      function updateReviewPlayerColorFromGame(chess, playerName, opts) {
+        opts = opts || {};
         if (!chess || typeof chess.header !== 'function') {
+          if (opts.clearOnMiss === false) return reviewPlayerColor;
           return setReviewPlayerColor(null);
         }
         const headers = chess.header();
-        return updateReviewPlayerColorFromHeaders(headers, playerName);
+        return updateReviewPlayerColorFromHeaders(headers, playerName, opts);
       }
 
       function normalizeResultCodeForOutcome(code) {
@@ -3589,7 +3593,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
         const rawNameForReview = getRawPlayerNameInput();
         if (rawNameForReview) {
-          updateReviewPlayerColorFromGame(game, rawNameForReview);
+          updateReviewPlayerColorFromGame(game, rawNameForReview, { clearOnMiss: false });
         }
 
         switchStep(4);
