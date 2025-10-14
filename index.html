@@ -62,7 +62,6 @@
       inset: 8%;
       border-radius: 6px;
       pointer-events: none;
-      z-index: 2;
       opacity: 0;
       transition: opacity 0.15s ease-in-out;
       box-sizing: border-box;
@@ -72,11 +71,13 @@
       opacity: 1;
       border: 3px solid rgba(248, 113, 113, 0.9);
       box-shadow: 0 0 12px rgba(248, 113, 113, 0.4);
+      z-index: 2;
     }
     #board .square-55d63.puzzle-punish-move::after {
       opacity: 1;
       border: 3px solid rgba(74, 222, 128, 0.9);
       box-shadow: 0 0 12px rgba(74, 222, 128, 0.35);
+      z-index: 2;
     }
     #prev-btn, #next-btn { font-size: 1rem; }
     .status-banner { display: none; border-radius: 0.75rem; padding: 0.75rem 1rem; border: 1px solid transparent; }
