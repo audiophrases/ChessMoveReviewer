@@ -39,8 +39,13 @@
     #toggle-eval-btn { border: 1px solid transparent; transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
     #toggle-eval-btn.best-active { background-color: #0b0e15; border-color: rgba(250, 204, 21, 0.4); color: #facc15; font-family: 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace; }
     #toggle-eval-btn.best-active:hover { background-color: #131a2c; }
-    #puzzle-info { border: 1px solid rgba(249, 115, 22, 0.45); background-color: rgba(249, 115, 22, 0.1); color: #fde68a; }
-    #puzzle-info .puzzle-detail { color: rgba(253, 230, 138, 0.85); }
+    #puzzle-info {
+      border: 1px solid #fb923c;
+      background-color: #1f2937;
+      color: #fef3c7;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.45);
+    }
+    #puzzle-info .puzzle-detail { color: #fde68a; }
     textarea.form-input, input.form-input { background-color: #2d2d2d; border-color: #364152; color: #e5e7eb; }
     textarea.form-input:focus, input.form-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35); outline: none; }
     input[type=number]::-webkit-outer-spin-button,
@@ -4266,13 +4271,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           }
           return;
         }
-        container.removeClass('hidden');
         if (currentPuzzleIndex < 0 || currentPuzzleIndex >= puzzleQueue.length) {
-          const count = puzzleQueue.length;
-          container.append($('<p class="font-semibold"></p>').text(`Found ${count} puzzle${count === 1 ? '' : 's'} from your game.`));
-          container.append($('<p class="puzzle-detail mt-1 text-xs sm:text-sm"></p>').text('Press “Start Puzzle” to practice the biggest evaluation drops first.'));
+          container.addClass('hidden');
           return;
         }
+        container.removeClass('hidden');
         const puzzle = puzzleQueue[currentPuzzleIndex];
         const header = `Puzzle ${currentPuzzleIndex + 1} of ${puzzleQueue.length}: ${(puzzle.color === 'w' ? 'White' : 'Black')} to move after ${formatPuzzleMoveLabel(puzzle)}.`;
         container.append($('<p class="font-semibold"></p>').text(header));
