@@ -54,7 +54,29 @@
     .step-indicator { background-color: #273043; cursor: pointer; }
     .step-indicator.active { background-color: #3b82f6; }
     .step-indicator:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+    #board .square-55d63 { position: relative; }
+    #board .square-55d63::before,
+    #board .square-55d63::after {
+      content: '';
+      position: absolute;
+      inset: 8%;
+      border-radius: 6px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s ease-in-out;
+      box-sizing: border-box;
+    }
     #board .square-55d63.selected { background-color: rgba(251, 191, 36, 0.5); }
+    #board .square-55d63.puzzle-bad-move::before {
+      opacity: 1;
+      border: 3px solid rgba(248, 113, 113, 0.9);
+      box-shadow: 0 0 12px rgba(248, 113, 113, 0.4);
+    }
+    #board .square-55d63.puzzle-punish-move::after {
+      opacity: 1;
+      border: 3px solid rgba(74, 222, 128, 0.9);
+      box-shadow: 0 0 12px rgba(74, 222, 128, 0.35);
+    }
     #prev-btn, #next-btn { font-size: 1rem; }
     .status-banner { display: none; border-radius: 0.75rem; padding: 0.75rem 1rem; border: 1px solid transparent; }
     .status-banner.status-visible { display: flex; align-items: flex-start; gap: 0.75rem; }
@@ -367,6 +389,7 @@
       let currentPuzzleIndex = -1;
       let activePuzzleMoveIndex = -1;
       let puzzleQueueReady = false;
+      let puzzleBoardHighlightSquares = { bad: new Set(), punish: new Set() };
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
@@ -4200,8 +4223,44 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
+      function clearPuzzleBoardHighlights() {
+        if (!puzzleBoardHighlightSquares) return;
+        puzzleBoardHighlightSquares.bad.forEach(square => {
+          const normalized = typeof square === 'string' ? square.toLowerCase() : square;
+          $('#board .square-' + normalized).removeClass('puzzle-bad-move');
+        });
+        puzzleBoardHighlightSquares.punish.forEach(square => {
+          const normalized = typeof square === 'string' ? square.toLowerCase() : square;
+          $('#board .square-' + normalized).removeClass('puzzle-punish-move');
+        });
+        puzzleBoardHighlightSquares = { bad: new Set(), punish: new Set() };
+      }
+
+      function applyPuzzleBoardHighlights(puzzle) {
+        clearPuzzleBoardHighlights();
+        if (!puzzle) return;
+        const registerSquare = (square, type) => {
+          if (!square) return;
+          const normalized = String(square).toLowerCase();
+          const el = $('#board .square-' + normalized);
+          if (!el.length) return;
+          if (type === 'bad') {
+            el.addClass('puzzle-bad-move');
+            puzzleBoardHighlightSquares.bad.add(normalized);
+          } else if (type === 'punish') {
+            el.addClass('puzzle-punish-move');
+            puzzleBoardHighlightSquares.punish.add(normalized);
+          }
+        };
+        registerSquare(puzzle.from, 'bad');
+        registerSquare(puzzle.to, 'bad');
+        registerSquare(puzzle.replyFrom, 'punish');
+        registerSquare(puzzle.replyTo, 'punish');
+      }
+
       function clearPuzzleHighlights() {
         $('.move-item.puzzle-target').removeClass('puzzle-target');
+        clearPuzzleBoardHighlights();
       }
 
       function applyPuzzleHighlight(index) {
@@ -4217,6 +4276,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
         item.addClass('puzzle-target');
         activePuzzleMoveIndex = index;
+        const puzzle = Array.isArray(puzzleQueue)
+          ? puzzleQueue.find(p => Number(p.index) === Number(index))
+          : null;
+        if (puzzle) applyPuzzleBoardHighlights(puzzle);
+        else clearPuzzleBoardHighlights();
       }
 
       function updatePuzzleControls() {
@@ -4354,13 +4418,20 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (!allowed.has(key)) return;
           const drop = resolvePuzzleDrop(mv);
           if (!Number.isFinite(drop) || drop >= 0) return;
+          const reply = movesWithAnalysis[index + 1];
+          const validReply = reply && reply.color && reply.color !== mv.color ? reply : null;
           queue.push({
             index,
             san: mv.san,
+            from: mv.from,
+            to: mv.to,
             color: mv.color,
             classification: canonicalizeClassification(classification),
             drop,
-            evaluation: derivePuzzleEvaluation(mv)
+            evaluation: derivePuzzleEvaluation(mv),
+            replySan: validReply ? validReply.san : null,
+            replyFrom: validReply ? validReply.from : null,
+            replyTo: validReply ? validReply.to : null
           });
         });
         queue.sort((a, b) => {
