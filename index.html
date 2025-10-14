@@ -23,6 +23,9 @@
     .move-item.featured { border: 1px solid rgba(250, 204, 21, 0.35); background-color: rgba(250, 204, 21, 0.06); }
     .move-item.featured:hover { background-color: rgba(250, 204, 21, 0.12); }
     .move-item.featured.highlight { background-color: #243249; }
+    .move-item.puzzle-target { border: 1px solid rgba(249, 115, 22, 0.45); background-color: rgba(249, 115, 22, 0.08); }
+    .move-item.puzzle-target:hover { background-color: rgba(249, 115, 22, 0.14); }
+    .move-item.puzzle-target.highlight { background-color: rgba(249, 115, 22, 0.2); }
     #eval-graph { cursor: pointer; transition: opacity 0.2s ease-in-out; }
     #eval-graph.exploration-disabled { opacity: 0.85; }
     #move-analysis-scroll::-webkit-scrollbar { width: 8px; }
@@ -36,6 +39,8 @@
     #toggle-eval-btn { border: 1px solid transparent; transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
     #toggle-eval-btn.best-active { background-color: #0b0e15; border-color: rgba(250, 204, 21, 0.4); color: #facc15; font-family: 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace; }
     #toggle-eval-btn.best-active:hover { background-color: #131a2c; }
+    #puzzle-info { border: 1px solid rgba(249, 115, 22, 0.45); background-color: rgba(249, 115, 22, 0.1); color: #fde68a; }
+    #puzzle-info .puzzle-detail { color: rgba(253, 230, 138, 0.85); }
     textarea.form-input, input.form-input { background-color: #2d2d2d; border-color: #364152; color: #e5e7eb; }
     textarea.form-input:focus, input.form-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35); outline: none; }
     input[type=number]::-webkit-outer-spin-button,
@@ -158,6 +163,7 @@
   <section id="step2-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-xl sm:text-2xl font-bold text-center">Get AI Coaching Comments</h2>
     <div id="stockfish-progress" class="text-center p-4 bg-[#101522] rounded-lg">
+       <p id="progress-text" class="text-sm text-gray-300"></p>
        <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
         <div id="progress-bar" class="bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
       </div>
@@ -211,12 +217,14 @@
         <!-- Board -->
         <div class="w-full mx-auto board-panel">
           <div id="board" class="chessboard-container"></div>
-          <div id="controls" class="mt-3 flex items-center justify-end gap-2 w-full">
+          <div id="controls" class="mt-3 flex flex-wrap items-center justify-end gap-2 w-full">
+            <button id="puzzle-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-primary mr-auto" type="button" disabled>Start Puzzle</button>
             <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Analyze</button>
             <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
             <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
             <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
           </div>
+          <div id="puzzle-info" class="mt-3 hidden px-4 py-3 text-sm leading-relaxed rounded-lg" aria-live="polite"></div>
         </div>
       </div>
 
@@ -350,6 +358,10 @@
       let featuredMoveIndex = -1;
       let lastAnnotatedPgn = '';
       let playerGameOutcome = null;
+      let puzzleQueue = [];
+      let currentPuzzleIndex = -1;
+      let activePuzzleMoveIndex = -1;
+      let puzzleQueueReady = false;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
@@ -389,6 +401,9 @@
       applySavedFormState();
       bindPersistentInput('#player-name-input', 'playerName');
       bindPersistentInput('#pgn-input', 'pgnInput');
+      $('#pgn-input').on('input', function () {
+        invalidateAnalysisState();
+      });
       bindPersistentInput('#final-analysis-input', 'finalAnalysisInput');
       bindPersistentInput('#depth-input', 'depthInput', { sanitize: value => sanitizeEngineSetting('depth', value) });
       bindPersistentInput('#threads-input', 'threadsInput', { sanitize: value => sanitizeEngineSetting('threads', value) });
@@ -406,6 +421,12 @@
           automatedReviewText = buildAutomatedReviewText(automatedMoveInsights);
         }
         refreshStockfishOutput();
+        if (Array.isArray(movesWithAnalysis) && movesWithAnalysis.length) {
+          rebuildPuzzleQueue();
+        } else {
+          updatePuzzleControls();
+          updatePuzzleInfo();
+        }
       });
 
       if (loadChessComBtn.length) {
@@ -2715,6 +2736,35 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         updateFormState('stockfishOutput', combined);
       }
 
+      function syncStep2View(opts) {
+        opts = opts || {};
+        const previousStep = opts.previousStep;
+        const outputEl = $('#stockfish-output');
+        if (!outputEl.length) return;
+        const hasExistingText = !!outputEl.val();
+        if (previousStep === 3) {
+          if (copyStockfishBtn.length) {
+            copyStockfishBtn.text(defaultCopyLabel).prop('disabled', !hasExistingText);
+          }
+          return;
+        }
+        const hasAnalysis = !!(lastAnnotatedPgn || automatedReviewText);
+        const combined = hasAnalysis
+          ? buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText)
+          : buildAnalysisPrompt(getPlayerName());
+        outputEl.val(combined);
+        if (copyStockfishBtn.length) {
+          copyStockfishBtn.text(defaultCopyLabel).prop('disabled', !combined);
+        }
+        if (hasAnalysis) {
+          $('#progress-bar').css('width', '100%');
+          $('#progress-text').text('Analysis ready.');
+        } else {
+          $('#progress-bar').css('width', '0%');
+          $('#progress-text').text('');
+        }
+      }
+
       function bindPersistentInput(selector, key, opts) {
         const el = $(selector);
         if (!el.length) return;
@@ -2769,6 +2819,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             $(selector).addClass('hidden');
           }
         });
+
+        if (normalized === 2) {
+          syncStep2View({ previousStep: previous });
+        }
 
         if (normalized === 3) {
           const finalInput = $('#final-analysis-input');
@@ -2850,6 +2904,28 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         switchStep(stateStep, { skipHistory: true });
       });
 
+      function invalidateAnalysisState(opts) {
+        opts = opts || {};
+        const hadData = opts.force
+          || !!(lastAnnotatedPgn
+            || (lastEngineMoveRecords && lastEngineMoveRecords.length)
+            || (automatedMoveInsights && Array.isArray(automatedMoveInsights.moves) && automatedMoveInsights.moves.length)
+            || (automatedReviewText && String(automatedReviewText).trim()));
+        if (!hadData) return;
+        lastEngineMoveRecords = null;
+        automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
+        automatedReviewText = '';
+        lastAnnotatedPgn = '';
+        $('#stockfish-output').val('');
+        updateFormState('annotatedPgn', '');
+        $('#progress-bar').css('width', '0%');
+        $('#progress-text').text('');
+        if (copyStockfishBtn.length) {
+          copyStockfishBtn.text(defaultCopyLabel).prop('disabled', true);
+        }
+        clearPuzzleState();
+      }
+
       $('#goto-step2-btn').on('click', function(){ switchStep(2); });
       $('#back-to-step1-btn').on('click', function(){ switchStep(1); });
       $('#back-to-step2-btn').on('click', function(){ switchStep(2); });
@@ -2858,15 +2934,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const pgnInput = $('#pgn-input');
         pgnInput.val('').focus();
         updateFormState('pgnInput', '');
-        lastAnnotatedPgn = '';
-        updateFormState('annotatedPgn', '');
-        $('#stockfish-output').val('');
-        updateFormState('stockfishOutput', '');
+        invalidateAnalysisState({ force: true });
         setReviewPlayerColor(null);
         playerGameOutcome = null;
-        lastEngineMoveRecords = null;
-        automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
-        automatedReviewText = '';
         lastFinalAnalysisText = '';
         currentReviewMetadata = null;
         updateArchiveControls();
@@ -3816,6 +3886,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         board.resize();
         resizeEvalGraph();
         renderEvalGraph(-1);
+        rebuildPuzzleQueue();
 
         const opponentLabel = deriveOpponentFromHeaders(headersSnapshot, reviewPlayerColor, playerNameValue);
         currentReviewMetadata = {
@@ -4115,6 +4186,232 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           clearExploration();
           goToMove(idx, { scrollMode: 'none' });
         });
+        if (Number.isFinite(activePuzzleMoveIndex) && activePuzzleMoveIndex >= 0) {
+          applyPuzzleHighlight(activePuzzleMoveIndex);
+        }
+      }
+
+      function clearPuzzleHighlights() {
+        $('.move-item.puzzle-target').removeClass('puzzle-target');
+      }
+
+      function applyPuzzleHighlight(index) {
+        clearPuzzleHighlights();
+        if (!Number.isFinite(index) || index < 0) {
+          activePuzzleMoveIndex = -1;
+          return;
+        }
+        const item = $('.move-item[data-move-index="' + index + '"]');
+        if (!item.length) {
+          activePuzzleMoveIndex = -1;
+          return;
+        }
+        item.addClass('puzzle-target');
+        activePuzzleMoveIndex = index;
+      }
+
+      function updatePuzzleControls() {
+        const btn = $('#puzzle-btn');
+        if (!btn.length) return;
+        if (!Array.isArray(puzzleQueue) || !puzzleQueue.length) {
+          btn.text('Start Puzzle').prop('disabled', true);
+          return;
+        }
+        if (currentPuzzleIndex < 0) {
+          btn.text('Start Puzzle').prop('disabled', false);
+        } else if (currentPuzzleIndex < puzzleQueue.length - 1) {
+          btn.text('Next Puzzle').prop('disabled', false);
+        } else {
+          btn.text('Restart Puzzles').prop('disabled', false);
+        }
+      }
+
+      function formatPuzzleMoveLabel(puzzle) {
+        if (!puzzle) return '';
+        const moveNumber = Math.floor(puzzle.index / 2) + 1;
+        const prefix = puzzle.color === 'w' ? moveNumber + '.' : moveNumber + '...';
+        return `${prefix} ${puzzle.san}`;
+      }
+
+      function formatPuzzleDrop(value) {
+        if (!Number.isFinite(value) || value === 0) return '';
+        const rounded = Math.round(value);
+        if (rounded === 0) return '';
+        const magnitude = Math.abs(rounded);
+        const sign = rounded < 0 ? '−' : '+';
+        return `${sign}${magnitude}`;
+      }
+
+      function updatePuzzleInfo() {
+        const container = $('#puzzle-info');
+        if (!container.length) return;
+        container.empty();
+        const hasMoves = Array.isArray(movesWithAnalysis) && movesWithAnalysis.length > 0;
+        if (!Array.isArray(puzzleQueue) || !puzzleQueue.length) {
+          if (!hasMoves || !puzzleQueueReady) {
+            container.addClass('hidden');
+            return;
+          }
+          container.removeClass('hidden');
+          if (!reviewPlayerColor) {
+            container.append($('<p class="font-semibold"></p>').text('Add your username so we know which moves are yours.'));
+            container.append($('<p class="puzzle-detail mt-1 text-xs sm:text-sm"></p>').text('Enter your handle in Step 1 and rerun the analysis to build personalized puzzles.'));
+          } else {
+            container.append($('<p class="font-semibold"></p>').text('No big mistakes detected!'));
+            container.append($('<p class="puzzle-detail mt-1 text-xs sm:text-sm"></p>').text('Stockfish did not flag any blunders or misclicks for your moves in this game.'));
+          }
+          return;
+        }
+        container.removeClass('hidden');
+        if (currentPuzzleIndex < 0 || currentPuzzleIndex >= puzzleQueue.length) {
+          const count = puzzleQueue.length;
+          container.append($('<p class="font-semibold"></p>').text(`Found ${count} puzzle${count === 1 ? '' : 's'} from your game.`));
+          container.append($('<p class="puzzle-detail mt-1 text-xs sm:text-sm"></p>').text('Press “Start Puzzle” to practice the biggest evaluation drops first.'));
+          return;
+        }
+        const puzzle = puzzleQueue[currentPuzzleIndex];
+        const header = `Puzzle ${currentPuzzleIndex + 1} of ${puzzleQueue.length}: ${(puzzle.color === 'w' ? 'White' : 'Black')} to move after ${formatPuzzleMoveLabel(puzzle)}.`;
+        container.append($('<p class="font-semibold"></p>').text(header));
+        let detail = `Your move ${puzzle.san} was marked as ${puzzle.classification}.`;
+        const dropLabel = formatPuzzleDrop(puzzle.drop);
+        if (dropLabel) detail += ` Drop: ${dropLabel}.`;
+        if (puzzle.evaluation) detail += ` Evaluation: ${puzzle.evaluation}.`;
+        detail += ' Find a better move than your original choice before checking the answer.';
+        container.append($('<p class="puzzle-detail mt-2 text-xs sm:text-sm"></p>').text(detail));
+      }
+
+      function clearPuzzleState() {
+        puzzleQueue = [];
+        currentPuzzleIndex = -1;
+        puzzleQueueReady = false;
+        applyPuzzleHighlight(-1);
+        updatePuzzleControls();
+        updatePuzzleInfo();
+      }
+
+      function resolvePuzzleDrop(move) {
+        if (!move) return null;
+        const candidates = [
+          move.delta,
+          move.analysis && move.analysis.delta,
+          move.automated && move.automated.moverDelta,
+          move.automated && move.automated.whiteDelta != null
+            ? move.automated.whiteDelta * (move.color === 'w' ? 1 : -1)
+            : null
+        ];
+        for (const candidate of candidates) {
+          const numeric = Number(candidate);
+          if (Number.isFinite(numeric)) return numeric;
+        }
+        if (move.automated && opponentHasForcedMateAfter(move.automated)) {
+          return -1000;
+        }
+        return null;
+      }
+
+      function derivePuzzleEvaluation(move) {
+        if (!move) return '';
+        const candidates = [
+          move.analysis && move.analysis.displayEvaluation,
+          move.displayEvaluation,
+          move.analysis && move.analysis.evaluation,
+          move.automated && move.automated.evaluation
+        ];
+        for (const candidate of candidates) {
+          if (candidate) return candidate;
+        }
+        return '';
+      }
+
+      function getPuzzleClassification(move) {
+        if (!move) return '';
+        const candidates = [
+          move.analysis && move.analysis.classification,
+          move.automated && move.automated.classification
+        ];
+        for (const candidate of candidates) {
+          if (candidate) return candidate;
+        }
+        return '';
+      }
+
+      function buildPuzzleQueue() {
+        if (!Array.isArray(movesWithAnalysis) || !movesWithAnalysis.length) return [];
+        if (reviewPlayerColor !== 'w' && reviewPlayerColor !== 'b') return [];
+        const allowed = new Set(['mistake', 'blunder', 'misclick']);
+        const queue = [];
+        movesWithAnalysis.forEach((mv, index) => {
+          if (!mv || mv.color !== reviewPlayerColor) return;
+          const classification = getPuzzleClassification(mv);
+          const key = normalizeClassificationKey(classification);
+          if (!allowed.has(key)) return;
+          const drop = resolvePuzzleDrop(mv);
+          if (!Number.isFinite(drop) || drop >= 0) return;
+          queue.push({
+            index,
+            san: mv.san,
+            color: mv.color,
+            classification: canonicalizeClassification(classification),
+            drop,
+            evaluation: derivePuzzleEvaluation(mv)
+          });
+        });
+        queue.sort((a, b) => {
+          if (a.drop !== b.drop) return a.drop - b.drop;
+          return a.index - b.index;
+        });
+        return queue;
+      }
+
+      function rebuildPuzzleQueue(opts) {
+        const preserveCurrent = opts && opts.preserveCurrent;
+        const previousMoveIndex = preserveCurrent && currentPuzzleIndex >= 0 && Array.isArray(puzzleQueue) && puzzleQueue[currentPuzzleIndex]
+          ? puzzleQueue[currentPuzzleIndex].index
+          : -1;
+        puzzleQueue = buildPuzzleQueue();
+        currentPuzzleIndex = -1;
+        puzzleQueueReady = Array.isArray(movesWithAnalysis) && movesWithAnalysis.length > 0;
+        applyPuzzleHighlight(-1);
+        if (preserveCurrent && previousMoveIndex >= 0) {
+          const nextIndex = puzzleQueue.findIndex(p => p.index === previousMoveIndex);
+          if (nextIndex !== -1) {
+            currentPuzzleIndex = nextIndex;
+            applyPuzzleHighlight(puzzleQueue[nextIndex].index);
+          }
+        }
+        updatePuzzleControls();
+        updatePuzzleInfo();
+      }
+
+      function showPuzzleAt(queueIndex) {
+        if (!Array.isArray(puzzleQueue) || queueIndex < 0 || queueIndex >= puzzleQueue.length) return;
+        const puzzle = puzzleQueue[queueIndex];
+        const targetIndex = puzzle.index;
+        const baseIndex = targetIndex - 1;
+        clearExploration(true);
+        goToMove(baseIndex, { scrollMode: 'center', behavior: 'smooth' });
+        startExploration(game.fen(), currentMoveIndex);
+        syncNavigationControls();
+        applyPuzzleHighlight(targetIndex);
+        scrollMoveList(targetIndex, baseIndex, { scrollMode: 'center', behavior: 'smooth' });
+        updatePuzzleInfo();
+      }
+
+      function handlePuzzleButtonClick() {
+        if (!Array.isArray(puzzleQueue) || !puzzleQueue.length) {
+          rebuildPuzzleQueue();
+        }
+        if (!Array.isArray(puzzleQueue) || !puzzleQueue.length) {
+          updatePuzzleControls();
+          updatePuzzleInfo();
+          return;
+        }
+        if (currentPuzzleIndex >= puzzleQueue.length - 1) {
+          currentPuzzleIndex = -1;
+        }
+        currentPuzzleIndex += 1;
+        showPuzzleAt(currentPuzzleIndex);
+        updatePuzzleControls();
       }
 
       function adjustAnalysisHeight() {
@@ -4407,6 +4704,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             goToMove(currentMoveIndex + 1, { scrollMode: 'step' });
           }
         });
+        $('#puzzle-btn').on('click', function(){ handlePuzzleButtonClick(); });
         $('#prev-btn').on('click', function(){
           if (isExploring()) {
             if (!stepExploration(-1)) return;
@@ -4434,6 +4732,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             clearBestMoveHighlight();
           }
         });
+
+        updatePuzzleControls();
+        updatePuzzleInfo();
 
         $(window).on('resize', function(){
           adjustAnalysisHeight();
