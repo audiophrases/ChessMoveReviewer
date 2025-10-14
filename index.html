@@ -3402,15 +3402,30 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           setBestButtonState(combined.trim(), true);
         }
 
+        function getSideToMoveForBestEval() {
+          const fenSource = bestMoveFen || (game && typeof game.fen === 'function' ? game.fen() : null);
+          if (!fenSource) return 'w';
+          const parts = String(fenSource).trim().split(/\s+/);
+          if (parts.length >= 2) {
+            const side = parts[1];
+            if (side === 'w' || side === 'b') return side;
+          }
+          return 'w';
+        }
+
         function formatBestEval(info) {
           if (!info) return '';
+          const isBlackToMove = getSideToMoveForBestEval() === 'b';
           if (info.evalType === 'mate') {
-            const mate = parseInt(info.evalValue, 10);
-            if (!mate) return '#0';
+            let mate = parseInt(info.evalValue, 10);
+            if (!Number.isFinite(mate) || mate === 0) return '#0';
+            if (isBlackToMove) mate = -mate;
             const prefix = mate > 0 ? '#' : '#-';
             return prefix + Math.abs(mate);
           }
-          const cp = parseInt(info.evalValue, 10) || 0;
+          let cp = parseInt(info.evalValue, 10);
+          if (!Number.isFinite(cp)) cp = 0;
+          if (isBlackToMove) cp = -cp;
           const pawns = cp / 100;
           return (pawns >= 0 ? '+' : '') + pawns.toFixed(2);
         }
