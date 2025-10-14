@@ -392,6 +392,7 @@
       let activePuzzleMoveIndex = -1;
       let puzzleQueueReady = false;
       let puzzleBoardHighlightSquares = { bad: new Set(), punish: new Set() };
+      let puzzleContinuationArmed = false;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
@@ -2031,6 +2032,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             }
             explorationState.moves.push({ san: move.san, from: move.from, to: move.to, promotion: move.promotion });
             explorationState.cursor = explorationState.moves.length;
+            if (puzzleContinuationArmed && explorationState && explorationState.moves.length === 1) {
+              clearPuzzleBoardHighlights();
+            }
             if (board) board.position(game.fen());
             clearSelected();
             handleExplorationPositionChanged();
@@ -4236,6 +4240,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           $('#board .square-' + normalized).removeClass('puzzle-punish-move');
         });
         puzzleBoardHighlightSquares = { bad: new Set(), punish: new Set() };
+        puzzleContinuationArmed = false;
       }
 
       function applyPuzzleBoardHighlights(puzzle) {
@@ -4281,8 +4286,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const puzzle = Array.isArray(puzzleQueue)
           ? puzzleQueue.find(p => Number(p.index) === Number(index))
           : null;
-        if (puzzle) applyPuzzleBoardHighlights(puzzle);
-        else clearPuzzleBoardHighlights();
+        if (puzzle) {
+          applyPuzzleBoardHighlights(puzzle);
+          puzzleContinuationArmed = true;
+        } else {
+          clearPuzzleBoardHighlights();
+        }
       }
 
       function updatePuzzleControls() {
