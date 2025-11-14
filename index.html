@@ -169,7 +169,7 @@
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
         <label for="depth-input" class="text-gray-300">Depth</label>
-        <input id="depth-input" type="number" min="4" value="20" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="depth-input" type="number" value="20" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
         <label for="threads-input" class="text-gray-300">Threads</label>
@@ -362,6 +362,21 @@
         return numeric;
       }
 
+      function getDepthSettingInfo() {
+        const rules = ENGINE_SETTING_LIMITS.depth || {};
+        const raw = $('#depth-input').val();
+        const numeric = parseInt(raw, 10);
+        const isNumeric = Number.isFinite(numeric);
+        const valid = isNumeric
+          && (!Number.isFinite(rules.min) || numeric >= rules.min)
+          && (!Number.isFinite(rules.max) || numeric <= rules.max);
+        return {
+          raw,
+          value: isNumeric ? numeric : null,
+          valid
+        };
+      }
+
       Object.keys(ENGINE_SETTING_LIMITS).forEach(key => {
         const rules = ENGINE_SETTING_LIMITS[key];
         rules.fallback = sanitizeEngineSetting(key, rules.fallback);
@@ -438,7 +453,7 @@
         invalidateAnalysisState();
       });
       bindPersistentInput('#final-analysis-input', 'finalAnalysisInput');
-      bindPersistentInput('#depth-input', 'depthInput', { sanitize: value => sanitizeEngineSetting('depth', value) });
+      bindPersistentInput('#depth-input', 'depthInput');
       bindPersistentInput('#threads-input', 'threadsInput', { sanitize: value => sanitizeEngineSetting('threads', value) });
       bindPersistentInput('#hash-input', 'hashInput', { sanitize: value => sanitizeEngineSetting('hash', value) });
       $('#player-name-input').on('input change', function () {
@@ -1149,13 +1164,14 @@
         if (!engineWorker) return;
         engineReady = false;
         $('#analyze-pgn-btn').prop('disabled', true);
-        const depthVal = sanitizeEngineSetting('depth', $('#depth-input').val());
+        const depthInfo = getDepthSettingInfo();
         const threadVal = sanitizeEngineSetting('threads', $('#threads-input').val());
         const hashVal = sanitizeEngineSetting('hash', $('#hash-input').val());
-        $('#depth-input').val(depthVal);
         $('#threads-input').val(threadVal);
         $('#hash-input').val(hashVal);
-        ENGINE_GO_OPTIONS.depth = depthVal;
+        if (depthInfo.valid) {
+          ENGINE_GO_OPTIONS.depth = depthInfo.value;
+        }
         const options = { Threads: threadVal, Hash: hashVal };
         Object.entries(options).forEach(([name, value]) => {
           engineWorker.postMessage(`setoption name ${name} value ${value}`);
@@ -2885,9 +2901,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (formState.pgnInput != null) $('#pgn-input').val(formState.pgnInput);
         if (formState.finalAnalysisInput != null) $('#final-analysis-input').val(formState.finalAnalysisInput);
         if (formState.depthInput != null) {
-          const sanitizedDepth = sanitizeEngineSetting('depth', formState.depthInput);
-          $('#depth-input').val(sanitizedDepth);
-          if (sanitizedDepth !== formState.depthInput) updateFormState('depthInput', sanitizedDepth);
+          $('#depth-input').val(formState.depthInput);
         }
         if (formState.threadsInput != null) {
           const sanitizedThreads = sanitizeEngineSetting('threads', formState.threadsInput);
@@ -3061,6 +3075,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           updateReviewPlayerColorFromGame(game, rawNameForAnalysis);
         }
         updatePlayerOutcomeFromGame(game);
+        const depthInfoForAnalysis = getDepthSettingInfo();
+        if (!depthInfoForAnalysis.valid) {
+          showError('Please change the engine depth to somewhere between 4 and 30 before running the analysis.');
+          $('#depth-input').focus();
+          return;
+        }
         await waitForEngineReady();
         if (!engineReady) { handleEngineLoadFailure('Stockfish failed to initialize.'); return; }
         switchStep(2);
