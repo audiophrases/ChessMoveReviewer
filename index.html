@@ -72,14 +72,23 @@
     #board .square-55d63.puzzle-bad-move::before {
       opacity: 1;
       border: 3px solid rgba(248, 113, 113, 0.9);
+      background-color: rgba(248, 113, 113, 0.12);
       box-shadow: 0 0 12px rgba(248, 113, 113, 0.4);
       z-index: 2;
     }
     #board .square-55d63.puzzle-punish-move::after {
       opacity: 1;
       border: 3px solid rgba(74, 222, 128, 0.9);
+      background-color: rgba(74, 222, 128, 0.12);
       box-shadow: 0 0 12px rgba(74, 222, 128, 0.35);
       z-index: 2;
+    }
+    #board .square-55d63.puzzle-prev-move::before {
+      opacity: 1;
+      border: 3px solid rgba(59, 130, 246, 0.9);
+      background-color: rgba(59, 130, 246, 0.16);
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.35);
+      z-index: 1;
     }
     #prev-btn, #next-btn { font-size: 1rem; }
     .status-banner { display: none; border-radius: 0.75rem; padding: 0.75rem 1rem; border: 1px solid transparent; }
@@ -408,8 +417,11 @@
       let currentPuzzleIndex = -1;
       let activePuzzleMoveIndex = -1;
       let puzzleQueueReady = false;
-      let puzzleBoardHighlightSquares = { bad: new Set(), punish: new Set() };
+      let puzzleBoardHighlightSquares = { bad: new Set(), punish: new Set(), prev: new Set() };
       let puzzleContinuationArmed = false;
+      let puzzlePreviousMove = null;
+      let activePuzzleState = { startFen: null, bestMoveUci: null, originalUci: null, attemptedUci: null, solved: null };
+      let puzzleSolveToken = 0;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
@@ -2099,7 +2111,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             return;
           }
           const fenBeforeMove = game.fen();
-          const move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
+            const move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
           if (move) {
             if (!isExploring()) {
               startExploration(fenBeforeMove, currentMoveIndex);
@@ -2109,6 +2121,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             explorationState.moves.push({ san: move.san, from: move.from, to: move.to, promotion: move.promotion });
             explorationState.cursor = explorationState.moves.length;
             if (puzzleContinuationArmed && explorationState && explorationState.moves.length === 1) {
+              evaluatePuzzleAttempt(move, fenBeforeMove);
               clearPuzzleBoardHighlights();
             }
             if (board) board.position(game.fen());
@@ -4459,6 +4472,24 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
+      function normalizeUciMove(value) {
+        if (!value) return '';
+        return String(value).trim().toLowerCase();
+      }
+
+      function buildUciFromMoveLike(move) {
+        if (!move || !move.from || !move.to) return '';
+        const from = String(move.from).toLowerCase();
+        const to = String(move.to).toLowerCase();
+        const promo = move.promotion ? String(move.promotion).toLowerCase() : '';
+        return normalizeUciMove(from + to + promo);
+      }
+
+      function resetActivePuzzleState() {
+        activePuzzleState = { startFen: null, bestMoveUci: null, originalUci: null, attemptedUci: null, solved: null };
+        puzzlePreviousMove = null;
+      }
+
       function clearPuzzleBoardHighlights() {
         if (!puzzleBoardHighlightSquares) return;
         puzzleBoardHighlightSquares.bad.forEach(square => {
@@ -4469,7 +4500,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const normalized = typeof square === 'string' ? square.toLowerCase() : square;
           $('#board .square-' + normalized).removeClass('puzzle-punish-move');
         });
-        puzzleBoardHighlightSquares = { bad: new Set(), punish: new Set() };
+        puzzleBoardHighlightSquares.prev.forEach(square => {
+          const normalized = typeof square === 'string' ? square.toLowerCase() : square;
+          $('#board .square-' + normalized).removeClass('puzzle-prev-move');
+        });
+        puzzleBoardHighlightSquares = { bad: new Set(), punish: new Set(), prev: new Set() };
         puzzleContinuationArmed = false;
       }
 
@@ -4487,12 +4522,59 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           } else if (type === 'punish') {
             el.addClass('puzzle-punish-move');
             puzzleBoardHighlightSquares.punish.add(normalized);
+          } else if (type === 'prev') {
+            el.addClass('puzzle-prev-move');
+            puzzleBoardHighlightSquares.prev.add(normalized);
           }
         };
         registerSquare(puzzle.from, 'bad');
         registerSquare(puzzle.to, 'bad');
         registerSquare(puzzle.replyFrom, 'punish');
         registerSquare(puzzle.replyTo, 'punish');
+        if (puzzlePreviousMove) {
+          registerSquare(puzzlePreviousMove.from, 'prev');
+          registerSquare(puzzlePreviousMove.to, 'prev');
+        }
+      }
+
+      async function fetchPuzzleBestMove(fen) {
+        if (!fen || !engineReady) return;
+        const token = ++puzzleSolveToken;
+        try {
+          const result = await getScore(fen, { depth: 14 });
+          if (token !== puzzleSolveToken) return;
+          if (result && result.bestmove) {
+            activePuzzleState.bestMoveUci = normalizeUciMove(result.bestmove);
+            if (activePuzzleState.attemptedUci) {
+              activePuzzleState.solved = activePuzzleState.bestMoveUci === normalizeUciMove(activePuzzleState.attemptedUci);
+              updatePuzzleInfo();
+            }
+          }
+        } catch (err) {
+          console.error('Failed to compute best move for puzzle', err);
+        }
+      }
+
+      function evaluatePuzzleAttempt(move, fenBeforeMove) {
+        if (!puzzleContinuationArmed) return;
+        const attemptUci = buildUciFromMoveLike(move);
+        activePuzzleState.attemptedUci = attemptUci || null;
+        if (!activePuzzleState.originalUci && Array.isArray(puzzleQueue) && currentPuzzleIndex >= 0) {
+          activePuzzleState.originalUci = buildUciFromMoveLike(puzzleQueue[currentPuzzleIndex]);
+        }
+        if (attemptUci && activePuzzleState.originalUci && normalizeUciMove(attemptUci) === normalizeUciMove(activePuzzleState.originalUci)) {
+          activePuzzleState.solved = false;
+          updatePuzzleInfo();
+          return;
+        }
+        if (activePuzzleState.bestMoveUci) {
+          activePuzzleState.solved = normalizeUciMove(attemptUci) === activePuzzleState.bestMoveUci;
+          updatePuzzleInfo();
+          return;
+        }
+        if (fenBeforeMove && engineReady) {
+          fetchPuzzleBestMove(fenBeforeMove);
+        }
       }
 
       function clearPuzzleHighlights() {
@@ -4504,11 +4586,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         clearPuzzleHighlights();
         if (!Number.isFinite(index) || index < 0) {
           activePuzzleMoveIndex = -1;
+          resetActivePuzzleState();
           return;
         }
         const item = $('.move-item[data-move-index="' + index + '"]');
         if (!item.length) {
           activePuzzleMoveIndex = -1;
+          resetActivePuzzleState();
           return;
         }
         item.addClass('puzzle-target');
@@ -4517,6 +4601,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           ? puzzleQueue.find(p => Number(p.index) === Number(index))
           : null;
         if (puzzle) {
+          puzzlePreviousMove = puzzle.index > 0 ? movesWithAnalysis[puzzle.index - 1] : null;
           applyPuzzleBoardHighlights(puzzle);
           puzzleContinuationArmed = true;
         } else {
@@ -4590,12 +4675,23 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (puzzle.evaluation) detail += ` Evaluation: ${puzzle.evaluation}.`;
         detail += ' Find a better move than your original choice before checking the answer.';
         container.append($('<p class="puzzle-detail mt-2 text-xs sm:text-sm"></p>').text(detail));
+        if (activePuzzleState && activePuzzleState.solved === true) {
+          container.append($('<p class="puzzle-detail mt-2 text-xs sm:text-sm text-green-300"></p>').text('Nice find! You matched Stockfish\'s top choice for this position.'));
+        } else if (activePuzzleState && activePuzzleState.solved === false) {
+          const statusText = activePuzzleState.bestMoveUci
+            ? 'That move is not the engine recommendation. Try again or step to the next puzzle.'
+            : 'That was your original move or a lower-ranked option. Try another idea while we verify the engine line.';
+          container.append($('<p class="puzzle-detail mt-2 text-xs sm:text-sm text-red-300"></p>').text(statusText));
+        } else if (activePuzzleState && activePuzzleState.attemptedUci && !activePuzzleState.bestMoveUci) {
+          container.append($('<p class="puzzle-detail mt-2 text-xs sm:text-sm text-blue-200"></p>').text('Checking your try against the engine...'));
+        }
       }
 
       function clearPuzzleState() {
         puzzleQueue = [];
         currentPuzzleIndex = -1;
         puzzleQueueReady = false;
+        resetActivePuzzleState();
         applyPuzzleHighlight(-1);
         updatePuzzleControls();
         updatePuzzleInfo();
@@ -4707,8 +4803,21 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const puzzle = puzzleQueue[queueIndex];
         const targetIndex = puzzle.index;
         const baseIndex = targetIndex - 1;
+        puzzlePreviousMove = baseIndex >= 0 ? movesWithAnalysis[baseIndex] : null;
         clearExploration(true);
         goToMove(baseIndex, { scrollMode: 'center', behavior: 'smooth' });
+        if (game) {
+          activePuzzleState = {
+            startFen: game.fen(),
+            bestMoveUci: null,
+            originalUci: buildUciFromMoveLike(puzzle),
+            attemptedUci: null,
+            solved: null
+          };
+          if (activePuzzleState.startFen) {
+            fetchPuzzleBestMove(activePuzzleState.startFen);
+          }
+        }
         startExploration(game.fen(), currentMoveIndex);
         syncNavigationControls();
         applyPuzzleHighlight(targetIndex);
