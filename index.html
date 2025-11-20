@@ -59,6 +59,8 @@
       box-sizing: border-box;
     }
     #board .square-55d63.selected { background-color: rgba(251, 191, 36, 0.5); }
+    #board { background-color: #0b0e15; border-radius: 0.75rem; }
+    .board-shell { box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); }
     #prev-btn, #next-btn { font-size: 1rem; }
     .status-banner { display: none; border-radius: 0.75rem; padding: 0.75rem 1rem; border: 1px solid transparent; }
     .status-banner.status-visible { display: flex; align-items: flex-start; gap: 0.75rem; }
@@ -225,29 +227,33 @@
 
         <!-- Board -->
         <div class="w-full mx-auto board-panel">
-          <div id="board" class="chessboard-container"></div>
-          <div id="controls" class="mt-3 flex flex-wrap items-center justify-end gap-2 w-full">
-            <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
-            <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
-            <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
-            <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
-          </div>
-          <div id="puzzle-panel" class="mt-3 p-3 rounded-lg bg-[#101522] border border-[#1f2937] hidden">
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p class="text-sm font-semibold text-gray-200">Puzzle mode</p>
-                <p id="puzzle-info" class="text-xs text-gray-400">Generate a review to unlock puzzles from your worst moves.</p>
-              </div>
-              <div class="flex flex-wrap gap-2">
+          <div class="board-shell bg-[#0b0e15] border border-[#1f2937] rounded-xl p-3 shadow-xl shadow-black/40">
+            <div id="board" class="chessboard-container rounded-lg overflow-hidden"></div>
+            <div id="controls" class="mt-3 flex flex-wrap items-center justify-between gap-2 w-full">
+              <div class="flex flex-wrap items-center gap-2">
+                <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
                 <button id="start-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-primary whitespace-nowrap">Start puzzles</button>
                 <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
               </div>
+              <div class="flex flex-wrap items-center justify-end gap-2">
+                <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
+                <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
+                <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
+              </div>
             </div>
-            <div class="mt-2 flex flex-wrap gap-2">
-              <button id="retry-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>Retry</button>
-              <button id="next-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>Next</button>
+            <div id="puzzle-panel" class="mt-3 p-3 rounded-lg bg-[#101522] border border-[#1f2937] hidden">
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p class="text-sm font-semibold text-gray-200">Puzzle mode</p>
+                  <p id="puzzle-info" class="text-xs text-gray-400">Generate a review to unlock puzzles from your worst moves.</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button id="retry-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>Retry</button>
+                  <button id="next-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>Next</button>
+                </div>
+              </div>
+              <p id="puzzle-status-text" class="mt-2 text-xs text-gray-300"></p>
             </div>
-            <p id="puzzle-status-text" class="mt-2 text-xs text-gray-300"></p>
           </div>
         </div>
       </div>
@@ -2144,23 +2150,30 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       function updatePuzzleInfo() {
         if (!puzzleInfo.length) return;
+        let infoText = 'Generate a review to unlock puzzles from your worst moves.';
         if (!$('#review-section').is(':visible')) {
-          puzzleInfo.text('Generate a review to unlock puzzles from your worst moves.');
+          puzzleInfo.text(infoText);
+          if (startPuzzleBtn.length) startPuzzleBtn.attr('title', infoText);
           return;
         }
         if (!puzzleQueue.length) {
-          puzzleInfo.text('No misclicks, blunders, or mistakes detected for puzzles.');
+          infoText = 'No misclicks, blunders, or mistakes detected for puzzles.';
+          puzzleInfo.text(infoText);
+          if (startPuzzleBtn.length) startPuzzleBtn.attr('title', infoText);
           return;
         }
         const puzzle = activePuzzleIndex >= 0 ? puzzleQueue[activePuzzleIndex] : puzzleQueue[0];
         const label = formatPuzzleLabel(puzzle, activePuzzleIndex >= 0 ? activePuzzleIndex : 0);
-        puzzleInfo.text(label || 'Puzzle ready.');
+        infoText = label || 'Puzzle ready.';
+        puzzleInfo.text(infoText);
+        if (startPuzzleBtn.length) startPuzzleBtn.attr('title', infoText);
       }
 
       function updatePuzzleControls() {
         if (!puzzlePanel.length) return;
         const reviewVisible = $('#review-section').is(':visible');
-        puzzlePanel.toggleClass('hidden', !reviewVisible);
+        const showPanel = reviewVisible && puzzleActive;
+        puzzlePanel.toggleClass('hidden', !showPanel);
         const hasQueue = puzzleQueue.length > 0;
         if (startPuzzleBtn.length) {
           startPuzzleBtn.prop('disabled', !hasQueue);
