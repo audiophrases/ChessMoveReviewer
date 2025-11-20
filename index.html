@@ -23,9 +23,6 @@
     .move-item.featured { border: 1px solid rgba(250, 204, 21, 0.35); background-color: rgba(250, 204, 21, 0.06); }
     .move-item.featured:hover { background-color: rgba(250, 204, 21, 0.12); }
     .move-item.featured.highlight { background-color: #243249; }
-    .move-item.puzzle-target { border: 1px solid rgba(249, 115, 22, 0.45); background-color: rgba(249, 115, 22, 0.08); }
-    .move-item.puzzle-target:hover { background-color: rgba(249, 115, 22, 0.14); }
-    .move-item.puzzle-target.highlight { background-color: rgba(249, 115, 22, 0.2); }
     #eval-graph { cursor: pointer; transition: opacity 0.2s ease-in-out; }
     #eval-graph.exploration-disabled { opacity: 0.85; }
     #move-analysis-scroll::-webkit-scrollbar { width: 8px; }
@@ -39,13 +36,6 @@
     #toggle-eval-btn { border: 1px solid transparent; transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
     #toggle-eval-btn.best-active { background-color: #0b0e15; border-color: rgba(250, 204, 21, 0.4); color: #facc15; font-family: 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace; }
     #toggle-eval-btn.best-active:hover { background-color: #131a2c; }
-    #puzzle-info {
-      border: 1px solid #fb923c;
-      background-color: #1f2937;
-      color: #fef3c7;
-      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.45);
-    }
-    #puzzle-info .puzzle-detail { color: #fde68a; }
     textarea.form-input, input.form-input { background-color: #2d2d2d; border-color: #364152; color: #e5e7eb; }
     textarea.form-input:focus, input.form-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35); outline: none; }
     input[type=number]::-webkit-outer-spin-button,
@@ -69,27 +59,6 @@
       box-sizing: border-box;
     }
     #board .square-55d63.selected { background-color: rgba(251, 191, 36, 0.5); }
-    #board .square-55d63.puzzle-bad-move::before {
-      opacity: 1;
-      border: 3px solid rgba(248, 113, 113, 0.9);
-      background-color: rgba(248, 113, 113, 0.12);
-      box-shadow: 0 0 12px rgba(248, 113, 113, 0.4);
-      z-index: 2;
-    }
-    #board .square-55d63.puzzle-punish-move::after {
-      opacity: 1;
-      border: 3px solid rgba(74, 222, 128, 0.9);
-      background-color: rgba(74, 222, 128, 0.12);
-      box-shadow: 0 0 12px rgba(74, 222, 128, 0.35);
-      z-index: 2;
-    }
-    #board .square-55d63.puzzle-prev-move::before {
-      opacity: 1;
-      border: 3px solid rgba(59, 130, 246, 0.95);
-      background-color: rgba(59, 130, 246, 0.3);
-      box-shadow: 0 0 12px rgba(59, 130, 246, 0.45);
-      z-index: 1;
-    }
     #prev-btn, #next-btn { font-size: 1rem; }
     .status-banner { display: none; border-radius: 0.75rem; padding: 0.75rem 1rem; border: 1px solid transparent; }
     .status-banner.status-visible { display: flex; align-items: flex-start; gap: 0.75rem; }
@@ -258,13 +227,11 @@
         <div class="w-full mx-auto board-panel">
           <div id="board" class="chessboard-container"></div>
           <div id="controls" class="mt-3 flex flex-wrap items-center justify-end gap-2 w-full">
-            <button id="puzzle-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-primary mr-auto" type="button" disabled>Start Puzzle</button>
             <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
             <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
             <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
             <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
           </div>
-          <div id="puzzle-info" class="mt-3 hidden px-4 py-3 text-sm leading-relaxed rounded-lg" aria-live="polite"></div>
         </div>
       </div>
 
@@ -413,15 +380,6 @@
       let featuredMoveIndex = -1;
       let lastAnnotatedPgn = '';
       let playerGameOutcome = null;
-      let puzzleQueue = [];
-      let currentPuzzleIndex = -1;
-      let activePuzzleMoveIndex = -1;
-      let puzzleQueueReady = false;
-      let puzzleBoardHighlightSquares = { prev: new Set() };
-      let puzzleContinuationArmed = false;
-      let puzzlePreviousMove = null;
-      let activePuzzleState = { startFen: null, bestMoveUci: null, originalUci: null, attemptedUci: null, solved: null, retrying: false };
-      let puzzleSolveToken = 0;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
@@ -481,12 +439,6 @@
           automatedReviewText = buildAutomatedReviewText(automatedMoveInsights);
         }
         refreshStockfishOutput();
-        if (Array.isArray(movesWithAnalysis) && movesWithAnalysis.length) {
-          rebuildPuzzleQueue();
-        } else {
-          updatePuzzleControls();
-          updatePuzzleInfo();
-        }
       });
 
       if (loadChessComBtn.length) {
@@ -2101,23 +2053,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const target = explorationState.cursor + delta;
         if (target < 0 || target > explorationState.moves.length) return false;
         applyExplorationCursor(target);
-        if (
-          puzzleContinuationArmed &&
-          delta < 0 &&
-          activePuzzleState &&
-          activePuzzleState.attemptedUci &&
-          explorationState &&
-          explorationState.cursor === 0
-        ) {
-          activePuzzleState.attemptedUci = null;
-          activePuzzleState.solved = null;
-          activePuzzleState.retrying = true;
-          if (Array.isArray(puzzleQueue) && currentPuzzleIndex >= 0 && currentPuzzleIndex < puzzleQueue.length) {
-            applyPuzzleBoardHighlights(puzzleQueue[currentPuzzleIndex]);
-            puzzleContinuationArmed = true;
-          }
-          updatePuzzleInfo();
-        }
         handleExplorationPositionChanged();
         return true;
       }
@@ -2137,10 +2072,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             }
             explorationState.moves.push({ san: move.san, from: move.from, to: move.to, promotion: move.promotion });
             explorationState.cursor = explorationState.moves.length;
-            if (puzzleContinuationArmed && explorationState && explorationState.moves.length === 1) {
-              evaluatePuzzleAttempt(move, fenBeforeMove);
-              clearPuzzleBoardHighlights();
-            }
             if (board) board.position(game.fen());
             playMoveSound(move);
             clearSelected();
@@ -4484,9 +4415,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           clearExploration();
           goToMove(idx, { scrollMode: 'none' });
         });
-        if (Number.isFinite(activePuzzleMoveIndex) && activePuzzleMoveIndex >= 0) {
-          applyPuzzleHighlight(activePuzzleMoveIndex);
-        }
       }
 
       function normalizeUciMove(value) {
@@ -4500,345 +4428,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const to = String(move.to).toLowerCase();
         const promo = move.promotion ? String(move.promotion).toLowerCase() : '';
         return normalizeUciMove(from + to + promo);
-      }
-
-      function resetActivePuzzleState() {
-        activePuzzleState = { startFen: null, bestMoveUci: null, originalUci: null, attemptedUci: null, solved: null, retrying: false };
-        puzzlePreviousMove = null;
-      }
-
-      function clearPuzzleBoardHighlights() {
-        if (!puzzleBoardHighlightSquares) return;
-        puzzleBoardHighlightSquares.prev.forEach(square => {
-          const normalized = typeof square === 'string' ? square.toLowerCase() : square;
-          $('#board .square-' + normalized).removeClass('puzzle-prev-move');
-        });
-        puzzleBoardHighlightSquares = { prev: new Set() };
-        puzzleContinuationArmed = false;
-      }
-
-      function applyPuzzleBoardHighlights(puzzle) {
-        clearPuzzleBoardHighlights();
-        if (!puzzlePreviousMove) return;
-        const registerSquare = (square) => {
-          if (!square) return;
-          const normalized = String(square).toLowerCase();
-          const el = $('#board .square-' + normalized);
-          if (!el.length) return;
-          el.addClass('puzzle-prev-move');
-          puzzleBoardHighlightSquares.prev.add(normalized);
-        };
-        registerSquare(puzzlePreviousMove.from);
-        registerSquare(puzzlePreviousMove.to);
-      }
-
-      async function fetchPuzzleBestMove(fen) {
-        if (!fen || !engineReady) return;
-        const token = ++puzzleSolveToken;
-        try {
-          const result = await getScore(fen, { depth: 14 });
-          if (token !== puzzleSolveToken) return;
-          if (result && result.bestmove) {
-            activePuzzleState.bestMoveUci = normalizeUciMove(result.bestmove);
-            if (activePuzzleState.attemptedUci) {
-              activePuzzleState.solved = activePuzzleState.bestMoveUci === normalizeUciMove(activePuzzleState.attemptedUci);
-              updatePuzzleInfo();
-            }
-          }
-        } catch (err) {
-          console.error('Failed to compute best move for puzzle', err);
-        }
-      }
-
-      function evaluatePuzzleAttempt(move, fenBeforeMove) {
-        if (!puzzleContinuationArmed) return;
-        const attemptUci = buildUciFromMoveLike(move);
-        activePuzzleState.attemptedUci = attemptUci || null;
-        activePuzzleState.retrying = false;
-        if (!activePuzzleState.originalUci && Array.isArray(puzzleQueue) && currentPuzzleIndex >= 0) {
-          activePuzzleState.originalUci = buildUciFromMoveLike(puzzleQueue[currentPuzzleIndex]);
-        }
-        if (attemptUci && activePuzzleState.originalUci && normalizeUciMove(attemptUci) === normalizeUciMove(activePuzzleState.originalUci)) {
-          activePuzzleState.solved = false;
-          updatePuzzleInfo();
-          return;
-        }
-        if (activePuzzleState.bestMoveUci) {
-          activePuzzleState.solved = normalizeUciMove(attemptUci) === activePuzzleState.bestMoveUci;
-          updatePuzzleInfo();
-          return;
-        }
-        if (fenBeforeMove && engineReady) {
-          fetchPuzzleBestMove(fenBeforeMove);
-        }
-      }
-
-      function clearPuzzleHighlights() {
-        $('.move-item.puzzle-target').removeClass('puzzle-target');
-        clearPuzzleBoardHighlights();
-      }
-
-      function applyPuzzleHighlight(index) {
-        clearPuzzleHighlights();
-        if (!Number.isFinite(index) || index < 0) {
-          activePuzzleMoveIndex = -1;
-          resetActivePuzzleState();
-          return;
-        }
-        const item = $('.move-item[data-move-index="' + index + '"]');
-        if (!item.length) {
-          activePuzzleMoveIndex = -1;
-          resetActivePuzzleState();
-          return;
-        }
-        item.addClass('puzzle-target');
-        activePuzzleMoveIndex = index;
-        const puzzle = Array.isArray(puzzleQueue)
-          ? puzzleQueue.find(p => Number(p.index) === Number(index))
-          : null;
-        if (puzzle) {
-          puzzlePreviousMove = puzzle.index > 0 ? movesWithAnalysis[puzzle.index - 1] : null;
-          applyPuzzleBoardHighlights(puzzle);
-          puzzleContinuationArmed = true;
-        } else {
-          clearPuzzleBoardHighlights();
-        }
-      }
-
-      function updatePuzzleControls() {
-        const btn = $('#puzzle-btn');
-        if (!btn.length) return;
-        if (!Array.isArray(puzzleQueue) || !puzzleQueue.length) {
-          btn.text('Start Puzzle').prop('disabled', true);
-          return;
-        }
-        if (currentPuzzleIndex < 0) {
-          btn.text('Start Puzzle').prop('disabled', false);
-        } else if (currentPuzzleIndex < puzzleQueue.length - 1) {
-          btn.text('Next Puzzle').prop('disabled', false);
-        } else {
-          btn.text('Restart Puzzles').prop('disabled', false);
-        }
-      }
-
-      function formatPuzzleMoveLabel(puzzle) {
-        if (!puzzle) return '';
-        const moveNumber = Math.floor(puzzle.index / 2) + 1;
-        const prefix = puzzle.color === 'w' ? moveNumber + '.' : moveNumber + '...';
-        return `${prefix} ${puzzle.san}`;
-      }
-
-      function formatPuzzleDrop(value) {
-        if (!Number.isFinite(value) || value === 0) return '';
-        const rounded = Math.round(value);
-        if (rounded === 0) return '';
-        const magnitude = Math.abs(rounded);
-        const sign = rounded < 0 ? '−' : '+';
-        return `${sign}${magnitude}`;
-      }
-
-      function updatePuzzleInfo() {
-        const container = $('#puzzle-info');
-        if (!container.length) return;
-        container.empty();
-        const hasMoves = Array.isArray(movesWithAnalysis) && movesWithAnalysis.length > 0;
-        if (!Array.isArray(puzzleQueue) || !puzzleQueue.length) {
-          if (!hasMoves || !puzzleQueueReady) {
-            container.addClass('hidden');
-            return;
-          }
-          container.removeClass('hidden');
-          if (!reviewPlayerColor) {
-            container.append($('<p class="font-semibold"></p>').text('Add your username so we know which moves are yours.'));
-            container.append($('<p class="puzzle-detail mt-1 text-xs sm:text-sm"></p>').text('Enter your handle in Step 1 and rerun the analysis to build personalized puzzles.'));
-          } else {
-            container.append($('<p class="font-semibold"></p>').text('No big mistakes detected!'));
-            container.append($('<p class="puzzle-detail mt-1 text-xs sm:text-sm"></p>').text('Stockfish did not flag any blunders or misclicks for your moves in this game.'));
-          }
-          return;
-        }
-        if (currentPuzzleIndex < 0 || currentPuzzleIndex >= puzzleQueue.length) {
-          container.addClass('hidden');
-          return;
-        }
-        container.removeClass('hidden');
-        const puzzle = puzzleQueue[currentPuzzleIndex];
-        const header = `Puzzle ${currentPuzzleIndex + 1} of ${puzzleQueue.length}: ${(puzzle.color === 'w' ? 'White' : 'Black')} to move after ${formatPuzzleMoveLabel(puzzle)}.`;
-        container.append($('<p class="font-semibold"></p>').text(header));
-        let detail = `Your move ${puzzle.san} was marked as ${puzzle.classification}.`;
-        const dropLabel = formatPuzzleDrop(puzzle.drop);
-        if (dropLabel) detail += ` Drop: ${dropLabel}.`;
-        if (puzzle.evaluation) detail += ` Evaluation: ${puzzle.evaluation}.`;
-        detail += ' Find a better move than your original choice before checking the answer.';
-        container.append($('<p class="puzzle-detail mt-2 text-xs sm:text-sm"></p>').text(detail));
-        if (activePuzzleState && activePuzzleState.retrying) {
-          container.append($('<p class="puzzle-detail mt-2 text-xs sm:text-sm text-blue-200"></p>').text('Resetting your last try. Pick a new move to continue.'));
-        } else if (activePuzzleState && activePuzzleState.solved === true) {
-          container.append($('<p class="puzzle-detail mt-2 text-xs sm:text-sm text-green-300"></p>').text('Nice find! You matched Stockfish\'s top choice for this position.'));
-        } else if (activePuzzleState && activePuzzleState.solved === false) {
-          const statusText = activePuzzleState.bestMoveUci
-            ? 'That move is not the engine recommendation. Try again or step to the next puzzle.'
-            : 'That was your original move or a lower-ranked option. Try another idea while we verify the engine line.';
-          container.append($('<p class="puzzle-detail mt-2 text-xs sm:text-sm text-red-300"></p>').text(statusText));
-        } else if (activePuzzleState && activePuzzleState.attemptedUci && !activePuzzleState.bestMoveUci) {
-          container.append($('<p class="puzzle-detail mt-2 text-xs sm:text-sm text-blue-200"></p>').text('Checking your try against the engine...'));
-        }
-      }
-
-      function clearPuzzleState() {
-        puzzleQueue = [];
-        currentPuzzleIndex = -1;
-        puzzleQueueReady = false;
-        resetActivePuzzleState();
-        applyPuzzleHighlight(-1);
-        updatePuzzleControls();
-        updatePuzzleInfo();
-      }
-
-      function resolvePuzzleDrop(move) {
-        if (!move) return null;
-        const candidates = [
-          move.delta,
-          move.analysis && move.analysis.delta,
-          move.automated && move.automated.moverDelta,
-          move.automated && move.automated.whiteDelta != null
-            ? move.automated.whiteDelta * (move.color === 'w' ? 1 : -1)
-            : null
-        ];
-        for (const candidate of candidates) {
-          const numeric = Number(candidate);
-          if (Number.isFinite(numeric)) return numeric;
-        }
-        if (move.automated && opponentHasForcedMateAfter(move.automated)) {
-          return -1000;
-        }
-        return null;
-      }
-
-      function derivePuzzleEvaluation(move) {
-        if (!move) return '';
-        const candidates = [
-          move.analysis && move.analysis.displayEvaluation,
-          move.displayEvaluation,
-          move.analysis && move.analysis.evaluation,
-          move.automated && move.automated.evaluation
-        ];
-        for (const candidate of candidates) {
-          if (candidate) return candidate;
-        }
-        return '';
-      }
-
-      function getPuzzleClassification(move) {
-        if (!move) return '';
-        const candidates = [
-          move.analysis && move.analysis.classification,
-          move.automated && move.automated.classification
-        ];
-        for (const candidate of candidates) {
-          if (candidate) return candidate;
-        }
-        return '';
-      }
-
-      function buildPuzzleQueue() {
-        if (!Array.isArray(movesWithAnalysis) || !movesWithAnalysis.length) return [];
-        if (reviewPlayerColor !== 'w' && reviewPlayerColor !== 'b') return [];
-        const allowed = new Set(['mistake', 'blunder', 'misclick']);
-        const queue = [];
-        movesWithAnalysis.forEach((mv, index) => {
-          if (!mv || mv.color !== reviewPlayerColor) return;
-          const classification = getPuzzleClassification(mv);
-          const key = normalizeClassificationKey(classification);
-          if (!allowed.has(key)) return;
-          const drop = resolvePuzzleDrop(mv);
-          if (!Number.isFinite(drop) || drop >= 0) return;
-          const reply = movesWithAnalysis[index + 1];
-          const validReply = reply && reply.color && reply.color !== mv.color ? reply : null;
-          queue.push({
-            index,
-            san: mv.san,
-            from: mv.from,
-            to: mv.to,
-            color: mv.color,
-            classification: canonicalizeClassification(classification),
-            drop,
-            evaluation: derivePuzzleEvaluation(mv),
-            replySan: validReply ? validReply.san : null,
-            replyFrom: validReply ? validReply.from : null,
-            replyTo: validReply ? validReply.to : null
-          });
-        });
-        queue.sort((a, b) => {
-          if (a.drop !== b.drop) return a.drop - b.drop;
-          return a.index - b.index;
-        });
-        return queue;
-      }
-
-      function rebuildPuzzleQueue(opts) {
-        const preserveCurrent = opts && opts.preserveCurrent;
-        const previousMoveIndex = preserveCurrent && currentPuzzleIndex >= 0 && Array.isArray(puzzleQueue) && puzzleQueue[currentPuzzleIndex]
-          ? puzzleQueue[currentPuzzleIndex].index
-          : -1;
-        puzzleQueue = buildPuzzleQueue();
-        currentPuzzleIndex = -1;
-        puzzleQueueReady = Array.isArray(movesWithAnalysis) && movesWithAnalysis.length > 0;
-        applyPuzzleHighlight(-1);
-        if (preserveCurrent && previousMoveIndex >= 0) {
-          const nextIndex = puzzleQueue.findIndex(p => p.index === previousMoveIndex);
-          if (nextIndex !== -1) {
-            currentPuzzleIndex = nextIndex;
-            applyPuzzleHighlight(puzzleQueue[nextIndex].index);
-          }
-        }
-        updatePuzzleControls();
-        updatePuzzleInfo();
-      }
-
-      function showPuzzleAt(queueIndex) {
-        if (!Array.isArray(puzzleQueue) || queueIndex < 0 || queueIndex >= puzzleQueue.length) return;
-        const puzzle = puzzleQueue[queueIndex];
-        const targetIndex = puzzle.index;
-        const baseIndex = targetIndex - 1;
-        puzzlePreviousMove = baseIndex >= 0 ? movesWithAnalysis[baseIndex] : null;
-        clearExploration(true);
-        goToMove(baseIndex, { scrollMode: 'center', behavior: 'smooth' });
-        if (game) {
-          activePuzzleState = {
-            startFen: game.fen(),
-            bestMoveUci: null,
-            originalUci: buildUciFromMoveLike(puzzle),
-            attemptedUci: null,
-            solved: null,
-            retrying: false
-          };
-          if (activePuzzleState.startFen) {
-            fetchPuzzleBestMove(activePuzzleState.startFen);
-          }
-        }
-        startExploration(game.fen(), currentMoveIndex);
-        syncNavigationControls();
-        applyPuzzleHighlight(targetIndex);
-        scrollMoveList(targetIndex, baseIndex, { scrollMode: 'center', behavior: 'smooth' });
-        updatePuzzleInfo();
-      }
-
-      function handlePuzzleButtonClick() {
-        if (!Array.isArray(puzzleQueue) || !puzzleQueue.length) {
-          rebuildPuzzleQueue();
-        }
-        if (!Array.isArray(puzzleQueue) || !puzzleQueue.length) {
-          updatePuzzleControls();
-          updatePuzzleInfo();
-          return;
-        }
-        if (currentPuzzleIndex >= puzzleQueue.length - 1) {
-          currentPuzzleIndex = -1;
-        }
-        currentPuzzleIndex += 1;
-        showPuzzleAt(currentPuzzleIndex);
-        updatePuzzleControls();
       }
 
       function adjustAnalysisHeight() {
@@ -5140,7 +4729,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             goToMove(currentMoveIndex + 1, { scrollMode: 'step' });
           }
         });
-        $('#puzzle-btn').on('click', function(){ handlePuzzleButtonClick(); });
         $('#prev-btn').on('click', function(){
           if (isExploring()) {
             if (!stepExploration(-1)) return;
