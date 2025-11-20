@@ -232,6 +232,23 @@
             <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
             <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
           </div>
+          <div id="puzzle-panel" class="mt-3 p-3 rounded-lg bg-[#101522] border border-[#1f2937] hidden">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p class="text-sm font-semibold text-gray-200">Puzzle mode</p>
+                <p id="puzzle-info" class="text-xs text-gray-400">Generate a review to unlock puzzles from your worst moves.</p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button id="start-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-primary whitespace-nowrap">Start puzzles</button>
+                <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
+              </div>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <button id="retry-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>Retry</button>
+              <button id="next-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>Next</button>
+            </div>
+            <p id="puzzle-status-text" class="mt-2 text-xs text-gray-300"></p>
+          </div>
         </div>
       </div>
 
@@ -278,6 +295,14 @@
       <h3 class="text-2xl font-bold text-red-400 mb-4">Error</h3>
       <p id="error-message" class="text-gray-300 mb-6">Could not process the input.</p>
       <button id="close-modal-btn" class="py-2 px-6 font-semibold text-white rounded-lg btn-primary">Close</button>
+    </div>
+  </div>
+
+  <div id="puzzle-result-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+    <div class="bg-[#141926] p-8 rounded-lg shadow-xl max-w-sm w-full text-center border border-[#1f2937]">
+      <h3 id="puzzle-result-title" class="text-2xl font-bold text-white mb-3">Puzzle Result</h3>
+      <p id="puzzle-result-message" class="text-gray-300 mb-6"></p>
+      <button id="close-puzzle-modal-btn" class="py-2 px-6 font-semibold text-white rounded-lg btn-primary">Continue</button>
     </div>
   </div>
 
@@ -385,6 +410,24 @@
       const engineStatusDetail = $('#engine-status-detail');
       const retryEngineBtn = $('#retry-engine-btn');
       let explorationState = null;
+      const puzzlePanel = $('#puzzle-panel');
+      const puzzleInfo = $('#puzzle-info');
+      const puzzleStatusText = $('#puzzle-status-text');
+      const startPuzzleBtn = $('#start-puzzle-btn');
+      const exitPuzzleBtn = $('#exit-puzzle-btn');
+      const retryPuzzleBtn = $('#retry-puzzle-btn');
+      const nextPuzzleBtn = $('#next-puzzle-btn');
+      const puzzleResultModal = $('#puzzle-result-modal');
+      const puzzleResultTitle = $('#puzzle-result-title');
+      const puzzleResultMessage = $('#puzzle-result-message');
+      const closePuzzleModalBtn = $('#close-puzzle-modal-btn');
+      let puzzleQueue = [];
+      let activePuzzleIndex = -1;
+      let puzzleActive = false;
+      let puzzleStartFen = '';
+      let puzzleTargetMove = '';
+      let puzzleTargetSan = '';
+      let puzzleReturnIndex = -1;
       const loadChessComBtn = $('#load-chesscom-btn');
       const loadLichessBtn = $('#load-lichess-btn');
       const gameLoaderFeedback = $('#game-loader-feedback');
@@ -1424,6 +1467,15 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return updatePlayerOutcomeFromHeaders(headers);
       }
 
+      function normalizePlayerColorToken(color) {
+        if (color === 'w' || color === 'b') return color;
+        if (!color) return null;
+        const lower = String(color).toLowerCase();
+        if (lower === 'white') return 'w';
+        if (lower === 'black') return 'b';
+        return null;
+      }
+
       function buildAnalysisPrompt(playerName) {
         const target = (playerName == null ? '' : String(playerName)).trim() || DEFAULT_PLAYER_NAME;
         return ANALYSIS_PROMPT_TEMPLATE.replace(/eugenime/gi, target);
@@ -2056,7 +2108,281 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         handleExplorationPositionChanged();
         return true;
       }
+
+      function setPuzzleStatus(text) {
+        if (!puzzleStatusText.length) return;
+        if (text) {
+          puzzleStatusText.text(text).removeClass('hidden');
+        } else {
+          puzzleStatusText.text('').addClass('hidden');
+        }
+      }
+
+      function clearPuzzleState() {
+        puzzleQueue = [];
+        activePuzzleIndex = -1;
+        puzzleActive = false;
+        puzzleStartFen = '';
+        puzzleTargetMove = '';
+        puzzleTargetSan = '';
+        puzzleReturnIndex = -1;
+        setPuzzleStatus('');
+        updatePuzzleInfo();
+        updatePuzzleControls();
+      }
+
+      function formatPuzzleLabel(puzzle, idx) {
+        if (!puzzle) return '';
+        const humanIndex = Number.isFinite(idx) ? (idx + 1) : null;
+        const totalLabel = puzzleQueue.length ? `/ ${puzzleQueue.length}` : '';
+        const classLabel = puzzle.classification || 'Mistake';
+        const swing = Number(puzzle.delta);
+        const swingLabel = Number.isFinite(swing) ? ` (${swing.toFixed(1)}%)` : '';
+        const idxLabel = humanIndex ? `Puzzle ${humanIndex}${totalLabel}` : 'Puzzle';
+        return `${idxLabel}: Fix the ${classLabel}${swingLabel}`;
+      }
+
+      function updatePuzzleInfo() {
+        if (!puzzleInfo.length) return;
+        if (!$('#review-section').is(':visible')) {
+          puzzleInfo.text('Generate a review to unlock puzzles from your worst moves.');
+          return;
+        }
+        if (!puzzleQueue.length) {
+          puzzleInfo.text('No misclicks, blunders, or mistakes detected for puzzles.');
+          return;
+        }
+        const puzzle = activePuzzleIndex >= 0 ? puzzleQueue[activePuzzleIndex] : puzzleQueue[0];
+        const label = formatPuzzleLabel(puzzle, activePuzzleIndex >= 0 ? activePuzzleIndex : 0);
+        puzzleInfo.text(label || 'Puzzle ready.');
+      }
+
+      function updatePuzzleControls() {
+        if (!puzzlePanel.length) return;
+        const reviewVisible = $('#review-section').is(':visible');
+        puzzlePanel.toggleClass('hidden', !reviewVisible);
+        const hasQueue = puzzleQueue.length > 0;
+        if (startPuzzleBtn.length) {
+          startPuzzleBtn.prop('disabled', !hasQueue);
+          startPuzzleBtn.toggleClass('hidden', puzzleActive);
+        }
+        if (exitPuzzleBtn.length) {
+          exitPuzzleBtn.toggleClass('hidden', !puzzleActive);
+        }
+        if (retryPuzzleBtn.length) {
+          retryPuzzleBtn.prop('disabled', !puzzleActive);
+        }
+        if (nextPuzzleBtn.length) {
+          const atEnd = activePuzzleIndex >= puzzleQueue.length - 1 || activePuzzleIndex === -1;
+          nextPuzzleBtn.prop('disabled', !puzzleActive || atEnd);
+        }
+      }
+
+      function rebuildPuzzleQueue() {
+        puzzleQueue = [];
+        activePuzzleIndex = -1;
+        puzzleActive = false;
+        puzzleStartFen = '';
+        puzzleTargetMove = '';
+        puzzleTargetSan = '';
+        const normalizedColor = normalizePlayerColorToken(reviewPlayerColor);
+        if (!Array.isArray(movesWithAnalysis) || !movesWithAnalysis.length) {
+          updatePuzzleInfo();
+          updatePuzzleControls();
+          return;
+        }
+        const temp = new Chess();
+        const candidates = [];
+        movesWithAnalysis.forEach((mv, idx) => {
+          const key = normalizeClassificationKey(mv.analysis && mv.analysis.classification);
+          if (!['misclick', 'blunder', 'mistake'].includes(key)) {
+            temp.move(mv.san);
+            return;
+          }
+          if (normalizedColor && mv.color !== normalizedColor) {
+            temp.move(mv.san);
+            return;
+          }
+          const fenBefore = temp.fen();
+          const deltaCandidates = [mv.delta, mv.analysis && mv.analysis.delta, mv.automated && mv.automated.moverDelta];
+          const deltaValue = deltaCandidates.find(val => Number.isFinite(Number(val)));
+          const severity = CLASSIFICATION_SEVERITY[key] || 0;
+          candidates.push({
+            index: idx,
+            classification: canonicalizeClassification(mv.analysis && mv.analysis.classification),
+            delta: deltaValue != null ? Number(deltaValue) : null,
+            severity,
+            fen: fenBefore,
+            move: mv
+          });
+          temp.move(mv.san);
+        });
+        candidates.sort((a, b) => {
+          if (b.severity !== a.severity) return b.severity - a.severity;
+          const aDelta = Number(a.delta);
+          const bDelta = Number(b.delta);
+          if (Number.isFinite(aDelta) && Number.isFinite(bDelta) && aDelta !== bDelta) {
+            return aDelta - bDelta;
+          }
+          return a.index - b.index;
+        });
+        puzzleQueue = candidates;
+        updatePuzzleInfo();
+        updatePuzzleControls();
+      }
+
+      function resetPuzzlePosition() {
+        if (!puzzleActive || !puzzleStartFen) return;
+        game.load(puzzleStartFen);
+        if (board) board.position(puzzleStartFen);
+        clearSelected();
+      }
+
+      function hidePuzzleResult() {
+        if (puzzleResultModal.length) puzzleResultModal.addClass('hidden');
+      }
+
+      function showPuzzleResult(success, message) {
+        if (!puzzleResultModal.length) return;
+        puzzleResultTitle.text(success ? 'Correct!' : 'Not quite');
+        puzzleResultMessage.text(message || '');
+        puzzleResultModal.removeClass('hidden');
+      }
+
+      async function ensurePuzzleTarget(puzzle) {
+        if (!puzzle) return '';
+        if (puzzle.bestMove) return puzzle.bestMove;
+        await waitForEngineReady();
+        const score = await getScore(puzzle.fen, ENGINE_GO_OPTIONS);
+        const bestmove = score && score.bestmove ? normalizeUciMove(score.bestmove) : '';
+        let resolved = bestmove || '';
+        const fallback = buildUciFromMoveLike(puzzle.move);
+        if (!resolved && fallback) resolved = normalizeUciMove(fallback);
+        puzzle.bestMove = resolved;
+        const san = resolved ? (uciToSan(resolved, puzzle.fen) || '') : '';
+        puzzle.bestMoveSan = san || (puzzle.move && puzzle.move.san) || '';
+        return puzzle.bestMove;
+      }
+
+      async function loadPuzzleAtIndex(targetIndex) {
+        if (!puzzleQueue.length) return;
+        const idx = Math.max(0, Math.min(targetIndex, puzzleQueue.length - 1));
+        activePuzzleIndex = idx;
+        const puzzle = puzzleQueue[idx];
+        puzzleActive = true;
+        puzzleReturnIndex = currentMoveIndex;
+        clearSelected();
+        clearExploration(true);
+        if (!game.load(puzzle.fen)) {
+          setPuzzleStatus('Could not load puzzle position.');
+          puzzleActive = false;
+          return;
+        }
+        if (board) board.position(game.fen());
+        puzzleStartFen = game.fen();
+        puzzleTargetMove = '';
+        puzzleTargetSan = '';
+        await ensurePuzzleTarget(puzzle);
+        puzzleTargetMove = normalizeUciMove(puzzle.bestMove || '');
+        puzzleTargetSan = puzzle.bestMoveSan || '';
+        setPuzzleStatus('Find the engine move that avoids this mistake.');
+        updatePuzzleInfo();
+        updatePuzzleControls();
+      }
+
+      async function startPuzzleMode() {
+        hidePuzzleResult();
+        if (!puzzleQueue.length) {
+          setPuzzleStatus('No mistakes to review as puzzles.');
+          return;
+        }
+        showBestMove = false;
+        clearBestMoveHighlight();
+        await loadPuzzleAtIndex(0);
+      }
+
+      function exitPuzzleMode() {
+        puzzleActive = false;
+        activePuzzleIndex = -1;
+        puzzleStartFen = '';
+        puzzleTargetMove = '';
+        puzzleTargetSan = '';
+        hidePuzzleResult();
+        setPuzzleStatus('');
+        if (puzzleReturnIndex != null && puzzleReturnIndex >= -1) {
+          goToMove(puzzleReturnIndex, { scrollMode: 'none' });
+        }
+        updatePuzzleInfo();
+        updatePuzzleControls();
+      }
+
+      function finalizePuzzleAttempt(correct) {
+        if (!puzzleActive || activePuzzleIndex < 0 || activePuzzleIndex >= puzzleQueue.length) return;
+        const puzzle = puzzleQueue[activePuzzleIndex];
+        if (correct) puzzle.solved = true;
+        const message = correct
+          ? (puzzleTargetSan ? `Best move: ${puzzleTargetSan}` : 'You matched the engine move!')
+          : (puzzleTargetSan ? `Engine prefers ${puzzleTargetSan}. Try again.` : 'Not quite. Give it another shot.');
+        showPuzzleResult(!!correct, message);
+        setPuzzleStatus(correct ? 'Nice! Use Next for the following puzzle.' : 'Incorrect. Retry to try again.');
+        updatePuzzleControls();
+      }
+
+      function advancePuzzle() {
+        hidePuzzleResult();
+        if (!puzzleActive) return;
+        const nextIndex = activePuzzleIndex + 1;
+        if (nextIndex >= puzzleQueue.length) {
+          setPuzzleStatus('You have finished every puzzle.');
+          updatePuzzleControls();
+          return;
+        }
+        loadPuzzleAtIndex(nextIndex);
+      }
+
+      function retryPuzzle() {
+        hidePuzzleResult();
+        if (!puzzleActive) return;
+        resetPuzzlePosition();
+        setPuzzleStatus('Try again to find the engine move.');
+        updatePuzzleControls();
+      }
+
+      function handlePuzzleSquareClick(square) {
+        if (!puzzleActive) return false;
+        if (selectedSquare) {
+          if (selectedSquare === square) {
+            clearSelected();
+            return true;
+          }
+          const move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
+          if (move) {
+            if (board) board.position(game.fen());
+            playMoveSound(move);
+            clearSelected();
+            const attempt = buildUciFromMoveLike(move);
+            const normalizedAttempt = normalizeUciMove(attempt);
+            const target = normalizeUciMove(puzzleTargetMove || '');
+            const correct = target ? normalizedAttempt === target : true;
+            finalizePuzzleAttempt(correct);
+            if (!correct) {
+              resetPuzzlePosition();
+            }
+          } else {
+            clearSelected();
+          }
+          return true;
+        }
+        if (!game.get(square)) return true;
+        selectedSquare = square;
+        $('#board .square-' + square).addClass('selected');
+        return true;
+      }
       function handleSquareClick(square) {
+        if (puzzleActive) {
+          handlePuzzleSquareClick(square);
+          return;
+        }
         if (selectedSquare) {
           if (selectedSquare === square) {
             clearSelected();
@@ -4684,6 +5010,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const prevBtn = $('#prev-btn');
         const nextBtn = $('#next-btn');
         if (!prevBtn.length || !nextBtn.length) return;
+        if (puzzleActive) {
+          prevBtn.prop('disabled', true);
+          nextBtn.prop('disabled', true);
+          return;
+        }
         if (isExploring()) {
           const cursor = explorationState ? explorationState.cursor : 0;
           const total = explorationState ? explorationState.moves.length : 0;
@@ -4753,6 +5084,25 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             clearBestMoveHighlight();
           }
         });
+
+        if (startPuzzleBtn.length) {
+          startPuzzleBtn.on('click', function(){ startPuzzleMode(); });
+        }
+        if (exitPuzzleBtn.length) {
+          exitPuzzleBtn.on('click', function(){ exitPuzzleMode(); });
+        }
+        if (retryPuzzleBtn.length) {
+          retryPuzzleBtn.on('click', function(){ retryPuzzle(); });
+        }
+        if (nextPuzzleBtn.length) {
+          nextPuzzleBtn.on('click', function(){ advancePuzzle(); });
+        }
+        if (puzzleResultModal.length) {
+          puzzleResultModal.on('click', function(evt){ if (evt.target === this) hidePuzzleResult(); });
+        }
+        if (closePuzzleModalBtn.length) {
+          closePuzzleModalBtn.on('click', function(){ hidePuzzleResult(); });
+        }
 
         updatePuzzleControls();
         updatePuzzleInfo();
