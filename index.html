@@ -430,6 +430,7 @@
       let puzzleQueue = [];
       let activePuzzleIndex = -1;
       let puzzleActive = false;
+      let puzzleLoading = false;
       let puzzleStartFen = '';
       let puzzleTargetMove = '';
       let puzzleTargetSan = '';
@@ -2138,6 +2139,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         puzzleQueue = [];
         activePuzzleIndex = -1;
         puzzleActive = false;
+        puzzleLoading = false;
         puzzleStartFen = '';
         puzzleTargetMove = '';
         puzzleTargetSan = '';
@@ -2191,18 +2193,18 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         puzzlePanel.toggleClass('hidden', !showPanel);
         const hasQueue = puzzleQueue.length > 0;
         if (startPuzzleBtn.length) {
-          startPuzzleBtn.prop('disabled', !hasQueue);
+          startPuzzleBtn.prop('disabled', !hasQueue || puzzleLoading);
           startPuzzleBtn.toggleClass('hidden', puzzleActive);
         }
         if (exitPuzzleBtn.length) {
           exitPuzzleBtn.toggleClass('hidden', !puzzleActive);
         }
         if (retryPuzzleBtn.length) {
-          retryPuzzleBtn.prop('disabled', !puzzleActive);
+          retryPuzzleBtn.prop('disabled', !puzzleActive || puzzleLoading);
         }
         if (nextPuzzleBtn.length) {
           const atEnd = activePuzzleIndex >= puzzleQueue.length - 1 || activePuzzleIndex === -1;
-          nextPuzzleBtn.prop('disabled', !puzzleActive || atEnd);
+          nextPuzzleBtn.prop('disabled', !puzzleActive || atEnd || puzzleLoading);
         }
       }
 
@@ -2421,37 +2423,44 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       }
 
       async function loadPuzzleAtIndex(targetIndex) {
-        if (!puzzleQueue.length) return;
-        const idx = Math.max(0, Math.min(targetIndex, puzzleQueue.length - 1));
-        activePuzzleIndex = idx;
-        const puzzle = puzzleQueue[idx];
-        puzzleActive = true;
-        puzzleReturnIndex = currentMoveIndex;
-        stopPuzzleBackgroundAnalysis();
-        clearSelected();
-        clearExploration(true);
-        if (!game.load(puzzle.fen)) {
-          setPuzzleStatus('Could not load puzzle position.');
-          puzzleActive = false;
-          return;
+        if (!puzzleQueue.length || puzzleLoading) return;
+        puzzleLoading = true;
+        setPuzzleStatus('Loading puzzle...');
+        try {
+          const idx = Math.max(0, Math.min(targetIndex, puzzleQueue.length - 1));
+          activePuzzleIndex = idx;
+          const puzzle = puzzleQueue[idx];
+          puzzleActive = true;
+          puzzleReturnIndex = currentMoveIndex;
+          stopPuzzleBackgroundAnalysis();
+          clearSelected();
+          clearExploration(true);
+          if (!game.load(puzzle.fen)) {
+            setPuzzleStatus('Could not load puzzle position.');
+            puzzleActive = false;
+            updatePuzzleControls();
+            return;
+          }
+          if (board) board.position(game.fen());
+          puzzleStartFen = game.fen();
+          puzzleTargetMove = '';
+          puzzleTargetSan = '';
+          puzzleOriginalMove = normalizeUciMove(buildUciFromMoveLike(puzzle.move) || '');
+          puzzleOriginalEval = null;
+          setPuzzleStatus('Analyzing the position...');
+          await ensurePuzzleTarget(puzzle);
+          puzzleTargetMove = normalizeUciMove(puzzle.bestMove || '');
+          puzzleTargetSan = puzzle.bestMoveSan || '';
+          if (puzzleOriginalMove) {
+            puzzleOriginalEval = await evaluatePuzzleMoveScore(puzzleStartFen, puzzleOriginalMove);
+          }
+          startPuzzleBackgroundAnalysis(puzzleStartFen);
+          setPuzzleStatus('Find the engine move that avoids this mistake.');
+          updatePuzzleInfo();
+          updatePuzzleControls();
+        } finally {
+          puzzleLoading = false;
         }
-        if (board) board.position(game.fen());
-        puzzleStartFen = game.fen();
-        puzzleTargetMove = '';
-        puzzleTargetSan = '';
-        puzzleOriginalMove = normalizeUciMove(buildUciFromMoveLike(puzzle.move) || '');
-        puzzleOriginalEval = null;
-        setPuzzleStatus('Analyzing the position...');
-        await ensurePuzzleTarget(puzzle);
-        puzzleTargetMove = normalizeUciMove(puzzle.bestMove || '');
-        puzzleTargetSan = puzzle.bestMoveSan || '';
-        if (puzzleOriginalMove) {
-          puzzleOriginalEval = await evaluatePuzzleMoveScore(puzzleStartFen, puzzleOriginalMove);
-        }
-        startPuzzleBackgroundAnalysis(puzzleStartFen);
-        setPuzzleStatus('Find the engine move that avoids this mistake.');
-        updatePuzzleInfo();
-        updatePuzzleControls();
       }
 
       async function startPuzzleMode() {
@@ -2460,6 +2469,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           setPuzzleStatus('No mistakes to review as puzzles.');
           return;
         }
+        puzzleLoading = false;
         showBestMove = false;
         clearBestMoveHighlight();
         await loadPuzzleAtIndex(0);
@@ -2467,6 +2477,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       function exitPuzzleMode() {
         puzzleActive = false;
+        puzzleLoading = false;
         activePuzzleIndex = -1;
         puzzleStartFen = '';
         puzzleTargetMove = '';
@@ -2506,28 +2517,28 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         updatePuzzleControls();
       }
 
-      function advancePuzzle() {
+      async function advancePuzzle() {
         hidePuzzleResult();
-        if (!puzzleActive) return;
+        if (!puzzleActive || puzzleLoading) return;
         const nextIndex = activePuzzleIndex + 1;
         if (nextIndex >= puzzleQueue.length) {
           setPuzzleStatus('You have finished every puzzle.');
           updatePuzzleControls();
           return;
         }
-        loadPuzzleAtIndex(nextIndex);
+        await loadPuzzleAtIndex(nextIndex);
       }
 
-      function retryPuzzle() {
+      async function retryPuzzle() {
         hidePuzzleResult();
-        if (!puzzleActive) return;
-        resetPuzzlePosition();
+        if (!puzzleActive || puzzleLoading) return;
+        await loadPuzzleAtIndex(activePuzzleIndex >= 0 ? activePuzzleIndex : 0);
         setPuzzleStatus('Try again to find the engine move.');
         updatePuzzleControls();
       }
 
       async function handlePuzzleSquareClick(square) {
-        if (!puzzleActive) return false;
+        if (!puzzleActive || puzzleLoading) return false;
         if (selectedSquare) {
           if (selectedSquare === square) {
             clearSelected();
