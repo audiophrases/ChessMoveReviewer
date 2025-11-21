@@ -434,6 +434,13 @@
       let puzzleTargetMove = '';
       let puzzleTargetSan = '';
       let puzzleReturnIndex = -1;
+      let puzzleOriginalMove = '';
+      let puzzleOriginalEval = null;
+      let puzzleAnalysisActive = false;
+      let puzzleAnalysisFenNormalized = '';
+      let puzzleTopCandidates = [];
+      let puzzleAnalysisToken = 0;
+      let puzzleScoreRequestToken = 0;
       const loadChessComBtn = $('#load-chesscom-btn');
       const loadLichessBtn = $('#load-lichess-btn');
       const gameLoaderFeedback = $('#game-loader-feedback');
@@ -1137,31 +1144,34 @@
       let lastInfoMsg = '';
       let currentScoreResolver = null;
       let showBestMove = false;
-        const toggleBestBtn = $('#toggle-eval-btn');
-        const defaultBestButtonLabel = toggleBestBtn.length ? (toggleBestBtn.text().trim() || 'Best') : 'Best';
-        let primaryBestMoveSquares = null;
-        let secondaryBestMoveSquares = null;
-        let arrowCanvas = null;
-        let arrowCtx = null;
-        let lastBestMove = null;
-        let lastSecondBestMove = null;
-        let bestMoveAnalysisToken = 0;
-        let bestMoveActiveToken = 0;
-        let bestMoveUpdateTimeout = null;
-        let pendingBestMoveInfo = null;
-        let lastBestMoveUpdate = 0;
-        let bestMoveFen = null;
-        let bestMoveFenNormalized = null;
-        let pendingBestMoveVisualData = null;
-        let bestMoveVisualRetryHandle = null;
-        let bestMoveResponseTimeoutHandle = null;
-        let bestMoveStallTimeoutHandle = null;
-        let bestMovePvMap = {};
-        const BEST_MOVE_UPDATE_INTERVAL = 250;
-        const BEST_MOVE_VISUAL_RETRY_DELAY = 50;
-        const BEST_MOVE_VISUAL_RETRY_LIMIT = 20;
-        const BEST_MOVE_RESPONSE_TIMEOUT = 2500;
-        const BEST_MOVE_STALL_TIMEOUT = 9000;
+      const toggleBestBtn = $('#toggle-eval-btn');
+      const defaultBestButtonLabel = toggleBestBtn.length ? (toggleBestBtn.text().trim() || 'Best') : 'Best';
+      let primaryBestMoveSquares = null;
+      let secondaryBestMoveSquares = null;
+      let arrowCanvas = null;
+      let arrowCtx = null;
+      let lastBestMove = null;
+      let lastSecondBestMove = null;
+      let bestMoveAnalysisToken = 0;
+      let bestMoveActiveToken = 0;
+      let bestMoveUpdateTimeout = null;
+      let pendingBestMoveInfo = null;
+      let lastBestMoveUpdate = 0;
+      let bestMoveFen = null;
+      let bestMoveFenNormalized = null;
+      let pendingBestMoveVisualData = null;
+      let bestMoveVisualRetryHandle = null;
+      let bestMoveResponseTimeoutHandle = null;
+      let bestMoveStallTimeoutHandle = null;
+      let bestMovePvMap = {};
+      const BEST_MOVE_UPDATE_INTERVAL = 250;
+      const BEST_MOVE_VISUAL_RETRY_DELAY = 50;
+      const BEST_MOVE_VISUAL_RETRY_LIMIT = 20;
+      const BEST_MOVE_RESPONSE_TIMEOUT = 2500;
+      const BEST_MOVE_STALL_TIMEOUT = 9000;
+      const PUZZLE_MAX_ALT_MOVES = 4;
+      const PUZZLE_CLOSE_SCORE_THRESHOLD = 35;
+      const PUZZLE_MATE_SCORE = 100000;
 
       function setEngineMultiPv(value, options = {}) {
         const numeric = Number.parseInt(value, 10);
@@ -2132,6 +2142,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         puzzleTargetMove = '';
         puzzleTargetSan = '';
         puzzleReturnIndex = -1;
+        puzzleOriginalMove = '';
+        puzzleOriginalEval = null;
+        puzzleAnalysisActive = false;
+        puzzleAnalysisFenNormalized = '';
+        puzzleTopCandidates = [];
         setPuzzleStatus('');
         updatePuzzleInfo();
         updatePuzzleControls();
@@ -2198,6 +2213,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         puzzleStartFen = '';
         puzzleTargetMove = '';
         puzzleTargetSan = '';
+        puzzleOriginalMove = '';
+        puzzleOriginalEval = null;
+        puzzleAnalysisActive = false;
+        puzzleAnalysisFenNormalized = '';
+        puzzleTopCandidates = [];
         const normalizedColor = normalizePlayerColorToken(reviewPlayerColor);
         if (!Array.isArray(movesWithAnalysis) || !movesWithAnalysis.length) {
           updatePuzzleInfo();
@@ -2244,6 +2264,129 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         updatePuzzleControls();
       }
 
+      function normalizePuzzleScoreValue(entry) {
+        if (!entry) return null;
+        if (entry.scoreType === 'mate') {
+          const distance = Math.min(Math.abs(entry.scoreValue || 0), 50);
+          const magnitude = PUZZLE_MATE_SCORE - (distance * 50);
+          return (entry.scoreValue || 0) > 0 ? magnitude : -magnitude;
+        }
+        if (entry.scoreType === 'cp' && Number.isFinite(entry.scoreValue)) {
+          return Number(entry.scoreValue);
+        }
+        return null;
+      }
+
+      function isPuzzleScoreClose(candidate, best) {
+        const candidateScore = normalizePuzzleScoreValue(candidate);
+        const bestScore = normalizePuzzleScoreValue(best);
+        if (candidateScore == null || bestScore == null) return false;
+        return Math.abs(candidateScore - bestScore) <= PUZZLE_CLOSE_SCORE_THRESHOLD;
+      }
+
+      function updatePuzzleCandidateList(list, entry) {
+        const cleaned = (list || []).filter(item => item && item.move !== entry.move && item.multipv !== entry.multipv);
+        cleaned.push(entry);
+        cleaned.sort((a, b) => (a.multipv || 0) - (b.multipv || 0));
+        return cleaned.slice(0, PUZZLE_MAX_ALT_MOVES);
+      }
+
+      function processPuzzleInfo(msg) {
+        if (!puzzleActive || !puzzleAnalysisActive) return;
+        if (!puzzleAnalysisFenNormalized || !puzzleStartFen) return;
+        const normalizedFen = normalizeFenForComparison(puzzleStartFen);
+        if (puzzleAnalysisFenNormalized !== normalizedFen) return;
+        if (!msg || typeof msg !== 'string') return;
+        if (!msg.includes(' multipv ')) return;
+        const multipvMatch = msg.match(/\bmultipv\s+(\d+)/i);
+        const pvMatch = msg.match(/\spv\s+([a-h][1-8][a-h][1-8][nbrq]?)/i);
+        if (!multipvMatch || !pvMatch) return;
+        const move = normalizeUciMove(pvMatch[1]);
+        if (!move) return;
+        const depthMatch = msg.match(/\bdepth\s+(\d+)/i);
+        const mateMatch = msg.match(/\bscore mate (-?\d+)/i);
+        const cpMatch = msg.match(/\bscore cp (-?\d+)/i);
+        const entry = {
+          move,
+          multipv: parseInt(multipvMatch[1], 10) || 1,
+          depth: depthMatch ? parseInt(depthMatch[1], 10) : null,
+          scoreType: mateMatch ? 'mate' : 'cp',
+          scoreValue: mateMatch ? parseInt(mateMatch[1], 10) : (cpMatch ? parseInt(cpMatch[1], 10) : null)
+        };
+        puzzleTopCandidates = updatePuzzleCandidateList(puzzleTopCandidates, entry);
+      }
+
+      function stopPuzzleBackgroundAnalysis() {
+        if (!engineWorker || !puzzleAnalysisActive) return;
+        puzzleAnalysisActive = false;
+        puzzleAnalysisFenNormalized = '';
+        puzzleTopCandidates = [];
+        engineWorker.postMessage('stop');
+        setEngineMultiPv(1);
+      }
+
+      function startPuzzleBackgroundAnalysis(fen) {
+        if (!engineWorker || !fen) return;
+        puzzleAnalysisActive = true;
+        puzzleAnalysisFenNormalized = normalizeFenForComparison(fen);
+        puzzleTopCandidates = [];
+        puzzleAnalysisToken += 1;
+        const localToken = puzzleAnalysisToken;
+        setEngineMultiPv(PUZZLE_MAX_ALT_MOVES);
+        engineWorker.postMessage('stop');
+        engineWorker.postMessage('position fen ' + fen);
+        engineWorker.postMessage('go infinite');
+        setTimeout(() => {
+          if (puzzleAnalysisActive && puzzleAnalysisToken === localToken) {
+            setEngineMultiPv(PUZZLE_MAX_ALT_MOVES);
+          }
+        }, 50);
+      }
+
+      async function evaluatePuzzleMoveScore(fen, moveUci) {
+        if (!moveUci) return null;
+        const requestToken = ++puzzleScoreRequestToken;
+        const wasAnalyzing = puzzleAnalysisActive;
+        if (wasAnalyzing) stopPuzzleBackgroundAnalysis();
+        await waitForEngineReady();
+        const score = await getScore(fen, { ...ENGINE_GO_OPTIONS, searchmoves: [moveUci], multipv: 1, preserveMultiPv: false });
+        if (wasAnalyzing && puzzleActive) {
+          startPuzzleBackgroundAnalysis(fen);
+        }
+        if (requestToken !== puzzleScoreRequestToken) return null;
+        if (!score) return null;
+        if (score.type === 'mate') {
+          const distance = Math.min(Math.abs(score.value || 0), 50);
+          const magnitude = PUZZLE_MATE_SCORE - (distance * 50);
+          return (score.value || 0) > 0 ? magnitude : -magnitude;
+        }
+        return Number.isFinite(score.value) ? Number(score.value) : null;
+      }
+
+      function isScoreBetterThanOriginal(attemptScore) {
+        if (puzzleOriginalEval == null || attemptScore == null) return null;
+        return attemptScore > puzzleOriginalEval + 5;
+      }
+
+      async function evaluatePuzzleAttemptOutcome(attemptUci) {
+        const normalizedAttempt = normalizeUciMove(attemptUci || '');
+        const target = normalizeUciMove(puzzleTargetMove || '');
+        const bestCandidate = puzzleTopCandidates.length ? puzzleTopCandidates[0] : null;
+        const attemptCandidate = puzzleTopCandidates.find(c => c.move === normalizedAttempt);
+        let attemptScore = attemptCandidate ? normalizePuzzleScoreValue(attemptCandidate) : null;
+        let correct = target ? normalizedAttempt === target : true;
+        let nearBest = false;
+        if (!correct && attemptCandidate && bestCandidate) {
+          nearBest = isPuzzleScoreClose(attemptCandidate, bestCandidate);
+          if (nearBest) correct = true;
+        }
+        if (attemptScore == null && normalizedAttempt) {
+          attemptScore = await evaluatePuzzleMoveScore(puzzleStartFen, normalizedAttempt);
+        }
+        const improvementFlag = isScoreBetterThanOriginal(attemptScore);
+        return { correct, nearBest, improvement: improvementFlag };
+      }
+
       function resetPuzzlePosition() {
         if (!puzzleActive || !puzzleStartFen) return;
         game.load(puzzleStartFen);
@@ -2284,6 +2427,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const puzzle = puzzleQueue[idx];
         puzzleActive = true;
         puzzleReturnIndex = currentMoveIndex;
+        stopPuzzleBackgroundAnalysis();
         clearSelected();
         clearExploration(true);
         if (!game.load(puzzle.fen)) {
@@ -2295,9 +2439,16 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         puzzleStartFen = game.fen();
         puzzleTargetMove = '';
         puzzleTargetSan = '';
+        puzzleOriginalMove = normalizeUciMove(buildUciFromMoveLike(puzzle.move) || '');
+        puzzleOriginalEval = null;
+        setPuzzleStatus('Analyzing the position...');
         await ensurePuzzleTarget(puzzle);
         puzzleTargetMove = normalizeUciMove(puzzle.bestMove || '');
         puzzleTargetSan = puzzle.bestMoveSan || '';
+        if (puzzleOriginalMove) {
+          puzzleOriginalEval = await evaluatePuzzleMoveScore(puzzleStartFen, puzzleOriginalMove);
+        }
+        startPuzzleBackgroundAnalysis(puzzleStartFen);
         setPuzzleStatus('Find the engine move that avoids this mistake.');
         updatePuzzleInfo();
         updatePuzzleControls();
@@ -2320,6 +2471,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         puzzleStartFen = '';
         puzzleTargetMove = '';
         puzzleTargetSan = '';
+        puzzleOriginalMove = '';
+        puzzleOriginalEval = null;
+        stopPuzzleBackgroundAnalysis();
         hidePuzzleResult();
         setPuzzleStatus('');
         if (puzzleReturnIndex != null && puzzleReturnIndex >= -1) {
@@ -2329,13 +2483,24 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         updatePuzzleControls();
       }
 
-      function finalizePuzzleAttempt(correct) {
+      function finalizePuzzleAttempt(outcome) {
         if (!puzzleActive || activePuzzleIndex < 0 || activePuzzleIndex >= puzzleQueue.length) return;
         const puzzle = puzzleQueue[activePuzzleIndex];
+        const correct = !!(outcome && outcome.correct);
+        const nearBest = !!(outcome && outcome.nearBest);
+        const improvement = outcome ? outcome.improvement : null;
         if (correct) puzzle.solved = true;
-        const message = correct
-          ? (puzzleTargetSan ? `Best move: ${puzzleTargetSan}` : 'You matched the engine move!')
-          : (puzzleTargetSan ? `Engine prefers ${puzzleTargetSan}. Try again.` : 'Not quite. Give it another shot.');
+        const improvementText = improvement === true
+          ? ' That improves on your game move.'
+          : (improvement === false ? ' This repeats the original mistake.' : '');
+        let message;
+        if (correct) {
+          const detail = puzzleTargetSan && !nearBest ? ` ${puzzleTargetSan} was the top engine line.` : '';
+          const closeness = nearBest && puzzleTargetSan ? 'Close enough to the top choice.' : 'Great find.';
+          message = `${closeness}${detail}${improvementText}`;
+        } else {
+          message = `Not quite. Try again or explore another line.${improvementText}`;
+        }
         showPuzzleResult(!!correct, message);
         setPuzzleStatus(correct ? 'Nice! Use Next for the following puzzle.' : 'Incorrect. Retry to try again.');
         updatePuzzleControls();
@@ -2361,7 +2526,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         updatePuzzleControls();
       }
 
-      function handlePuzzleSquareClick(square) {
+      async function handlePuzzleSquareClick(square) {
         if (!puzzleActive) return false;
         if (selectedSquare) {
           if (selectedSquare === square) {
@@ -2374,11 +2539,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             playMoveSound(move);
             clearSelected();
             const attempt = buildUciFromMoveLike(move);
-            const normalizedAttempt = normalizeUciMove(attempt);
-            const target = normalizeUciMove(puzzleTargetMove || '');
-            const correct = target ? normalizedAttempt === target : true;
-            finalizePuzzleAttempt(correct);
-            if (!correct) {
+            const outcome = await evaluatePuzzleAttemptOutcome(attempt);
+            finalizePuzzleAttempt(outcome);
+            if (!outcome || !outcome.correct) {
               resetPuzzlePosition();
             }
           } else {
@@ -3510,10 +3673,19 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         function getScore(fen, opts) {
           return new Promise(resolve => {
             currentScoreResolver = resolve; lastInfoMsg = '';
-            engineWorker.postMessage('position fen ' + fen);
-            setEngineMultiPv(1);
             const o = opts || ENGINE_GO_OPTIONS || {};
+            const preserveMultiPv = !!o.preserveMultiPv;
+            const desiredMultiPv = Number.isFinite(o.multipv) ? Number(o.multipv) : null;
+            if (!preserveMultiPv) {
+              setEngineMultiPv(desiredMultiPv || 1);
+            } else if (desiredMultiPv) {
+              setEngineMultiPv(desiredMultiPv);
+            }
+            engineWorker.postMessage('position fen ' + fen);
             const parts = ['go'];
+            if (o.searchmoves && Array.isArray(o.searchmoves) && o.searchmoves.length) {
+              parts.push('searchmoves ' + o.searchmoves.join(' '));
+            }
             if (o.depth != null) parts.push('depth ' + o.depth);
             if (o.movetime != null) parts.push('movetime ' + o.movetime);
             if (parts.length === 1) parts.push('depth 15');
@@ -3521,12 +3693,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           });
         }
 
-        function handleEngineInfoMessage(msg) {
-          if (msg.startsWith('info depth')) {
-            lastInfoMsg = msg;
-          }
-          processBestMoveInfo(msg);
+      function handleEngineInfoMessage(msg) {
+        if (msg.startsWith('info depth')) {
+          lastInfoMsg = msg;
         }
+        processBestMoveInfo(msg);
+        processPuzzleInfo(msg);
+      }
 
         function normalizeFenForComparison(fen) {
           if (!fen) return '';
@@ -3535,8 +3708,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           return parts.slice(0, 4).join(' ');
         }
 
-        function processBestMoveInfo(msg) {
-          if (!showBestMove || !bestMoveActiveToken) return;
+      function processBestMoveInfo(msg) {
+        if (!showBestMove || !bestMoveActiveToken) return;
           if (!bestMoveFen || !bestMoveFenNormalized) return;
           if (!game) return;
           const currentFen = game.fen();
