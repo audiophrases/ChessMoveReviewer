@@ -1173,6 +1173,7 @@
       const PUZZLE_MAX_ALT_MOVES = 4;
       const PUZZLE_CLOSE_SCORE_THRESHOLD = 35;
       const PUZZLE_MATE_SCORE = 100000;
+      const ENGINE_REQUEST_TIMEOUT_MS = 8000;
 
       function setEngineMultiPv(value, options = {}) {
         const numeric = Number.parseInt(value, 10);
@@ -2351,7 +2352,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const wasAnalyzing = puzzleAnalysisActive;
         if (wasAnalyzing) stopPuzzleBackgroundAnalysis();
         await waitForEngineReady();
-        const score = await getScore(fen, { ...ENGINE_GO_OPTIONS, searchmoves: [moveUci], multipv: 1, preserveMultiPv: false });
+        const score = await getScoreWithTimeout(
+          fen,
+          { ...ENGINE_GO_OPTIONS, searchmoves: [moveUci], multipv: 1, preserveMultiPv: false },
+          'puzzle attempt score'
+        );
         if (wasAnalyzing && puzzleActive) {
           startPuzzleBackgroundAnalysis(fen);
         }
@@ -2411,7 +2416,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (!puzzle) return '';
         if (puzzle.bestMove) return puzzle.bestMove;
         await waitForEngineReady();
-        const score = await getScore(puzzle.fen, ENGINE_GO_OPTIONS);
+        const score = await getScoreWithTimeout(puzzle.fen, ENGINE_GO_OPTIONS, 'puzzle best move');
         const bestmove = score && score.bestmove ? normalizeUciMove(score.bestmove) : '';
         let resolved = bestmove || '';
         const fallback = buildUciFromMoveLike(puzzle.move);
@@ -2436,10 +2441,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           clearSelected();
           clearExploration(true);
           if (!game.load(puzzle.fen)) {
-            setPuzzleStatus('Could not load puzzle position.');
-            puzzleActive = false;
-            updatePuzzleControls();
-            return;
+            throw new Error('Could not load puzzle position.');
           }
           if (board) board.position(game.fen());
           puzzleStartFen = game.fen();
@@ -2456,10 +2458,14 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           }
           startPuzzleBackgroundAnalysis(puzzleStartFen);
           setPuzzleStatus('Find the engine move that avoids this mistake.');
-          updatePuzzleInfo();
-          updatePuzzleControls();
+        } catch (err) {
+          console.error('Puzzle load failed:', err);
+          puzzleActive = false;
+          setPuzzleStatus(err && err.message ? err.message : 'Could not load puzzle position.');
         } finally {
           puzzleLoading = false;
+          updatePuzzleInfo();
+          updatePuzzleControls();
         }
       }
 
@@ -3702,6 +3708,25 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             if (parts.length === 1) parts.push('depth 15');
             engineWorker.postMessage(parts.join(' '));
           });
+        }
+
+        async function getScoreWithTimeout(fen, opts, contextLabel) {
+          let timeoutHandle = null;
+          try {
+            const scorePromise = getScore(fen, opts);
+            const timeoutPromise = new Promise((_, reject) => {
+              timeoutHandle = setTimeout(() => {
+                const label = contextLabel ? ` for ${contextLabel}` : '';
+                reject(new Error(`Engine response timed out${label}.`));
+              }, ENGINE_REQUEST_TIMEOUT_MS);
+            });
+            return await Promise.race([scorePromise, timeoutPromise]);
+          } catch (err) {
+            console.warn('Engine request failed:', err && err.message ? err.message : err);
+            return null;
+          } finally {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+          }
         }
 
       function handleEngineInfoMessage(msg) {
