@@ -442,6 +442,8 @@
       let puzzleTopCandidates = [];
       let puzzleAnalysisToken = 0;
       let puzzleScoreRequestToken = 0;
+      let puzzleGraphIndex = -1;
+      let puzzleContextSquares = null;
       const loadChessComBtn = $('#load-chesscom-btn');
       const loadLichessBtn = $('#load-lichess-btn');
       const gameLoaderFeedback = $('#game-loader-feedback');
@@ -2114,7 +2116,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           lastAppliedMove = applied;
           explorationState.cursor = i + 1;
         }
-        if (board) board.position(game.fen());
+        if (board) board.position(game.fen(), false);
         if (lastAppliedMove) playMoveSound(lastAppliedMove);
       }
 
@@ -2136,6 +2138,26 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
+      function clearPuzzleContextHighlight() {
+        if (puzzleContextSquares) {
+          puzzleContextSquares.forEach(sq => {
+            $('#board .square-' + sq).css('box-shadow', '');
+          });
+          puzzleContextSquares = null;
+        }
+      }
+
+      function showPuzzleContextMove(moveRecord) {
+        clearPuzzleContextHighlight();
+        if (!moveRecord || !moveRecord.from || !moveRecord.to) return;
+        puzzleContextSquares = highlightMoveSquares(
+          moveRecord.from,
+          moveRecord.to,
+          'rgba(96, 165, 250, 0.7)',
+          0.55
+        );
+      }
+
       function clearPuzzleState() {
         puzzleQueue = [];
         activePuzzleIndex = -1;
@@ -2150,6 +2172,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         puzzleAnalysisActive = false;
         puzzleAnalysisFenNormalized = '';
         puzzleTopCandidates = [];
+        puzzleGraphIndex = -1;
+        clearPuzzleContextHighlight();
         setPuzzleStatus('');
         updatePuzzleInfo();
         updatePuzzleControls();
@@ -2221,6 +2245,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         puzzleAnalysisActive = false;
         puzzleAnalysisFenNormalized = '';
         puzzleTopCandidates = [];
+        puzzleGraphIndex = -1;
+        clearPuzzleContextHighlight();
         const normalizedColor = normalizePlayerColorToken(reviewPlayerColor);
         if (!Array.isArray(movesWithAnalysis) || !movesWithAnalysis.length) {
           updatePuzzleInfo();
@@ -2397,7 +2423,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       function resetPuzzlePosition() {
         if (!puzzleActive || !puzzleStartFen) return;
         game.load(puzzleStartFen);
-        if (board) board.position(puzzleStartFen);
+        if (board) board.position(puzzleStartFen, false);
         clearSelected();
       }
 
@@ -2437,13 +2463,16 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const puzzle = puzzleQueue[idx];
           puzzleActive = true;
           puzzleReturnIndex = currentMoveIndex;
+          puzzleGraphIndex = Number.isFinite(puzzle.index) ? puzzle.index : -1;
+          const previousMove = puzzle.index > 0 ? movesWithAnalysis[puzzle.index - 1] : null;
           stopPuzzleBackgroundAnalysis();
           clearSelected();
           clearExploration(true);
           if (!game.load(puzzle.fen)) {
             throw new Error('Could not load puzzle position.');
           }
-          if (board) board.position(game.fen());
+          if (board) board.position(game.fen(), false);
+          showPuzzleContextMove(previousMove);
           puzzleStartFen = game.fen();
           puzzleTargetMove = '';
           puzzleTargetSan = '';
@@ -2457,10 +2486,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             puzzleOriginalEval = await evaluatePuzzleMoveScore(puzzleStartFen, puzzleOriginalMove);
           }
           startPuzzleBackgroundAnalysis(puzzleStartFen);
+          renderEvalGraph(currentMoveIndex);
           setPuzzleStatus('Find the engine move that avoids this mistake.');
         } catch (err) {
           console.error('Puzzle load failed:', err);
           puzzleActive = false;
+          puzzleGraphIndex = -1;
+          clearPuzzleContextHighlight();
           setPuzzleStatus(err && err.message ? err.message : 'Could not load puzzle position.');
         } finally {
           puzzleLoading = false;
@@ -2493,9 +2525,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         stopPuzzleBackgroundAnalysis();
         hidePuzzleResult();
         setPuzzleStatus('');
+        puzzleGraphIndex = -1;
+        clearPuzzleContextHighlight();
         if (puzzleReturnIndex != null && puzzleReturnIndex >= -1) {
           goToMove(puzzleReturnIndex, { scrollMode: 'none' });
         }
+        renderEvalGraph(currentMoveIndex);
         updatePuzzleInfo();
         updatePuzzleControls();
       }
@@ -5150,39 +5185,87 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         evalCtx.strokeRect(0.7, 0.7, w - 1.4, h - 1.4);
         evalCtx.restore();
 
-        if (idx >= 0 && hasProbSeries) {
+        if (hasProbSeries) {
           const maxIdx = Math.max(probSeries.length - 1, 1);
-          const x = Number.isFinite(xPoints[idx]) ? xPoints[idx] : (idx / maxIdx) * w;
-          const highlightWidth = Math.max(6, w * 0.008);
-          const rectX = Math.max(0, x - (highlightWidth / 2));
-          evalCtx.save();
-          evalCtx.fillStyle = 'rgba(250, 204, 21, 0.18)';
-          evalCtx.fillRect(rectX, 0, highlightWidth, h);
-          evalCtx.restore();
-
-          evalCtx.save();
-          evalCtx.lineWidth = 2.2;
-          evalCtx.strokeStyle = '#fbbf24';
-          evalCtx.shadowColor = 'rgba(250, 204, 21, 0.65)';
-          evalCtx.shadowBlur = 10;
-          evalCtx.beginPath();
-          evalCtx.moveTo(x, 0);
-          evalCtx.lineTo(x, h);
-          evalCtx.stroke();
-          evalCtx.restore();
-
-          if (Number.isFinite(yPoints[idx])) {
-            const y = yPoints[idx];
+          const drawIndexHighlight = (index, opts = {}) => {
+            if (!Number.isFinite(index) || index < 0 || index >= probSeries.length) return;
+            const x = Number.isFinite(xPoints[index]) ? xPoints[index] : (index / maxIdx) * w;
+            const highlightWidth = Math.max(6, w * 0.008);
+            const rectX = Math.max(0, x - (highlightWidth / 2));
             evalCtx.save();
-            evalCtx.fillStyle = '#facc15';
-            evalCtx.strokeStyle = '#f59e0b';
-            evalCtx.lineWidth = 2;
+            evalCtx.fillStyle = opts.fill || 'rgba(250, 204, 21, 0.18)';
+            evalCtx.fillRect(rectX, 0, highlightWidth, h);
+            evalCtx.restore();
+
+            evalCtx.save();
+            evalCtx.lineWidth = opts.lineWidth || 2.2;
+            evalCtx.strokeStyle = opts.stroke || '#fbbf24';
+            if (opts.shadowColor) {
+              evalCtx.shadowColor = opts.shadowColor;
+              evalCtx.shadowBlur = opts.shadowBlur || 10;
+            } else {
+              evalCtx.shadowColor = 'rgba(0, 0, 0, 0)';
+              evalCtx.shadowBlur = 0;
+            }
             evalCtx.beginPath();
-            evalCtx.arc(x, y, 6, 0, Math.PI * 2);
-            evalCtx.fill();
+            evalCtx.moveTo(x, 0);
+            evalCtx.lineTo(x, h);
             evalCtx.stroke();
             evalCtx.restore();
+
+            if (Number.isFinite(yPoints[index])) {
+              const y = yPoints[index];
+              evalCtx.save();
+              evalCtx.fillStyle = opts.circleFill || '#facc15';
+              evalCtx.strokeStyle = opts.circleStroke || '#f59e0b';
+              evalCtx.lineWidth = opts.circleLineWidth || 2;
+              evalCtx.beginPath();
+              evalCtx.arc(x, y, opts.circleRadius || 6, 0, Math.PI * 2);
+              evalCtx.fill();
+              evalCtx.stroke();
+              evalCtx.restore();
+            }
+          };
+
+          const markers = [];
+          if (idx >= 0) {
+            markers.push({
+              index: idx,
+              opts: {
+                fill: 'rgba(250, 204, 21, 0.18)',
+                stroke: '#fbbf24',
+                lineWidth: 2.2,
+                shadowColor: 'rgba(250, 204, 21, 0.65)',
+                shadowBlur: 10,
+                circleFill: '#facc15',
+                circleStroke: '#f59e0b',
+                circleRadius: 6
+              }
+            });
           }
+          if (puzzleActive && Number.isFinite(puzzleGraphIndex) && puzzleGraphIndex >= 0) {
+            markers.push({
+              index: puzzleGraphIndex,
+              opts: {
+                fill: 'rgba(59, 130, 246, 0.15)',
+                stroke: '#60a5fa',
+                lineWidth: 2,
+                shadowColor: 'rgba(96, 165, 250, 0.45)',
+                shadowBlur: 8,
+                circleFill: '#bfdbfe',
+                circleStroke: '#60a5fa',
+                circleRadius: 5
+              }
+            });
+          }
+
+          const seen = new Set();
+          markers.forEach(marker => {
+            if (!marker || marker.index == null) return;
+            if (seen.has(marker.index)) return;
+            seen.add(marker.index);
+            drawIndexHighlight(marker.index, marker.opts || {});
+          });
         }
       }
 
@@ -5260,7 +5343,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             const applied = game.move(moveRecord.san);
             if (applied) lastAppliedMove = applied;
           }
-          if (board) board.position(game.fen());
+          if (board) board.position(game.fen(), false);
           if (idx >= 0 && lastAppliedMove) playMoveSound(lastAppliedMove);
           $('.move-item').removeClass('highlight');
           if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
