@@ -2141,30 +2141,18 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       }
 
       function computeMaterialGains(chessInstance) {
-        if (!chessInstance || typeof chessInstance.board !== 'function') {
-          return { white: 0, black: 0 };
+        if (!chessInstance || typeof chessInstance.history !== 'function') {
+          return { white: 0, black: 0, diff: 0 };
         }
-        const counts = {
-          w: { p: 0, n: 0, b: 0, r: 0, q: 0 },
-          b: { p: 0, n: 0, b: 0, r: 0, q: 0 }
-        };
-        const boardState = chessInstance.board();
-        boardState.forEach(row => {
-          row.forEach(piece => {
-            if (piece && counts[piece.color] && counts[piece.color][piece.type] != null) {
-              counts[piece.color][piece.type] += 1;
-            }
-          });
+        const gains = { white: 0, black: 0 };
+        const history = chessInstance.history({ verbose: true }) || [];
+        history.forEach(move => {
+          if (!move || !move.captured) return;
+          const value = PIECE_VALUES[move.captured];
+          if (!Number.isFinite(value)) return;
+          if (move.color === 'w') gains.white += value; else if (move.color === 'b') gains.black += value;
         });
-        const whiteCapture = Object.keys(PIECE_VALUES).reduce((sum, type) => {
-          const missing = Math.max(0, (STARTING_PIECE_COUNTS.b[type] || 0) - (counts.b[type] || 0));
-          return sum + missing * PIECE_VALUES[type];
-        }, 0);
-        const blackCapture = Object.keys(PIECE_VALUES).reduce((sum, type) => {
-          const missing = Math.max(0, (STARTING_PIECE_COUNTS.w[type] || 0) - (counts.w[type] || 0));
-          return sum + missing * PIECE_VALUES[type];
-        }, 0);
-        return { white: whiteCapture, black: blackCapture };
+        return { ...gains, diff: gains.white - gains.black };
       }
 
       function updateMaterialDisplay() {
@@ -2174,7 +2162,19 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const topColor = orientation === 'white' ? 'black' : 'white';
         const bottomColor = orientation === 'white' ? 'white' : 'black';
         const labels = { white: 'White', black: 'Black' };
-        const formatLabel = (color) => `${labels[color]}: ${Math.max(0, gains[color] || 0)}`;
+        const headers = game && typeof game.header === 'function' ? game.header() : {};
+        const buildPlayerName = (color) => {
+          const name = color === 'white' ? headers.White : headers.Black;
+          const elo = color === 'white' ? headers.WhiteElo : headers.BlackElo;
+          const base = name || labels[color];
+          return elo ? `${base} (${elo})` : base;
+        };
+        const formatLabel = (color) => {
+          const player = buildPlayerName(color);
+          const net = color === 'white' ? gains.diff : -gains.diff;
+          const netLabel = Number.isFinite(net) && net > 0 ? `+${net}` : `${net || 0}`;
+          return `${player}: ${netLabel}`;
+        };
         materialTopLabel.text(formatLabel(topColor));
         materialBottomLabel.text(formatLabel(bottomColor));
       }
