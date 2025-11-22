@@ -2200,7 +2200,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const topColor = orientation === 'white' ? 'black' : 'white';
         const bottomColor = orientation === 'white' ? 'white' : 'black';
         const labels = { white: 'White', black: 'Black' };
-        const headers = game && typeof game.header === 'function' ? game.header() : {};
+        const headers = mergeHeadersWithFallback(
+          game && typeof game.header === 'function' ? game.header() : {},
+          lastKnownHeaders
+        );
         const buildPlayerName = (color) => {
           const name = color === 'white' ? headers.White : headers.Black;
           const elo = color === 'white' ? headers.WhiteElo : headers.BlackElo;
