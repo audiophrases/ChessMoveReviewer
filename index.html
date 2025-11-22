@@ -228,11 +228,13 @@
         <!-- Board -->
         <div class="w-full mx-auto board-panel">
           <div class="board-shell bg-[#0b0e15] border border-[#1f2937] rounded-xl p-3 shadow-xl shadow-black/40">
+            <p id="material-top-label" class="text-center text-xs text-gray-300 leading-tight mb-1">White: 0</p>
             <div id="board" class="chessboard-container rounded-lg overflow-hidden"></div>
+            <p id="material-bottom-label" class="text-center text-xs text-gray-300 leading-tight mt-1">Black: 0</p>
             <div id="controls" class="mt-3 flex flex-wrap items-center justify-between gap-2 w-full">
               <div class="flex flex-wrap items-center gap-2">
                 <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
-                <button id="start-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-primary whitespace-nowrap">Start puzzles</button>
+                <button id="start-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-primary whitespace-nowrap">Start puzzle</button>
                 <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
               </div>
               <div class="flex flex-wrap items-center justify-end gap-2">
@@ -427,6 +429,8 @@
       const puzzleResultTitle = $('#puzzle-result-title');
       const puzzleResultMessage = $('#puzzle-result-message');
       const closePuzzleModalBtn = $('#close-puzzle-modal-btn');
+      const materialTopLabel = $('#material-top-label');
+      const materialBottomLabel = $('#material-bottom-label');
       let puzzleQueue = [];
       let activePuzzleIndex = -1;
       let puzzleActive = false;
@@ -438,6 +442,11 @@
       let puzzleOriginalMove = '';
       let puzzleOriginalEval = null;
       let puzzleAnalysisActive = false;
+      const PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+      const STARTING_PIECE_COUNTS = {
+        w: { p: 8, n: 2, b: 2, r: 2, q: 1 },
+        b: { p: 8, n: 2, b: 2, r: 2, q: 1 }
+      };
       let puzzleAnalysisFenNormalized = '';
       let puzzleTopCandidates = [];
       let puzzleAnalysisToken = 0;
@@ -2118,6 +2127,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           explorationState.cursor = i + 1;
         }
         if (board) board.position(game.fen(), false);
+        updateMaterialDisplay();
         if (lastAppliedMove) playMoveSound(lastAppliedMove);
       }
 
@@ -2128,6 +2138,45 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         applyExplorationCursor(target);
         handleExplorationPositionChanged();
         return true;
+      }
+
+      function computeMaterialGains(chessInstance) {
+        if (!chessInstance || typeof chessInstance.board !== 'function') {
+          return { white: 0, black: 0 };
+        }
+        const counts = {
+          w: { p: 0, n: 0, b: 0, r: 0, q: 0 },
+          b: { p: 0, n: 0, b: 0, r: 0, q: 0 }
+        };
+        const boardState = chessInstance.board();
+        boardState.forEach(row => {
+          row.forEach(piece => {
+            if (piece && counts[piece.color] && counts[piece.color][piece.type] != null) {
+              counts[piece.color][piece.type] += 1;
+            }
+          });
+        });
+        const whiteCapture = Object.keys(PIECE_VALUES).reduce((sum, type) => {
+          const missing = Math.max(0, (STARTING_PIECE_COUNTS.b[type] || 0) - (counts.b[type] || 0));
+          return sum + missing * PIECE_VALUES[type];
+        }, 0);
+        const blackCapture = Object.keys(PIECE_VALUES).reduce((sum, type) => {
+          const missing = Math.max(0, (STARTING_PIECE_COUNTS.w[type] || 0) - (counts.w[type] || 0));
+          return sum + missing * PIECE_VALUES[type];
+        }, 0);
+        return { white: whiteCapture, black: blackCapture };
+      }
+
+      function updateMaterialDisplay() {
+        if (!materialTopLabel.length || !materialBottomLabel.length) return;
+        const gains = computeMaterialGains(game);
+        const orientation = board && typeof board.orientation === 'function' ? board.orientation() : 'white';
+        const topColor = orientation === 'white' ? 'black' : 'white';
+        const bottomColor = orientation === 'white' ? 'white' : 'black';
+        const labels = { white: 'White', black: 'Black' };
+        const formatLabel = (color) => `${labels[color]}: ${Math.max(0, gains[color] || 0)}`;
+        materialTopLabel.text(formatLabel(topColor));
+        materialBottomLabel.text(formatLabel(bottomColor));
       }
 
       function setPuzzleStatus(text) {
@@ -2425,6 +2474,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (!puzzleActive || !puzzleStartFen) return;
         game.load(puzzleStartFen);
         if (board) board.position(puzzleStartFen, false);
+        updateMaterialDisplay();
         clearSelected();
       }
 
@@ -2473,6 +2523,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             throw new Error('Could not load puzzle position.');
           }
           if (board) board.position(game.fen(), false);
+          updateMaterialDisplay();
           showPuzzleContextMove(previousMove);
           puzzleStartFen = game.fen();
           puzzleTargetMove = '';
@@ -2589,6 +2640,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
           if (move) {
             if (board) board.position(game.fen());
+            updateMaterialDisplay();
             playMoveSound(move);
             clearSelected();
             const attempt = buildUciFromMoveLike(move);
@@ -2628,6 +2680,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             explorationState.moves.push({ san: move.san, from: move.from, to: move.to, promotion: move.promotion });
             explorationState.cursor = explorationState.moves.length;
             if (board) board.position(game.fen());
+            updateMaterialDisplay();
             playMoveSound(move);
             clearSelected();
             handleExplorationPositionChanged();
@@ -4699,6 +4752,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         board.resize();
         resizeEvalGraph();
         renderEvalGraph(-1);
+        updateMaterialDisplay();
         rebuildPuzzleQueue();
 
         const opponentLabel = deriveOpponentFromHeaders(headersSnapshot, reviewPlayerColor, playerNameValue);
@@ -5345,6 +5399,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             if (applied) lastAppliedMove = applied;
           }
           if (board) board.position(game.fen(), false);
+          updateMaterialDisplay();
           if (idx >= 0 && lastAppliedMove) playMoveSound(lastAppliedMove);
           $('.move-item').removeClass('highlight');
           if (idx >= 0) $('.move-item[data-move-index="' + idx + '"]').addClass('highlight');
@@ -5379,6 +5434,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             if (showBestMove && (lastBestMove || lastSecondBestMove)) {
               reapplyStoredBestMoveVisuals();
             }
+            updateMaterialDisplay();
           }
         });
         $('#toggle-eval-btn').on('click', function(){
