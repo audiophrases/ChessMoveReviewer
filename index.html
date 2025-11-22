@@ -1631,6 +1631,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (!moveRecord) return false;
         const mateAfter = moveRecord.mateAfter;
         if (!Number.isFinite(mateAfter)) return false;
+        if (mateAfter === 0) return true;
         if (moveRecord.color === 'w') return mateAfter > 0;
         return mateAfter < 0;
       }
