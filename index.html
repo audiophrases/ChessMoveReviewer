@@ -412,6 +412,7 @@
       let featuredMoveData = null;
       let featuredMoveIndex = -1;
       let lastAnnotatedPgn = '';
+      let lastKnownHeaders = {};
       let playerGameOutcome = null;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
@@ -591,6 +592,7 @@
         $('#stockfish-output').val('');
         updateFormState('stockfishOutput', '');
         const headers = parsePgnHeaders(game.pgn);
+        setLastKnownHeaders(headers);
         setReviewPlayerColor(game && game.color ? game.color : null);
         if (getRawPlayerNameInput()) {
           updateReviewPlayerColorFromHeaders(headers, getPlayerName(), { clearOnMiss: false });
@@ -1017,6 +1019,42 @@
           headers[match[1]] = match[2];
         }
         return headers;
+      }
+
+      function setLastKnownHeaders(headers) {
+        if (!headers || typeof headers !== 'object') {
+          lastKnownHeaders = {};
+          return;
+        }
+        const normalized = {};
+        Object.entries(headers).forEach(([key, value]) => {
+          if (value == null) return;
+          const str = String(value).trim();
+          if (!str) return;
+          normalized[key] = str;
+        });
+        lastKnownHeaders = normalized;
+      }
+
+      function mergeHeadersWithFallback(primary, fallback) {
+        const merged = { ...(fallback || {}) };
+        Object.entries(primary || {}).forEach(([key, value]) => {
+          if (value == null) return;
+          const str = String(value).trim();
+          if (!str) return;
+          merged[key] = str;
+        });
+        return merged;
+      }
+
+      function applyHeadersToGame(chessInstance, headers) {
+        if (!chessInstance || typeof chessInstance.header !== 'function' || !headers) return;
+        Object.entries(headers).forEach(([key, value]) => {
+          if (value == null) return;
+          try {
+            chessInstance.header(key, value);
+          } catch (err) { /* no-op if header setting fails */ }
+        });
       }
 
       function normalizeTimestamp(value) {
@@ -3353,6 +3391,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           $('#final-analysis-input').val(analysisText);
           updateFormState('finalAnalysisInput', analysisText);
         }
+        const headersFromEntry = entry.headers || parsePgnHeaders(entry.pgn || '');
+        setLastKnownHeaders(headersFromEntry);
         if (entry.annotatedPgn) {
           lastAnnotatedPgn = entry.annotatedPgn;
           updateFormState('annotatedPgn', lastAnnotatedPgn);
@@ -3620,6 +3660,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         setReviewPlayerColor(null);
         playerGameOutcome = null;
         lastFinalAnalysisText = '';
+        setLastKnownHeaders({});
         currentReviewMetadata = null;
         updateArchiveControls();
       });
@@ -3639,6 +3680,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm,''));
           if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
         }
+        setLastKnownHeaders(game.header());
         const rawNameForAnalysis = getRawPlayerNameInput();
         if (rawNameForAnalysis) {
           updateReviewPlayerColorFromGame(game, rawNameForAnalysis);
@@ -3679,6 +3721,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (rawNameDuringAnalysis) {
             updateReviewPlayerColorFromGame(game, rawNameDuringAnalysis);
           }
+          setLastKnownHeaders(game.header());
           const sanMoves = game.history(); let annotatedPgn = '';
           const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
           const temp = new Chess();
@@ -4463,7 +4506,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
         switchStep(4);
 
-        const headersSnapshot = game && typeof game.header === 'function' ? { ...game.header() } : {};
+        const headerFallback = (lastKnownHeaders && Object.keys(lastKnownHeaders).length)
+          ? lastKnownHeaders
+          : parsePgnHeaders($('#pgn-input').val());
+        let headersSnapshot = game && typeof game.header === 'function' ? { ...game.header() } : {};
+        headersSnapshot = mergeHeadersWithFallback(headersSnapshot, headerFallback);
+        applyHeadersToGame(game, headersSnapshot);
+        setLastKnownHeaders(headersSnapshot);
         const pgnSnapshot = game && typeof game.pgn === 'function' ? game.pgn({ max_width: 0, newline_char: '\n' }) : '';
         const playerNameValue = getPlayerName();
 
