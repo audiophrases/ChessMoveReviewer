@@ -41,6 +41,12 @@
     input[type=number]::-webkit-outer-spin-button,
     input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
     input[type=number] { -moz-appearance: textfield; }
+    select { background-color: #2d2d2d; color: #e5e7eb; border: 1px solid #364152; border-radius: 0.5rem; padding: 0.65rem 0.75rem; }
+    select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35); }
+    .dropdown-menu { border-radius: 0.5rem; background: #1f2937; border: 1px solid #364152; }
+    .language-toggle { display: inline-flex; gap: 0.5rem; }
+    .language-toggle button { background: #1f2937; color: #e5e7eb; border: 1px solid #364152; border-radius: 0.5rem; padding: 0.35rem 0.75rem; font-weight: 600; }
+    .language-toggle button.active { background: #3b82f6; border-color: #3b82f6; color: white; }
     .step-indicator { background-color: #273043; cursor: pointer; }
     .step-indicator.active { background-color: #3b82f6; }
     .step-indicator:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
@@ -96,7 +102,13 @@
 
   <!-- Header (hidden on final screen) -->
   <header id="app-header" class="text-center mb-6">
-    <h1 class="text-2xl sm:text-3xl font-bold text-white">AI Chess Reviewer</h1>
+    <div class="flex flex-col items-center gap-2">
+      <h1 data-i18n="title" class="text-2xl sm:text-3xl font-bold text-white">AI Chess Reviewer</h1>
+      <div class="language-toggle" role="group" aria-label="Language selection">
+        <button id="lang-en" type="button" data-lang="en" class="active">English</button>
+        <button id="lang-ca" type="button" data-lang="ca">Català</button>
+      </div>
+    </div>
   </header>
 
   <!-- Step Indicators -->
@@ -108,7 +120,7 @@
 
   <!-- Step 1: PGN Input -->
   <section id="step1-section" class="max-w-2xl w-full mx-auto flex flex-col gap-4">
-    <h2 class="text-xl sm:text-2xl font-bold text-center">Analyze PGN with Stockfish</h2>
+    <h2 data-i18n="step1Heading" class="text-xl sm:text-2xl font-bold text-center">Analyze PGN with Stockfish</h2>
     <div id="engine-status-banner" class="status-banner">
       <div class="flex-1">
         <p id="engine-status-message" class="font-medium"></p>
@@ -118,53 +130,53 @@
     </div>
     <div>
       <div class="flex items-center justify-between gap-2 mb-2">
-        <label for="player-name-input" class="font-semibold text-gray-300">Who should the AI coach?</label>
+        <label data-i18n="playerPrompt" for="player-name-input" class="font-semibold text-gray-300">Who should the AI coach?</label>
       </div>
-      <input id="player-name-input" type="text" class="w-full p-3 rounded-lg form-input" placeholder="Username"/>
-      <p class="mt-1 text-xs text-gray-400">Your username should appear in the PGN.</p>
+      <input id="player-name-input" type="text" class="w-full p-3 rounded-lg form-input" placeholder="Username" data-i18n="playerPlaceholder" data-i18n-target="placeholder"/>
+      <p data-i18n="playerHint" class="mt-1 text-xs text-gray-400">Your username should appear in the PGN.</p>
     </div>
     <div class="bg-[#101522] border border-[#1f2937] rounded-lg p-4">
-      <h3 class="text-sm font-semibold text-gray-200">Need a PGN?</h3>
-      <p class="mt-1 text-xs text-gray-400">Load a recent game from Chess.com or Lichess, or paste one manually below.</p>
+      <h3 data-i18n="pgnHelpTitle" class="text-sm font-semibold text-gray-200">Need a PGN?</h3>
+      <p data-i18n="pgnHelpBody" class="mt-1 text-xs text-gray-400">Load a recent game from Chess.com or Lichess, or paste one manually below.</p>
       <div class="flex flex-wrap items-center gap-2 mt-3">
-        <button id="load-chesscom-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">
+        <button id="load-chesscom-btn" type="button" data-i18n="browseChesscom" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">
           Browse Chess.com games
         </button>
-        <button id="load-lichess-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">
+        <button id="load-lichess-btn" type="button" data-i18n="browseLichess" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">
           Browse Lichess games
         </button>
         <button type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap open-archive-btn">
-          Open Saved Reviews
+          <span data-i18n="openSaved">Open Saved Reviews</span>
         </button>
       </div>
       <p id="game-loader-feedback" class="hidden mt-3 text-xs text-gray-300" role="status"></p>
     </div>
     <div>
       <div class="flex items-center justify-between gap-2 mb-2">
-        <label for="pgn-input" class="font-semibold text-gray-300">Paste PGN here</label>
-        <button id="clear-pgn-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Clear</button>
+        <label data-i18n="pastePgn" for="pgn-input" class="font-semibold text-gray-300">Paste PGN here</label>
+        <button id="clear-pgn-btn" type="button" data-i18n="clear" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Clear</button>
       </div>
-      <textarea id="pgn-input" rows="6" class="w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..."></textarea>
+      <textarea id="pgn-input" rows="6" class="w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..." data-i18n="pgnPlaceholder" data-i18n-target="placeholder"></textarea>
     </div>
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
-        <label for="depth-input" class="text-gray-300">Depth</label>
+        <label data-i18n="depth" for="depth-input" class="text-gray-300">Depth</label>
         <input id="depth-input" type="number" value="20" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
-        <label for="threads-input" class="text-gray-300">Threads</label>
+        <label data-i18n="threads" for="threads-input" class="text-gray-300">Threads</label>
         <input id="threads-input" type="number" min="1" value="4" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
-        <label for="hash-input" class="text-gray-300">Memory</label>
+        <label data-i18n="memory" for="hash-input" class="text-gray-300">Memory</label>
         <input id="hash-input" type="number" min="256" value="469" class="w-16 p-1 rounded form-input text-center"/>
       </div>
     </div>
     <div class="grid grid-cols-2 gap-2">
-      <button id="analyze-pgn-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
+      <button id="analyze-pgn-btn" data-i18n="loadingEngine" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary" disabled>
         Loading Engine...
       </button>
-      <button id="goto-step2-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
+      <button id="goto-step2-btn" type="button" data-i18n="skip" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
         Skip
       </button>
     </div>
@@ -172,7 +184,7 @@
 
   <!-- Step 2: Stockfish Output & AI Instructions -->
   <section id="step2-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
-    <h2 class="text-xl sm:text-2xl font-bold text-center">Get AI Coaching Comments</h2>
+    <h2 data-i18n="step2Heading" class="text-xl sm:text-2xl font-bold text-center">Get AI Coaching Comments</h2>
     <div id="stockfish-progress" class="text-center p-4 bg-[#101522] rounded-lg">
        <p id="progress-text" class="text-sm text-gray-300"></p>
        <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
@@ -180,15 +192,15 @@
       </div>
     </div>
     <div>
-      <label for="stockfish-output" class="block mb-2 font-semibold text-gray-300">Copy the prompt + annotated PGN below</label>
+      <label data-i18n="stockfishLabel" for="stockfish-output" class="block mb-2 font-semibold text-gray-300">Copy the prompt + annotated PGN below</label>
       <textarea id="stockfish-output" rows="7" class="w-full p-3 rounded-lg form-input font-mono text-sm" readonly></textarea>
-      <button id="copy-stockfish-btn" class="w-full mt-2 py-2 px-4 font-semibold text-white rounded-lg btn-secondary">Copy to Clipboard</button>
+      <button id="copy-stockfish-btn" data-i18n="copy" class="w-full mt-2 py-2 px-4 font-semibold text-white rounded-lg btn-secondary">Copy to Clipboard</button>
     </div>
     <div class="grid grid-cols-2 gap-2">
-      <button id="back-to-step1-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
+      <button id="back-to-step1-btn" type="button" data-i18n="back" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
         Back
       </button>
-      <button id="goto-step3-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
+      <button id="goto-step3-btn" type="button" data-i18n="continue" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
         Continue
       </button>
     </div>
@@ -196,19 +208,19 @@
 
   <!-- Step 3: Final Analysis Input -->
   <section id="step3-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
-    <h2 class="text-xl sm:text-2xl font-bold text-center">Paste Your Final AI Review</h2>
+    <h2 data-i18n="step3Heading" class="text-xl sm:text-2xl font-bold text-center">Paste Your Final AI Review</h2>
     <div>
-      <label for="final-analysis-input" class="block font-semibold text-gray-300 mb-2">Paste complete analysis here</label>
+      <label data-i18n="finalAnalysisLabel" for="final-analysis-input" class="block font-semibold text-gray-300 mb-2">Paste complete analysis here</label>
       <div class="flex flex-col sm:flex-row sm:items-start gap-2">
-        <textarea id="final-analysis-input" rows="6" class="flex-1 w-full p-3 rounded-lg form-input" placeholder="e4 - {3} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack."></textarea>
-        <button id="clear-final-analysis-btn" type="button" class="sm:self-start py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Clear</button>
+        <textarea id="final-analysis-input" rows="6" class="flex-1 w-full p-3 rounded-lg form-input" placeholder="e4 - {3} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack." data-i18n="finalAnalysisPlaceholder" data-i18n-target="placeholder"></textarea>
+        <button id="clear-final-analysis-btn" type="button" data-i18n="clear" class="sm:self-start py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Clear</button>
       </div>
     </div>
     <div class="grid grid-cols-2 gap-2">
-      <button id="back-to-step2-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
+      <button id="back-to-step2-btn" type="button" data-i18n="back" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
         Back
       </button>
-      <button id="generate-review-btn" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
+      <button id="generate-review-btn" data-i18n="review" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-primary">
         Review
       </button>
     </div>
@@ -217,7 +229,7 @@
   <!-- Final Review Section (mobile-optimized) -->
   <main id="review-section" class="hidden flex-1 max-w-5xl w-full mx-auto">
     <div class="w-full flex justify-start mb-3">
-      <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
+      <button id="back-to-step3-btn" type="button" data-i18n="back" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
     </div>
     <div class="w-full grid grid-cols-1 lg:grid-cols-2 gap-3">
       <!-- Column A: Board + evaluation graph (sticky) -->
@@ -233,14 +245,14 @@
             <p id="material-bottom-label" class="text-center text-xs text-gray-300 leading-tight mt-1">Black: 0</p>
             <div id="controls" class="mt-3 flex flex-wrap items-center justify-between gap-2 w-full">
               <div class="flex flex-wrap items-center gap-2">
-                <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
-                <button id="start-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-primary whitespace-nowrap">Start puzzle</button>
-                <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
+                <button id="toggle-eval-btn" type="button" data-i18n="best" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
+                <button id="start-puzzle-btn" type="button" data-i18n="startPuzzle" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-primary whitespace-nowrap">Start puzzle</button>
+                <button id="exit-puzzle-btn" type="button" data-i18n="exitPuzzle" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
               </div>
               <div class="flex flex-wrap items-center justify-end gap-2">
-                <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
-                <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
-                <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
+                <button id="flip-btn" data-i18n="flip" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
+                <button id="prev-btn" data-i18n="prev" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
+                <button id="next-btn" data-i18n="next" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
               </div>
             </div>
             <div id="puzzle-panel" class="mt-3 p-3 rounded-lg bg-[#101522] border border-[#1f2937] hidden">
@@ -264,11 +276,11 @@
       <div class="lg:col-span-1 flex flex-col gap-3">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div class="flex flex-wrap items-center gap-2">
-            <button id="save-archive-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>
+            <button id="save-archive-btn" type="button" data-i18n="saveArchive" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>
               Save to Archive
             </button>
             <button type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap open-archive-btn">
-              Open Archive
+              <span data-i18n="openArchive">Open Archive</span>
             </button>
           </div>
           <p id="archive-feedback" class="hidden text-xs"></p>
@@ -341,6 +353,108 @@
         ? Math.max(1, Math.min(16, navigator.hardwareConcurrency))
         : 8;
 
+      const translations = {
+        en: {
+          title: 'AI Chess Reviewer',
+          step1Heading: 'Analyze PGN with Stockfish',
+          step2Heading: 'Get AI Coaching Comments',
+          step3Heading: 'Paste Your Final AI Review',
+          playerPrompt: 'Who should the AI coach?',
+          playerPlaceholder: 'Username',
+          playerHint: 'Your username should appear in the PGN.',
+          pgnHelpTitle: 'Need a PGN?',
+          pgnHelpBody: 'Load a recent game from Chess.com or Lichess, or paste one manually below.',
+          browseChesscom: 'Browse Chess.com games',
+          browseLichess: 'Browse Lichess games',
+          openSaved: 'Open Saved Reviews',
+          pastePgn: 'Paste PGN here',
+          clear: 'Clear',
+          pgnPlaceholder: '[Event "..."]...',
+          depth: 'Depth',
+          threads: 'Threads',
+          memory: 'Memory',
+          loadingEngine: 'Loading Engine...',
+          skip: 'Skip',
+          stockfishLabel: 'Copy the prompt + annotated PGN below',
+          copy: 'Copy to Clipboard',
+          back: 'Back',
+          continue: 'Continue',
+          finalAnalysisLabel: 'Paste complete analysis here',
+          finalAnalysisPlaceholder: 'e4 - {3} Good: A classical opening move...\n...\nSummary: Black won after a decisive kingside attack.',
+          review: 'Review',
+          saveArchive: 'Save to Archive',
+          openArchive: 'Open Archive',
+          startPuzzle: 'Start puzzle',
+          exitPuzzle: 'Exit',
+          best: 'Best',
+          flip: 'Flip',
+          prev: 'Prev',
+          next: 'Next'
+        },
+        ca: {
+          title: 'Revisor d’escacs amb IA',
+          step1Heading: 'Analitza PGN amb Stockfish',
+          step2Heading: 'Aconsegueix comentaris d’entrenador IA',
+          step3Heading: 'Enganxa la ressenya final de la IA',
+          playerPrompt: 'A qui ha d’entrenar la IA?',
+          playerPlaceholder: 'Nom d’usuari',
+          playerHint: 'El teu nom d’usuari ha d’aparèixer al PGN.',
+          pgnHelpTitle: 'Necessites un PGN?',
+          pgnHelpBody: 'Carrega una partida recent de Chess.com o Lichess o enganxa’n una manualment.',
+          browseChesscom: 'Cerca partides de Chess.com',
+          browseLichess: 'Cerca partides de Lichess',
+          openSaved: 'Obre ressenyes desades',
+          pastePgn: 'Enganxa aquí el PGN',
+          clear: 'Neteja',
+          pgnPlaceholder: '[Esdeveniment "..."]...',
+          depth: 'Profunditat',
+          threads: 'Fils',
+          memory: 'Memòria',
+          loadingEngine: 'Carregant el motor...',
+          skip: 'Salta',
+          stockfishLabel: 'Copia el prompt + PGN anotat aquí sota',
+          copy: 'Copia al porta-retalls',
+          back: 'Enrere',
+          continue: 'Continua',
+          finalAnalysisLabel: 'Enganxa aquí l’anàlisi complet',
+          finalAnalysisPlaceholder: 'e4 - {3} Bo: Una obertura clàssica...\n...\nResum: Les negres van guanyar després d’un atac decisiu al flanc de rei.',
+          review: 'Ressenya',
+          saveArchive: 'Desa a l’arxiu',
+          openArchive: 'Obre l’arxiu',
+          startPuzzle: 'Inicia el trencaclosques',
+          exitPuzzle: 'Surt',
+          best: 'Millor',
+          flip: 'Gira',
+          prev: 'Anterior',
+          next: 'Següent'
+        }
+      };
+
+      const storedLang = (typeof localStorage !== 'undefined') ? localStorage.getItem('cmr.language') : null;
+      const defaultLang = storedLang || (navigator.language && navigator.language.startsWith('ca') ? 'ca' : 'en');
+      let currentLanguage = translations[defaultLang] ? defaultLang : 'en';
+
+      function t(key, fallback) {
+        const dict = translations[currentLanguage] || translations.en;
+        return (dict && dict[key]) || fallback || key;
+      }
+
+      function applyTranslations() {
+        document.documentElement.setAttribute('lang', currentLanguage);
+        $('[data-i18n]').each(function () {
+          const key = $(this).data('i18n');
+          const target = $(this).data('i18n-target');
+          const translated = t(key, $(this).text().trim());
+          if (target === 'placeholder') {
+            $(this).attr('placeholder', translated);
+          } else {
+            $(this).text(translated);
+          }
+        });
+        $('.language-toggle button').removeClass('active');
+        $(`.language-toggle button[data-lang="${currentLanguage}"]`).addClass('active');
+      }
+
       function sanitizeIntegerSetting(value, rules) {
         const normalizedRules = rules || {};
         const fallback = Number.isFinite(normalizedRules.fallback) ? normalizedRules.fallback : 0;
@@ -407,8 +521,9 @@
       let evalCanvas = null;
       let evalCtx = null;
       const copyStockfishBtn = $('#copy-stockfish-btn');
-      const defaultCopyLabel = copyStockfishBtn.length ? (copyStockfishBtn.text().trim() || 'Copy to Clipboard') : 'Copy to Clipboard';
-      const analyzingCopyLabel = 'Analyzing...';
+      let defaultCopyLabel = copyStockfishBtn.length ? (copyStockfishBtn.text().trim() || 'Copy to Clipboard') : 'Copy to Clipboard';
+      defaultCopyLabel = t('copy', defaultCopyLabel);
+      const analyzingCopyLabel = t('loadingEngine', 'Analyzing...');
       let featuredMoveData = null;
       let featuredMoveIndex = -1;
       let lastAnnotatedPgn = '';
@@ -485,6 +600,19 @@
       let currentReviewMetadata = null;
       let pendingArchiveLoadNotice = null;
 
+      function setLanguage(lang) {
+        if (!translations[lang]) return;
+        currentLanguage = lang;
+        if (typeof localStorage !== 'undefined') {
+          try { localStorage.setItem('cmr.language', lang); } catch (err) { /* ignore */ }
+        }
+        applyTranslations();
+        defaultCopyLabel = t('copy', defaultCopyLabel);
+        if (copyStockfishBtn.length) {
+          copyStockfishBtn.text(defaultCopyLabel);
+        }
+      }
+
       applySavedFormState();
       bindPersistentInput('#player-name-input', 'playerName');
       bindPersistentInput('#pgn-input', 'pgnInput');
@@ -495,6 +623,16 @@
       bindPersistentInput('#depth-input', 'depthInput');
       bindPersistentInput('#threads-input', 'threadsInput', { sanitize: value => sanitizeEngineSetting('threads', value) });
       bindPersistentInput('#hash-input', 'hashInput', { sanitize: value => sanitizeEngineSetting('hash', value) });
+      applyTranslations();
+      $('.language-toggle button').on('click', function () {
+        const lang = $(this).data('lang');
+        setLanguage(lang);
+      });
+      $(document).on('click', '.speak-word', function (event) {
+        event.stopPropagation();
+        const word = $(this).data('word');
+        speakWord(word);
+      });
       $('#player-name-input').on('input change', function () {
         const rawName = getRawPlayerNameInput();
         if (rawName) {
@@ -2738,8 +2876,74 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           $('#board .square-' + square).addClass('selected');
         }
       }
+      function wrapWordsForSpeech(htmlString) {
+        if (!htmlString) return '';
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = htmlString;
+        const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT, null);
+        const nodes = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+        nodes.forEach(node => {
+          const text = node.nodeValue;
+          if (!text || !text.trim()) return;
+          const parts = text.split(/(\s+)/);
+          const frag = document.createDocumentFragment();
+          parts.forEach(part => {
+            if (!part.trim()) {
+              frag.appendChild(document.createTextNode(part));
+            } else {
+              const span = document.createElement('span');
+              span.className = 'speak-word cursor-pointer hover:text-blue-300';
+              span.setAttribute('data-word', part);
+              span.textContent = part;
+              frag.appendChild(span);
+            }
+          });
+          node.parentNode.replaceChild(frag, node);
+        });
+        return wrapper.innerHTML;
+      }
+
       function formatText(t) {
-        return t ? String(t).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>') : '';
+        const formatted = t ? String(t).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>') : '';
+        return wrapWordsForSpeech(formatted);
+      }
+
+      let speechVoices = [];
+
+      function refreshSpeechVoices() {
+        if (!('speechSynthesis' in window)) return;
+        speechVoices = window.speechSynthesis.getVoices();
+        if (!speechVoices.length) {
+          window.speechSynthesis.onvoiceschanged = () => {
+            speechVoices = window.speechSynthesis.getVoices();
+          };
+        }
+      }
+
+      function detectLanguageForWord(word) {
+        if (currentLanguage === 'ca') return 'ca-ES';
+        const hasCatalanAccent = /[àèéíïòóúüç]/i.test(word || '');
+        return hasCatalanAccent ? 'ca-ES' : 'en-US';
+      }
+
+      function getVoiceForLanguage(lang) {
+        if (!speechVoices || !speechVoices.length) return null;
+        return speechVoices.find(v => v.lang && v.lang.toLowerCase().startsWith(lang.toLowerCase()))
+          || speechVoices.find(v => v.lang && v.lang.toLowerCase().startsWith(lang.slice(0, 2)))
+          || null;
+      }
+
+      function speakWord(word) {
+        if (!word || !('speechSynthesis' in window)) return;
+        refreshSpeechVoices();
+        const lang = detectLanguageForWord(word);
+        const utterance = new SpeechSynthesisUtterance(word);
+        utterance.lang = lang;
+        const voice = getVoiceForLanguage(lang);
+        if (voice) utterance.voice = voice;
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
       }
       function formatSummaryLine(s) {
         if (!s) return '';
