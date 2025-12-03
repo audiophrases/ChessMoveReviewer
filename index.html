@@ -4845,8 +4845,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       // Parse analysis lines with optional {eval} and final Summary:
       function parseAnalysis(text) {
-        const lines = text.split('\n'); const parsedMoves = []; const criticalMoments = {}; const summaries = {}; let currentSummary = null; let lastSan = null; let summaryLine = ''; let inSummary = false; let featuredMove = null;
-        const moveRegex = /^(?:\d+\.{1,3}\s*)?(\S+)(?:\s*[-–—]\s*)?(?:\s*(\{[^}]+\}))?\s*([A-Za-z0-9!?\'"()\-\s]+?)\s*:\s*(.*)/;
+        const lines = text.split('\n'); const parsedMoves = []; const criticalMoments = {}; const summaries = {}; const metadataLines = []; let currentSummary = null; let lastSan = null; let summaryLine = ''; let inSummary = false; let featuredMove = null;
+        const moveRegex = /^(?:\s*\d+\.{1,3}\s*)?(\S+)\s*(.*)$/;
+        const evaluationPrefixRegex = /^(?:[-–—]\s*)?(\{[^}]+\}|#?-?\s*[+–-]?\d+(?:\.\d+)?%?)(?:\s+|[-–—]\s+)?(.*)$/;
+        const metadataLineRegex = /^\s*(Accuracy|Win\s*Rate|Winrate|ACPL|CPL|Result|Outcome|Termination|Avg\.?|Average|Blunders|Mistakes|Inaccuracies|Eval|Evaluation|Notes?)/i;
         const criticalMomentRegex = /^Critical Moment:\s*(.*)/i;
         const summaryHeaderRegex = /^\s*\*\*(Strengths|Recurring Mistakes|Top 3 Takeaways)\*\*/i;
         // Allow leading whitespace before "Summary:" to handle AI outputs
@@ -4878,9 +4880,64 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           return true;
         }
 
+        function parseMoveSegment(segment) {
+          const baseMatch = segment.match(moveRegex);
+          if (!baseMatch) return null;
+          const rawSan = baseMatch[1];
+          let remainder = (baseMatch[2] || '').trim();
+          if (!rawSan || !rawSan.trim()) return null;
+
+          remainder = remainder.replace(/^[-–—]\s*/, '');
+          let evaluation = null;
+          const evalMatch = remainder.match(evaluationPrefixRegex);
+          if (evalMatch) {
+            evaluation = (evalMatch[1] || '').trim() || null;
+            remainder = (evalMatch[2] || '').trim();
+          }
+
+          let classification = '';
+          let text = '';
+          if (remainder) {
+            const colonIdx = remainder.indexOf(':');
+            if (colonIdx !== -1) {
+              classification = remainder.slice(0, colonIdx).trim();
+              text = remainder.slice(colonIdx + 1).trim();
+            } else {
+              const dashSplit = remainder.match(/^([A-Za-z][A-Za-z0-9!?\'"()\s-]*?)\s*[-–—]\s+(.*)$/);
+              if (dashSplit) {
+                classification = dashSplit[1].trim();
+                text = (dashSplit[2] || '').trim();
+              } else {
+                const normalized = normalizeClassificationKey(remainder.replace(/[:.]+$/, ''));
+                if (CLASSIFICATION_CANONICAL[normalized]) {
+                  classification = canonicalizeClassification(remainder);
+                } else {
+                  text = remainder;
+                }
+              }
+            }
+          }
+
+          const san = normalizeSanToken(rawSan) || rawSan.trim();
+          if (!san) return null;
+          const evalInfo = parseEvaluationToken(evaluation);
+          return { san, evaluation, classification, ...evalInfo, text, displaySan: rawSan.trim() };
+        }
+
         const moveNumberSplitRegex = /\d+\.{1,3}\s*/g;
         function splitCompositeLine(rawLine) {
-          const matches = [...rawLine.matchAll(moveNumberSplitRegex)];
+          if (summaryLineRegex.test(rawLine) || summaryHeaderRegex.test(rawLine) || moveOfGameRegex.test(rawLine) || metadataLineRegex.test(rawLine)) {
+            return [rawLine];
+          }
+          const matches = [...rawLine.matchAll(moveNumberSplitRegex)].filter(match => {
+            const idx = match.index || 0;
+            const prevChar = idx > 0 ? rawLine[idx - 1] : '';
+            const nextChar = rawLine[idx + match[0].length] || '';
+            if (/\d/.test(prevChar)) return false;
+            if (/\d/.test(nextChar)) return false;
+            if (idx > 0 && !/\s|\./.test(prevChar)) return false;
+            return true;
+          });
           if (matches.length <= 1) return [rawLine];
           const segments = [];
           if (matches[0].index > 0) {
@@ -4916,24 +4973,105 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
             const sl = segment.match(summaryLineRegex); if (sl) { summaryLine = sl[1].trim(); inSummary = true; return; }
             if (assignFeatured(segment.match(moveOfGameRegex))) return;
-            const m = segment.match(moveRegex);
+            const sh = segment.match(summaryHeaderRegex); if (sh) { const key = sh[1].replace(/\s/g,''); summaries[key] = []; currentSummary = key; return; }
+            if (metadataLineRegex.test(trimmed)) { metadataLines.push(trimmed); return; }
+            const m = parseMoveSegment(trimmed);
             if (m) {
-              const rawSan = m[1];
-              const san = normalizeSanToken(rawSan) || rawSan.trim();
-              const evaluation = (m[2] || '').trim() || null;
-              const classification = m[3].trim();
-              const txt = m[4].trim();
-              const evalInfo = parseEvaluationToken(evaluation);
-              parsedMoves.push({ san, evaluation, classification, ...evalInfo, text: txt, displaySan: rawSan.trim() });
-              lastSan = san; currentSummary = null; return;
+              parsedMoves.push(m);
+              lastSan = m.san; currentSummary = null; return;
             }
             const cm = segment.match(criticalMomentRegex); if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; return; }
-            const sh = segment.match(summaryHeaderRegex); if (sh) { const key = sh[1].replace(/\s/g,''); summaries[key] = []; currentSummary = key; return; }
             if (trimmed && trimmed !== '---' && currentSummary) summaries[currentSummary].push(trimmed);
           });
         });
-        return { moves: parsedMoves, criticalMoments, summaries, summary: summaryLine, featuredMove };
+        const combinedSummary = [summaryLine, ...metadataLines].filter(Boolean).join(' ').trim();
+        return { moves: parsedMoves, criticalMoments, summaries, summary: combinedSummary, featuredMove };
       }
+
+      const parseAnalysisFixtures = [
+        {
+          name: 'Colonless evaluation with freeform comment',
+          input: '1... Kh8 {-0.3} missed tactic',
+          expected: {
+            moves: [
+              { san: 'Kh8', evaluation: '{-0.3}', classification: '', text: 'missed tactic' }
+            ]
+          }
+        },
+        {
+          name: 'Numeric evaluation without braces and no classification',
+          input: '2. Bb5 -0.12 Quiet pressure',
+          expected: {
+            moves: [
+              { san: 'Bb5', evaluation: '-0.12', classification: '', text: 'Quiet pressure' }
+            ]
+          }
+        },
+        {
+          name: 'Metadata lines bypass move parsing and keep SAN order',
+          input: 'Accuracy: 78%\n12... Kh8 -0.3 - misplayed defense\n13. Bc4 {+0.2} steady',
+          expected: {
+            moves: [
+              { san: 'Kh8', evaluation: '-0.3', text: 'misplayed defense' },
+              { san: 'Bc4', evaluation: '{+0.2}', text: 'steady' }
+            ],
+            summaryIncludes: 'Accuracy: 78%'
+          }
+        },
+        {
+          name: 'Composite move line splits correctly',
+          input: '12... Kh8 {-0.4} stuck plan 13. Bc4 {+0.2} keeps pressure',
+          expected: {
+            moves: [
+              { san: 'Kh8', evaluation: '{-0.4}' },
+              { san: 'Bc4', evaluation: '{+0.2}' }
+            ]
+          }
+        }
+      ];
+
+      function runParseAnalysisFixtures() {
+        if (!Array.isArray(parseAnalysisFixtures) || !parseAnalysisFixtures.length || typeof parseAnalysis !== 'function') return;
+        const failures = [];
+        parseAnalysisFixtures.forEach(fixture => {
+          const result = parseAnalysis(fixture.input);
+          const expected = fixture.expected || {};
+
+          if (expected.moves) {
+            if (result.moves.length !== expected.moves.length) {
+              failures.push({ name: fixture.name, reason: 'move count', expected: expected.moves.length, actual: result.moves.length });
+            } else {
+              expected.moves.forEach((mv, idx) => {
+                const actual = result.moves[idx] || {};
+                ['san', 'evaluation', 'classification', 'text'].forEach(key => {
+                  if (mv[key] != null) {
+                    const actualVal = (actual[key] || '').toString().trim();
+                    const expectedVal = mv[key].toString().trim();
+                    if (actualVal !== expectedVal) {
+                      failures.push({ name: fixture.name, reason: key, index: idx, expected: expectedVal, actual: actualVal });
+                    }
+                  }
+                });
+              });
+            }
+          }
+
+          if (expected.summaryIncludes) {
+            const summary = (result.summary || '').toString();
+            if (!summary.includes(expected.summaryIncludes)) {
+              failures.push({ name: fixture.name, reason: 'summaryIncludes', expected: expected.summaryIncludes, actual: summary });
+            }
+          }
+        });
+
+        if (!failures.length) {
+          if (typeof console !== 'undefined') console.log(`parseAnalysis fixtures passed (${parseAnalysisFixtures.length})`);
+        } else if (typeof console !== 'undefined') {
+          console.warn('parseAnalysis fixtures failed', failures);
+        }
+      }
+
+      runParseAnalysisFixtures();
 
       // Convert evaluation string like "{+0.23}", "{-1.10}", "{#3}" (WHITE-relative already)
       function parseEvalToCp(evalStr) { if (!evalStr) return null; const s = String(evalStr).replace(/[{}\s]/g,''); if (!s) return null; if (s[0] === '#') return s.includes('-') ? -999 : 999; const num = parseFloat(s); if (isNaN(num)) return null; return Math.round(num * 100); }
