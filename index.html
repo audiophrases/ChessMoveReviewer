@@ -4878,31 +4878,57 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           return true;
         }
 
+        const moveNumberSplitRegex = /\d+\.{1,3}\s*/g;
+        function splitCompositeLine(rawLine) {
+          const matches = [...rawLine.matchAll(moveNumberSplitRegex)];
+          if (matches.length <= 1) return [rawLine];
+          const segments = [];
+          if (matches[0].index > 0) {
+            const prefix = rawLine.slice(0, matches[0].index).trim();
+            if (prefix) segments.push(prefix);
+          }
+          matches.forEach((match, idx) => {
+            const start = match.index;
+            const end = idx + 1 < matches.length ? matches[idx + 1].index : rawLine.length;
+            const segment = rawLine.slice(start, end).trim();
+            if (segment) segments.push(segment);
+          });
+          return segments;
+        }
+
+        // Regression: lines like "12... Kh8 ?! ... 13. Bc4" should split into
+        // two move entries so PGN reconstruction doesn't hit "Illegal move" errors.
         lines.forEach(line => {
-          const trimmed = line.trim();
           if (inSummary) {
+            const trimmed = line.trim();
             if (!trimmed) return;
             if (assignFeatured(line.match(moveOfGameRegex))) { inSummary = false; return; }
             summaryLine += ' ' + trimmed;
             return;
           }
-          const sl = line.match(summaryLineRegex);
-          if (sl) { summaryLine = sl[1].trim(); inSummary = true; return; }
-          if (assignFeatured(line.match(moveOfGameRegex))) return;
-          const m = line.match(moveRegex);
-          if (m) {
-            const rawSan = m[1];
-            const san = normalizeSanToken(rawSan) || rawSan.trim();
-            const evaluation = (m[2] || '').trim() || null;
-            const classification = m[3].trim();
-            const txt = m[4].trim();
-            const evalInfo = parseEvaluationToken(evaluation);
-            parsedMoves.push({ san, evaluation, classification, ...evalInfo, text: txt, displaySan: rawSan.trim() });
-            lastSan = san; currentSummary = null; return;
-          }
-          const cm = line.match(criticalMomentRegex); if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; return; }
-          const sh = line.match(summaryHeaderRegex); if (sh) { const key = sh[1].replace(/\s/g,''); summaries[key] = []; currentSummary = key; return; }
-          if (trimmed && trimmed !== '---' && currentSummary) summaries[currentSummary].push(trimmed);
+
+          const segments = splitCompositeLine(line);
+          segments.forEach(segment => {
+            const trimmed = segment.trim();
+            if (!trimmed) return;
+
+            const sl = segment.match(summaryLineRegex); if (sl) { summaryLine = sl[1].trim(); inSummary = true; return; }
+            if (assignFeatured(segment.match(moveOfGameRegex))) return;
+            const m = segment.match(moveRegex);
+            if (m) {
+              const rawSan = m[1];
+              const san = normalizeSanToken(rawSan) || rawSan.trim();
+              const evaluation = (m[2] || '').trim() || null;
+              const classification = m[3].trim();
+              const txt = m[4].trim();
+              const evalInfo = parseEvaluationToken(evaluation);
+              parsedMoves.push({ san, evaluation, classification, ...evalInfo, text: txt, displaySan: rawSan.trim() });
+              lastSan = san; currentSummary = null; return;
+            }
+            const cm = segment.match(criticalMomentRegex); if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; return; }
+            const sh = segment.match(summaryHeaderRegex); if (sh) { const key = sh[1].replace(/\s/g,''); summaries[key] = []; currentSummary = key; return; }
+            if (trimmed && trimmed !== '---' && currentSummary) summaries[currentSummary].push(trimmed);
+          });
         });
         return { moves: parsedMoves, criticalMoments, summaries, summary: summaryLine, featuredMove };
       }
