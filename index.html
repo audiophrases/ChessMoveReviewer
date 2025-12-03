@@ -4912,6 +4912,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             const trimmed = segment.trim();
             if (!trimmed) return;
 
+            if (inSummary) { summaryLine += ' ' + trimmed; return; }
+
             const sl = segment.match(summaryLineRegex); if (sl) { summaryLine = sl[1].trim(); inSummary = true; return; }
             if (assignFeatured(segment.match(moveOfGameRegex))) return;
             const m = segment.match(moveRegex);
