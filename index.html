@@ -3706,7 +3706,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (active) {
           copyStockfishBtn.text(analyzingCopyLabel).prop('disabled', true);
         } else {
-          copyStockfishBtn.text(defaultCopyLabel).prop('disabled', false);
+          const currentLabel = (copyStockfishBtn.text() || '').trim();
+          if (currentLabel !== 'Copied!') {
+            copyStockfishBtn.text(defaultCopyLabel);
+          }
+          copyStockfishBtn.prop('disabled', false);
         }
       }
 
@@ -3814,12 +3818,45 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           updateFormState('stockfishOutput', combined);
           updateFormState('annotatedPgn', lastAnnotatedPgn);
           $('#goto-step3-btn').prop('disabled', false);
+          autoCopyStockfishOutputToClipboard();
+          autoCompleteReviewFlow();
         } catch (err) {
           console.error('Stockfish analysis failed', err);
           handleEngineLoadFailure('Stockfish analysis failed. Please retry.');
         } finally {
           setCopyButtonAnalyzing(false);
         }
+      }
+
+      function autoCopyStockfishOutputToClipboard() {
+        if (!navigator.clipboard || !$('#stockfish-output').length) return;
+        const content = $('#stockfish-output').val();
+        if (!content) return;
+        navigator.clipboard.writeText(content).then(function(){
+          if (!copyStockfishBtn.length) return;
+          copyStockfishBtn.text('Copied!').prop('disabled', false);
+          setTimeout(function(){ copyStockfishBtn.text(defaultCopyLabel); }, 1600);
+        }).catch(function(err){
+          console.warn('Automatic clipboard copy failed:', err);
+        });
+      }
+
+      function autoCompleteReviewFlow() {
+        const finalInput = $('#final-analysis-input');
+        if (!finalInput.length) return;
+        const existing = (finalInput.val() || '').trim();
+        let sourceText = existing;
+        if (!sourceText) {
+          if (automatedReviewText && automatedReviewText.trim()) {
+            sourceText = automatedReviewText.trim();
+          }
+        }
+        if (!sourceText) return;
+        if (!existing) {
+          finalInput.val(sourceText);
+          updateFormState('finalAnalysisInput', sourceText);
+        }
+        $('#generate-review-btn').trigger('click');
       }
 
         function getScore(fen, opts) {
