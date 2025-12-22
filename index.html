@@ -183,6 +183,13 @@
       <label for="stockfish-output" class="block mb-2 font-semibold text-gray-300">Copy the prompt + annotated PGN below</label>
       <textarea id="stockfish-output" rows="7" class="w-full p-3 rounded-lg form-input font-mono text-sm" readonly></textarea>
       <button id="copy-stockfish-btn" class="w-full mt-2 py-2 px-4 font-semibold text-white rounded-lg btn-secondary">Copy to Clipboard</button>
+      <div id="copy-fallback-banner" class="hidden mt-2 rounded-lg border border-amber-400/70 bg-amber-500/10 text-amber-100 px-3 py-2 text-sm flex items-start gap-2">
+        <div class="leading-snug">
+          <p class="font-semibold">Clipboard access blocked</p>
+          <p id="copy-fallback-detail" class="text-xs text-amber-100/80 mt-0.5">Click “Copy to Clipboard” to copy the prompt.</p>
+        </div>
+        <button id="finish-copy-btn" type="button" class="ml-auto py-1.5 px-3 text-xs font-semibold text-white rounded-md btn-primary whitespace-nowrap">Finish &amp; Copy</button>
+      </div>
     </div>
     <div class="grid grid-cols-2 gap-2">
       <button id="back-to-step1-btn" type="button" class="w-full py-3 px-6 text-lg font-semibold text-white rounded-lg btn-secondary">
@@ -409,6 +416,12 @@
       const copyStockfishBtn = $('#copy-stockfish-btn');
       const defaultCopyLabel = copyStockfishBtn.length ? (copyStockfishBtn.text().trim() || 'Copy to Clipboard') : 'Copy to Clipboard';
       const analyzingCopyLabel = 'Analyzing...';
+      const copyFallbackBanner = $('#copy-fallback-banner');
+      const copyFallbackDetail = $('#copy-fallback-detail');
+      const finishCopyBtn = $('#finish-copy-btn');
+      let awaitingUserGestureCopy = false;
+      let pendingClipboardText = '';
+      let gestureCopyListenerAttached = false;
       let featuredMoveData = null;
       let featuredMoveIndex = -1;
       let lastAnnotatedPgn = '';
@@ -3828,17 +3841,103 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
-      function autoCopyStockfishOutputToClipboard() {
+      function hideCopyManualReminder() {
+        if (copyFallbackBanner.length) {
+          copyFallbackBanner.addClass('hidden');
+        }
+      }
+
+      function showCopyManualReminder(detail) {
+        if (copyFallbackDetail.length && detail) {
+          copyFallbackDetail.text(detail);
+        }
+        if (copyFallbackBanner.length) {
+          copyFallbackBanner.removeClass('hidden');
+        }
+      }
+
+      async function getClipboardPermissionState() {
+        if (!navigator.permissions || !navigator.permissions.query) return 'unknown';
+        try {
+          const result = await navigator.permissions.query({ name: 'clipboard-write' });
+          return result && result.state ? result.state : 'unknown';
+        } catch (err) {
+          console.warn('Clipboard permission query failed:', err);
+          return 'unknown';
+        }
+      }
+
+      function setCopyButtonCopied() {
+        if (!copyStockfishBtn.length) return;
+        copyStockfishBtn.text('Copied!').prop('disabled', false);
+        setTimeout(function(){ copyStockfishBtn.text(defaultCopyLabel); }, 1600);
+      }
+
+      function detachUserGestureCopyListener() {
+        if (!gestureCopyListenerAttached) return;
+        $(document).off('click keydown', handleUserGestureCopy);
+        gestureCopyListenerAttached = false;
+      }
+
+      function attachUserGestureCopyListener() {
+        if (gestureCopyListenerAttached) return;
+        $(document).on('click keydown', handleUserGestureCopy);
+        gestureCopyListenerAttached = true;
+      }
+
+      async function attemptClipboardWrite(content, { userInitiated = false } = {}) {
+        if (!navigator.clipboard) return false;
+        try {
+          await navigator.clipboard.writeText(content);
+          setCopyButtonCopied();
+          hideCopyManualReminder();
+          awaitingUserGestureCopy = false;
+          pendingClipboardText = '';
+          detachUserGestureCopyListener();
+          return true;
+        } catch (err) {
+          console.warn(userInitiated ? 'Clipboard copy failed:' : 'Automatic clipboard copy failed:', err);
+          return false;
+        }
+      }
+
+      function scheduleUserGestureCopy(content) {
+        if (!content) return;
+        pendingClipboardText = content;
+        awaitingUserGestureCopy = true;
+        attachUserGestureCopyListener();
+      }
+
+      async function handleUserGestureCopy() {
+        if (!awaitingUserGestureCopy || !pendingClipboardText) {
+          detachUserGestureCopyListener();
+          return;
+        }
+        const success = await attemptClipboardWrite(pendingClipboardText, { userInitiated: true });
+        if (success) {
+          awaitingUserGestureCopy = false;
+          pendingClipboardText = '';
+          detachUserGestureCopyListener();
+        } else {
+          showCopyManualReminder('Clipboard access still appears blocked. Click “Copy to Clipboard” to try again.');
+        }
+      }
+
+      async function autoCopyStockfishOutputToClipboard() {
         if (!navigator.clipboard || !$('#stockfish-output').length) return;
         const content = $('#stockfish-output').val();
         if (!content) return;
-        navigator.clipboard.writeText(content).then(function(){
-          if (!copyStockfishBtn.length) return;
-          copyStockfishBtn.text('Copied!').prop('disabled', false);
-          setTimeout(function(){ copyStockfishBtn.text(defaultCopyLabel); }, 1600);
-        }).catch(function(err){
-          console.warn('Automatic clipboard copy failed:', err);
-        });
+        const permissionState = await getClipboardPermissionState();
+        if (permissionState === 'denied') {
+          showCopyManualReminder('Clipboard permission was denied. Click “Copy to Clipboard” to copy the prompt.');
+          scheduleUserGestureCopy(content);
+          return;
+        }
+        const success = await attemptClipboardWrite(content, { userInitiated: false });
+        if (!success) {
+          showCopyManualReminder('Auto-copy was blocked. Click “Copy to Clipboard” to copy the prompt.');
+          scheduleUserGestureCopy(content);
+        }
       }
 
       function autoCompleteReviewFlow() {
@@ -4492,12 +4591,25 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           syncNavigationControls();
         }
 
-      $('#copy-stockfish-btn').on('click', function () {
+      $('#copy-stockfish-btn').on('click', async function () {
         if (!copyStockfishBtn.length || copyStockfishBtn.prop('disabled')) return;
-        navigator.clipboard.writeText($('#stockfish-output').val()).then(function(){
-          copyStockfishBtn.text('Copied!');
-          setTimeout(function(){ copyStockfishBtn.text(defaultCopyLabel); }, 1600);
-        });
+        const content = $('#stockfish-output').val();
+        if (!content) return;
+        const success = await attemptClipboardWrite(content, { userInitiated: true });
+        if (!success) {
+          showCopyManualReminder('We could not copy automatically. Click again or allow clipboard access in your browser.');
+          scheduleUserGestureCopy(content);
+        }
+      });
+
+      $('#finish-copy-btn').on('click', async function () {
+        const content = $('#stockfish-output').val();
+        if (!content) return;
+        const success = await attemptClipboardWrite(content, { userInitiated: true });
+        if (!success) {
+          showCopyManualReminder('Clipboard access is still blocked. Please try clicking “Copy to Clipboard” again.');
+          scheduleUserGestureCopy(content);
+        }
       });
 
       $('#goto-step3-btn').on('click', function(){ switchStep(3); });
