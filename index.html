@@ -149,7 +149,7 @@
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
         <label for="depth-input" class="text-gray-300">Depth</label>
-        <input id="depth-input" type="number" value="20" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="depth-input" type="number" value="24" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
         <label for="threads-input" class="text-gray-300">Threads</label>
@@ -177,6 +177,17 @@
        <p id="progress-text" class="text-sm text-gray-300"></p>
        <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
         <div id="progress-bar" class="bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
+      </div>
+    </div>
+    <div id="deep-analysis-banner" class="hidden p-3 bg-[#0d1220] border border-[#1f2937] rounded-lg">
+      <div class="flex items-start gap-3">
+        <div class="flex-1">
+          <p id="deep-analysis-title" class="text-sm font-semibold text-gray-100"></p>
+          <p id="deep-analysis-detail" class="text-xs text-gray-300 mt-1"></p>
+        </div>
+        <button id="apply-deep-analysis-btn" type="button" class="hidden self-center py-2 px-3 text-sm font-semibold text-white rounded-md btn-primary whitespace-nowrap">
+          Use deep analysis
+        </button>
       </div>
     </div>
     <div>
@@ -417,12 +428,18 @@
       let probSeries = []; // WHITE win probability per ply (0..1)
       let evalCanvas = null;
       let evalCtx = null;
+      const progressTextEl = $('#progress-text');
+      const progressBarEl = $('#progress-bar');
       const copyStockfishBtn = $('#copy-stockfish-btn');
       const defaultCopyLabel = copyStockfishBtn.length ? (copyStockfishBtn.text().trim() || 'Copy to Clipboard') : 'Copy to Clipboard';
       const analyzingCopyLabel = 'Analyzing...';
       const copyFallbackBanner = $('#copy-fallback-banner');
       const copyFallbackDetail = $('#copy-fallback-detail');
       const finishCopyBtn = $('#finish-copy-btn');
+      const deepAnalysisBanner = $('#deep-analysis-banner');
+      const deepAnalysisTitle = $('#deep-analysis-title');
+      const deepAnalysisDetail = $('#deep-analysis-detail');
+      const applyDeepAnalysisBtn = $('#apply-deep-analysis-btn');
       let awaitingUserGestureCopy = false;
       let pendingClipboardText = '';
       let gestureCopyListenerAttached = false;
@@ -431,6 +448,8 @@
       let lastAnnotatedPgn = '';
       let lastKnownHeaders = {};
       let playerGameOutcome = null;
+      let pendingDeepAnalysis = null;
+      let activeAnalysisToken = 0;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
@@ -1204,6 +1223,8 @@
         }
       }
       const ENGINE_GO_OPTIONS = { depth: 24 };
+      const QUICK_ANALYSIS_DEPTH = 10;
+      const DEFAULT_DEEP_ANALYSIS_DEPTH = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : 24;
       let engineWorker = null;
       let engineReady = false;
       let currentMultiPvSetting = 1;
@@ -3694,11 +3715,20 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           copyStockfishBtn.text(defaultCopyLabel).prop('disabled', !combined);
         }
         if (hasAnalysis) {
-          $('#progress-bar').css('width', '100%');
-          $('#progress-text').text('Analysis ready.');
+          if (pendingDeepAnalysis && pendingDeepAnalysis.result) {
+            const depthLabel = pendingDeepAnalysis.depth ? ` (depth ${pendingDeepAnalysis.depth})` : '';
+            markAnalysisComplete(`Deeper analysis ready${depthLabel}.`);
+            showDeepAnalysisReady(pendingDeepAnalysis.depth || ENGINE_GO_OPTIONS.depth);
+          } else if (pendingDeepAnalysis) {
+            const depthLabel = pendingDeepAnalysis.depth ? ` (depth ${pendingDeepAnalysis.depth})` : '';
+            if (progressTextEl.length) progressTextEl.text(`Deep analysis running${depthLabel}...`);
+          } else {
+            markAnalysisComplete('Analysis ready.');
+          }
         } else {
-          $('#progress-bar').css('width', '0%');
-          $('#progress-text').text('');
+          if (progressBarEl.length) progressBarEl.css('width', '0%');
+          if (progressTextEl.length) progressTextEl.text('');
+          resetDeepAnalysisUpgrade();
         }
       }
 
@@ -3851,10 +3881,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         automatedReviewText = '';
         lastAnnotatedPgn = '';
+        probSeries = [];
+        resetDeepAnalysisUpgrade();
         $('#stockfish-output').val('');
         updateFormState('annotatedPgn', '');
-        $('#progress-bar').css('width', '0%');
-        $('#progress-text').text('');
+        if (progressBarEl.length) progressBarEl.css('width', '0%');
+        if (progressTextEl.length) progressTextEl.text('');
         if (copyStockfishBtn.length) {
           copyStockfishBtn.text(defaultCopyLabel).prop('disabled', true);
         }
@@ -3924,7 +3956,196 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
+      function normalizeEngineScore(score) {
+        if (!score) return { type: 'cp', value: 0, bestmove: null };
+        if (score.type === 'mate') {
+          const mateValue = Number(score.value);
+          return { type: 'mate', value: Number.isFinite(mateValue) ? mateValue : 0, bestmove: score.bestmove || null };
+        }
+        const cpValue = Number(score.value);
+        return { type: 'cp', value: Number.isFinite(cpValue) ? cpValue : 0, bestmove: score.bestmove || null };
+      }
+
+      function updateAnalysisProgress(stage, index, total, move, depth) {
+        const label = stage === 'deep' ? 'Deep analysis' : 'Quick analysis';
+        if (progressTextEl.length) {
+          progressTextEl.text(`${label} (depth ${depth}) ${index + 1}/${total}: ${move}`);
+        }
+        if (progressBarEl.length) {
+          progressBarEl.css('width', (((index + 1) / total) * 100) + '%');
+        }
+      }
+
+      function markAnalysisComplete(message) {
+        if (progressTextEl.length) progressTextEl.text(message || 'Analysis complete.');
+        if (progressBarEl.length) progressBarEl.css('width', '100%');
+      }
+
+      function resetDeepAnalysisUpgrade() {
+        pendingDeepAnalysis = null;
+        if (deepAnalysisBanner.length) deepAnalysisBanner.addClass('hidden');
+        if (deepAnalysisTitle.length) deepAnalysisTitle.text('');
+        if (deepAnalysisDetail.length) deepAnalysisDetail.text('');
+        if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+      }
+
+      function showDeepAnalysisInProgress(depth) {
+        if (!deepAnalysisBanner.length) return;
+        deepAnalysisBanner.removeClass('hidden');
+        if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Deeper analysis running (depth ${depth})`);
+        if (deepAnalysisDetail.length) deepAnalysisDetail.text('Quick results are ready. A deeper pass is running and will be available soon.');
+        if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+      }
+
+      function showDeepAnalysisReady(depth) {
+        if (!deepAnalysisBanner.length) return;
+        deepAnalysisBanner.removeClass('hidden');
+        if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Deeper analysis ready (depth ${depth})`);
+        if (deepAnalysisDetail.length) deepAnalysisDetail.text('Replace the quick results with the deeper evaluation.');
+        if (applyDeepAnalysisBtn.length) {
+          applyDeepAnalysisBtn.text(`Use depth ${depth} analysis`);
+          applyDeepAnalysisBtn.removeClass('hidden').prop('disabled', false);
+        }
+      }
+
+      function showDeepAnalysisError(message) {
+        if (!deepAnalysisBanner.length) return;
+        deepAnalysisBanner.removeClass('hidden');
+        if (deepAnalysisTitle.length) deepAnalysisTitle.text('Deeper analysis unavailable');
+        if (deepAnalysisDetail.length) deepAnalysisDetail.text(message || 'There was a problem running the deeper pass. The quick results are still available.');
+        if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+      }
+
+      function applyAnalysisResult(result) {
+        if (!result) return;
+        const engineMoveRecords = Array.isArray(result.engineMoveRecords) ? result.engineMoveRecords : [];
+        lastEngineMoveRecords = engineMoveRecords.map(mv => ({
+          ...mv,
+          move: mv.move ? { ...mv.move } : null
+        }));
+        automatedMoveInsights = result.automatedMoveInsights || { moves: [], summary: null, moveOfGame: null };
+        automatedReviewText = result.automatedReviewText || '';
+        lastAnnotatedPgn = (result.annotatedPgn || '').trim();
+        probSeries = Array.isArray(result.probSeries) ? result.probSeries.slice() : [];
+        const combined = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
+        $('#stockfish-output').val(combined);
+        updateFormState('stockfishOutput', combined);
+        updateFormState('annotatedPgn', lastAnnotatedPgn);
+        $('#goto-step3-btn').prop('disabled', false);
+        autoCopyStockfishOutputToClipboard();
+        autoCompleteReviewFlow();
+      }
+
+      async function runSingleDepthAnalysis(opts) {
+        const stage = opts && opts.stage ? opts.stage : 'quick';
+        const depth = opts && Number.isFinite(opts.depth) ? opts.depth : ENGINE_GO_OPTIONS.depth;
+        const token = opts && Number.isFinite(opts.token) ? opts.token : activeAnalysisToken;
+        const sanMoves = game.history();
+        let annotatedPgn = '';
+        const headerBlock = buildHeaderTagBlock(game);
+        if (headerBlock) annotatedPgn = headerBlock + '\n\n';
+        const temp = new Chess();
+        const localProbSeries = [];
+        let prevProb = 0.5;
+        let lastMateScore = null;
+        const engineMoveRecords = [];
+        for (let i = 0; i < sanMoves.length; i++) {
+          if (token !== activeAnalysisToken) return null;
+          const moveNumber = Math.floor(i / 2) + 1;
+          const prefix = (i % 2 === 0) ? (moveNumber + '. ') : '';
+          const move = sanMoves[i];
+          updateAnalysisProgress(stage, i, sanMoves.length, move, depth);
+          const moveObj = temp.move(move);
+          if (!moveObj) throw new Error('Encountered an invalid move during analysis.');
+          const probBeforeMove = prevProb;
+          const score = normalizeEngineScore(await getScore(temp.fen(), { ...ENGINE_GO_OPTIONS, depth }));
+          if (token !== activeAnalysisToken) return null;
+          let evalStr = '';
+          let prob = null;
+          let mateScore = null;
+          if (score.type === 'mate') {
+            mateScore = score.value;
+            if (temp.turn() === 'b') mateScore = -mateScore;
+            prob = (mateScore === 0) ? (moveObj.color === 'w' ? 1 : 0) : (mateScore > 0 ? 1 : 0);
+          } else {
+            let cp = score.value;
+            if (temp.turn() === 'b') cp = -cp;
+            prob = cpToProb(cp);
+          }
+          prob = clampProb(prob);
+          let moverDelta = null;
+          let whiteDelta = null;
+          if (prob != null && prevProb != null) {
+            const diff = (prob - prevProb) * 100;
+            const moverSign = moveObj.color === 'w' ? 1 : -1;
+            moverDelta = diff * moverSign;
+            whiteDelta = diff;
+            prevProb = prob;
+          } else if (prob != null) {
+            prevProb = prob;
+          }
+          const deltaStr = formatDeltaBraced(moverDelta);
+          if (mateScore != null) {
+            evalStr = `{#${mateScore}}`;
+          } else {
+            evalStr = deltaStr || '{0}';
+          }
+          localProbSeries.push(prob);
+          engineMoveRecords.push({
+            index: i,
+            ply: i,
+            moveNumber,
+            color: moveObj.color,
+            san: move,
+            moverDelta,
+            whiteDelta,
+            whiteProbBefore: probBeforeMove,
+            whiteProbAfter: prob,
+            mateBefore: lastMateScore,
+            mateAfter: mateScore,
+            evaluation: evalStr,
+            move: simplifyMoveObject(moveObj)
+          });
+          lastMateScore = mateScore;
+          annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
+        }
+        const outcome = updatePlayerOutcomeFromGame(game);
+        const autoInsights = computeAutomatedMoveInsights(engineMoveRecords, reviewPlayerColor, outcome);
+        const autoText = buildAutomatedReviewText(autoInsights);
+        return {
+          annotatedPgn: annotatedPgn.trim(),
+          engineMoveRecords,
+          probSeries: localProbSeries,
+          automatedMoveInsights: autoInsights,
+          automatedReviewText: autoText,
+          depthUsed: depth
+        };
+      }
+
+      function startDeepAnalysisUpgrade(token, depth) {
+        if (!engineReady) return;
+        pendingDeepAnalysis = { token, depth, result: null };
+        showDeepAnalysisInProgress(depth);
+        if (progressTextEl.length) progressTextEl.text(`Deep analysis running (depth ${depth})...`);
+        if (progressBarEl.length) progressBarEl.css('width', '0%');
+        runSingleDepthAnalysis({ stage: 'deep', depth, token })
+          .then(result => {
+            if (!result || token !== activeAnalysisToken) return;
+            pendingDeepAnalysis = { token, depth, result };
+            showDeepAnalysisReady(depth);
+            markAnalysisComplete(`Deeper analysis ready (depth ${depth}). Click “Use deep analysis” to apply.`);
+          })
+          .catch(err => {
+            if (token !== activeAnalysisToken) return;
+            console.error('Deep analysis failed', err);
+            pendingDeepAnalysis = null;
+            showDeepAnalysisError('Deeper analysis failed. Try running analysis again.');
+          });
+      }
+
       async function runStockfishAnalysis() {
+        const token = ++activeAnalysisToken;
+        resetDeepAnalysisUpgrade();
         setCopyButtonAnalyzing(true);
         try {
           configureEngineOptions();
@@ -3933,109 +4154,52 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             handleEngineLoadFailure('Stockfish failed to initialize.');
             return;
           }
+          if (engineWorker) engineWorker.postMessage('stop');
           setEngineMultiPv(1);
           const rawNameDuringAnalysis = getRawPlayerNameInput();
           if (rawNameDuringAnalysis) {
             updateReviewPlayerColorFromGame(game, rawNameDuringAnalysis);
           }
           setLastKnownHeaders(game.header());
-          const sanMoves = game.history(); let annotatedPgn = '';
-          const headerBlock = buildHeaderTagBlock(game); if (headerBlock) annotatedPgn = headerBlock + '\n\n';
-          const temp = new Chess();
-          probSeries = [];
-          let prevProb = 0.5;
-          let lastMateScore = null;
-          const engineMoveRecords = [];
           automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
           automatedReviewText = '';
-          for (let i = 0; i < sanMoves.length; i++) {
-            const moveNumber = Math.floor(i / 2) + 1; const prefix = (i % 2 === 0) ? (moveNumber + '. ') : '';
-            const move = sanMoves[i];
-            $('#progress-text').text('Analyzing move ' + (i + 1) + '/' + sanMoves.length + ': ' + move);
-            $('#progress-bar').css('width', (((i + 1) / sanMoves.length) * 100) + '%');
-
-            // * FIX STARTS HERE *
-            // The order of operations is changed.
-            // 1. Make the move on the temporary board.
-            const moveObj = temp.move(move);
-            const lastMoveColor = moveObj.color; // 'w' or 'b'
-            const probBeforeMove = prevProb;
-
-            // 2. Get the score for the new position *after* the move has been made.
-            const score = await getScore(temp.fen(), ENGINE_GO_OPTIONS);
-            // * FIX ENDS HERE *
-
-            let evalStr = '';
-            let prob = null;
-            let mateScore = null;
-            if (score.type === 'mate') {
-              mateScore = score.value; // mate in N from side to move
-              if (temp.turn() === 'b') mateScore = -mateScore; // convert to WHITE-relative
-              prob = (mateScore === 0) ? (lastMoveColor === 'w' ? 1 : 0) : (mateScore > 0 ? 1 : 0);
-            } else {
-              let cp = score.value; // centipawns from side to move
-              if (temp.turn() === 'b') cp = -cp; // convert to WHITE-relative
-              prob = cpToProb(cp);
-            }
-            prob = clampProb(prob);
-            let moverDelta = null;
-            let whiteDelta = null;
-            if (prob != null && prevProb != null) {
-              const diff = (prob - prevProb) * 100;
-              const moverSign = lastMoveColor === 'w' ? 1 : -1;
-              moverDelta = diff * moverSign;
-              whiteDelta = diff;
-              prevProb = prob;
-            } else if (prob != null) {
-              prevProb = prob;
-            }
-            const deltaStr = formatDeltaBraced(moverDelta);
-            if (mateScore != null) {
-              evalStr = `{#${mateScore}}`;
-            } else {
-              evalStr = deltaStr || '{0}';
-            }
-            probSeries.push(prob);
-            engineMoveRecords.push({
-              index: i,
-              ply: i,
-              moveNumber,
-              color: lastMoveColor,
-              san: move,
-              moverDelta,
-              whiteDelta,
-              whiteProbBefore: probBeforeMove,
-              whiteProbAfter: prob,
-              mateBefore: lastMateScore,
-              mateAfter: mateScore,
-              evaluation: evalStr,
-              move: simplifyMoveObject(moveObj)
-            });
-            lastMateScore = mateScore;
-            annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
+          probSeries = [];
+          const depthInfo = getDepthSettingInfo();
+          const deepDepth = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
+          const quickDepth = Math.max(
+            ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.min : 4,
+            Math.min(QUICK_ANALYSIS_DEPTH, deepDepth)
+          );
+          const quickResult = await runSingleDepthAnalysis({ stage: 'quick', depth: quickDepth, token });
+          if (!quickResult || token !== activeAnalysisToken) return;
+          applyAnalysisResult(quickResult);
+          markAnalysisComplete(`Quick analysis ready (depth ${quickDepth}).`);
+          if (deepDepth > quickDepth) {
+            startDeepAnalysisUpgrade(token, deepDepth);
+          } else {
+            resetDeepAnalysisUpgrade();
+            markAnalysisComplete(`Analysis complete (depth ${quickDepth}).`);
           }
-          lastEngineMoveRecords = engineMoveRecords.map(mv => ({
-            ...mv,
-            move: mv.move ? { ...mv.move } : null
-          }));
-          const outcome = updatePlayerOutcomeFromGame(game);
-          automatedMoveInsights = computeAutomatedMoveInsights(engineMoveRecords, reviewPlayerColor, outcome);
-          automatedReviewText = buildAutomatedReviewText(automatedMoveInsights);
-          lastAnnotatedPgn = annotatedPgn.trim();
-          const combined = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
-          $('#progress-text').text('Analysis Complete!');
-          $('#stockfish-output').val(combined);
-          updateFormState('stockfishOutput', combined);
-          updateFormState('annotatedPgn', lastAnnotatedPgn);
-          $('#goto-step3-btn').prop('disabled', false);
-          autoCopyStockfishOutputToClipboard();
-          autoCompleteReviewFlow();
         } catch (err) {
-          console.error('Stockfish analysis failed', err);
-          handleEngineLoadFailure('Stockfish analysis failed. Please retry.');
+          if (token === activeAnalysisToken) {
+            console.error('Stockfish analysis failed', err);
+            handleEngineLoadFailure('Stockfish analysis failed. Please retry.');
+          }
         } finally {
-          setCopyButtonAnalyzing(false);
+          if (token === activeAnalysisToken) setCopyButtonAnalyzing(false);
         }
+      }
+
+      if (applyDeepAnalysisBtn.length) {
+        applyDeepAnalysisBtn.on('click', function () {
+          if (!pendingDeepAnalysis || pendingDeepAnalysis.token !== activeAnalysisToken || !pendingDeepAnalysis.result) return;
+          applyAnalysisResult(pendingDeepAnalysis.result);
+          if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Deep analysis applied (depth ${pendingDeepAnalysis.depth})`);
+          if (deepAnalysisDetail.length) deepAnalysisDetail.text('The deeper evaluation has replaced the quick results.');
+          markAnalysisComplete(`Deep analysis applied (depth ${pendingDeepAnalysis.depth}).`);
+          applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+          pendingDeepAnalysis = null;
+        });
       }
 
       function hideCopyManualReminder() {
