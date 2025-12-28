@@ -283,6 +283,10 @@
         <div id="move-analysis-shell" class="bg-[#101522] p-3 rounded-lg portrait-panel comment-panel">
           <div id="move-analysis-scroll" class="overflow-y-auto">
             <!-- One-line summary appears here (from "Summary:") -->
+            <div id="classification-legend" class="mb-3 p-2 rounded bg-[#0b0e15] text-xs text-gray-300">
+              <p class="text-sm font-semibold text-gray-200">How moves are labeled</p>
+              <p class="mt-1">Mate scores are scaled like centipawns (1000 − 10 × distance) and loss bands run about -30 / -80 / -200 / -500 cp, tightening when you give up a win or forced mate and easing when already worse. Gaps to the engine&rsquo;s best move can still trigger Inaccuracy, Mistake, or Blunder even if the eval stays flat.</p>
+            </div>
             <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
             <div id="featured-move" class="hidden mb-3"></div>
             <div id="move-analysis-container" class="space-y-1"></div>
@@ -1623,6 +1627,15 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         brilliant: 0
       };
       const SACRIFICE_PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+      const LOSS_BANDS_CP = {
+        normal: { inaccuracy: -30, mistake: -80, blunder: -200, misclick: -500 },
+        winning: { inaccuracy: -20, mistake: -60, blunder: -150, misclick: -320 },
+        mate: { inaccuracy: -10, mistake: -40, blunder: -120, misclick: -260 },
+        losing: { inaccuracy: -60, mistake: -150, blunder: -320, misclick: -640 }
+      };
+      const WINNING_CP_THRESHOLD = 150;
+      const EVEN_CP_BUFFER = 50;
+      const PRAISE_GAIN_THRESHOLD = 120;
       const PREVIOUS_ERROR_KEYS = new Set(['mistake', 'blunder', 'misclick']);
       const MOVE_OF_GAME_TARGET_KEYS = new Set(['brilliant', 'great', 'blunder', 'misclick']);
       let automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
@@ -1658,13 +1671,124 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return canonicalizeClassification(current);
       }
 
-      function computeBaseClassification(delta, plyIndex) {
-        if (!Number.isFinite(delta)) return plyIndex < 7 ? 'Book' : 'Good';
-        if (delta >= -2) return plyIndex < 7 ? 'Book' : 'Good';
-        if (delta >= -9) return 'Inaccuracy';
-        if (delta >= -20) return 'Mistake';
-        if (delta >= -49) return 'Blunder';
-        return 'Misclick??';
+      function mateScoreToCentipawns(mateScore) {
+        const numeric = Number(mateScore);
+        if (!Number.isFinite(numeric)) return null;
+        if (numeric === 0) return 0;
+        const distance = Math.max(0, Math.abs(numeric));
+        const magnitude = Math.max(0, 1000 - 10 * distance);
+        const sign = numeric > 0 ? 1 : -1;
+        return sign * magnitude;
+      }
+
+      function deriveWhiteCentipawns(moveRecord, phase) {
+        if (!moveRecord) return null;
+        const mateKey = phase === 'after' ? 'mateAfter' : 'mateBefore';
+        const probKey = phase === 'after' ? 'whiteProbAfter' : 'whiteProbBefore';
+        const mateCp = mateScoreToCentipawns(moveRecord[mateKey]);
+        if (mateCp != null) return mateCp;
+        if (moveRecord[mateKey] === 0) return 0;
+        const probVal = clampProb(moveRecord[probKey]);
+        if (probVal == null) return null;
+        return probToCp(probVal);
+      }
+
+      function moverCentipawns(whiteCentipawns, color) {
+        if (!Number.isFinite(whiteCentipawns)) return null;
+        const sign = color === 'w' ? 1 : color === 'b' ? -1 : null;
+        if (!sign) return null;
+        return whiteCentipawns * sign;
+      }
+
+      function resolveBestMoveLoss(moveRecord) {
+        if (!moveRecord) return null;
+        const candidates = [
+          moveRecord.bestMoveDelta,
+          moveRecord.bestMoveCpLoss,
+          moveRecord.bestMoveLoss,
+          moveRecord.bestmoveDelta,
+          moveRecord.cpLoss,
+          moveRecord.cpLossForMover
+        ];
+        const raw = candidates.find(val => Number.isFinite(Number(val)));
+        if (!Number.isFinite(Number(raw))) return null;
+        const gap = Number(raw);
+        if (gap <= 0) return null;
+        return -Math.abs(gap);
+      }
+
+      function getCentipawnContext(moveRecord) {
+        if (!moveRecord) return null;
+        if (moveRecord._centipawnContext) return moveRecord._centipawnContext;
+        const whiteBefore = deriveWhiteCentipawns(moveRecord, 'before');
+        const whiteAfter = deriveWhiteCentipawns(moveRecord, 'after');
+        const moverBefore = moverCentipawns(whiteBefore, moveRecord.color);
+        const moverAfter = moverCentipawns(whiteAfter, moveRecord.color);
+        const moverDelta = (Number.isFinite(moverBefore) && Number.isFinite(moverAfter))
+          ? (moverAfter - moverBefore)
+          : null;
+        const bestMoveLoss = resolveBestMoveLoss(moveRecord);
+        const effectiveLoss = Number.isFinite(bestMoveLoss)
+          ? (Number.isFinite(moverDelta) ? Math.min(moverDelta, bestMoveLoss) : bestMoveLoss)
+          : moverDelta;
+        const winningBefore = Number.isFinite(moverBefore) && moverBefore > WINNING_CP_THRESHOLD;
+        const losingBefore = Number.isFinite(moverBefore) && moverBefore < -WINNING_CP_THRESHOLD;
+        const droppedToEqual = winningBefore && Number.isFinite(moverAfter) && moverAfter <= EVEN_CP_BUFFER;
+        const droppedToLosing = winningBefore && Number.isFinite(moverAfter) && moverAfter < -EVEN_CP_BUFFER;
+        const retainsMate = retainsMateForMover(moveRecord);
+        const lostMate = hadMateForMoverBefore(moveRecord) && !retainsMate;
+        const bandKey = lostMate
+          ? 'mate'
+          : (winningBefore ? 'winning' : (losingBefore ? 'losing' : 'normal'));
+        moveRecord._centipawnContext = {
+          whiteBefore,
+          whiteAfter,
+          moverBefore,
+          moverAfter,
+          moverDelta,
+          bestMoveLoss,
+          effectiveLoss,
+          winningBefore,
+          losingBefore,
+          droppedToEqual,
+          droppedToLosing,
+          retainsMate,
+          lostMate,
+          bandKey
+        };
+        return moveRecord._centipawnContext;
+      }
+
+      function computeBaseClassification(moveRecord, plyIndex) {
+        const fallback = plyIndex < 7 ? 'Book' : 'Good';
+        const context = getCentipawnContext(moveRecord);
+        if (!context) return fallback;
+        const bands = LOSS_BANDS_CP[context.bandKey] || LOSS_BANDS_CP.normal;
+        const loss = context.effectiveLoss;
+        let classification = fallback;
+        if (Number.isFinite(loss) && loss < 0) {
+          if (loss <= bands.misclick) classification = 'Misclick??';
+          else if (loss <= bands.blunder || context.lostMate || context.droppedToLosing) classification = 'Blunder';
+          else if (loss <= bands.mistake || context.droppedToEqual) classification = 'Mistake';
+          else if (loss <= bands.inaccuracy) classification = 'Inaccuracy';
+        }
+        if (classification === fallback) {
+          const praise = classifyHighPraise(moveRecord);
+          if (praise) classification = praise;
+        }
+        return classification;
+      }
+
+      function classifyHighPraise(moveRecord) {
+        const context = getCentipawnContext(moveRecord);
+        const keepsMate = retainsMateForMover(moveRecord);
+        const gain = context ? context.moverDelta : null;
+        const positiveGain = Number.isFinite(gain) && gain >= PRAISE_GAIN_THRESHOLD;
+        if (!positiveGain && !keepsMate) return null;
+        const winningAfter = keepsMate || (context && Number.isFinite(context.moverAfter) && context.moverAfter > WINNING_CP_THRESHOLD);
+        if (!winningAfter) return null;
+        if (isLikelySacrificeMove(moveRecord) && (positiveGain || keepsMate)) return 'Brilliant';
+        return 'Great';
       }
 
       function isLikelySacrificeMove(moveRecord) {
@@ -1732,7 +1856,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       function computeImpactScore(moveRecord) {
         if (!moveRecord) return -Infinity;
-        let score = Math.abs(Number(moveRecord.moverDelta || 0));
+        const context = getCentipawnContext(moveRecord);
+        const primarySwing = context && Number.isFinite(context.effectiveLoss)
+          ? Math.abs(context.effectiveLoss)
+          : Number(moveRecord.moverDelta || 0);
+        let score = Math.abs(primarySwing);
         if (!Number.isFinite(score)) score = 0;
         if (opponentHasForcedMateAfter(moveRecord)) {
           score = Math.max(score, 950 - Math.min(100, Math.abs(moveRecord.mateAfter || 0)));
@@ -1751,11 +1879,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           return { moves: [], summary: null, moveOfGame: null };
         }
 
-        const moves = rawMoves.map((mv, idx) => ({
-          ...mv,
-          index: idx,
-          classification: computeBaseClassification(mv.moverDelta, idx)
-        }));
+        const moves = rawMoves.map((mv, idx) => {
+          const enriched = { ...mv, index: idx };
+          enriched.classification = computeBaseClassification(enriched, idx);
+          return enriched;
+        });
 
         moves.forEach((mv) => {
           const opponentMateAfter = opponentHasForcedMateAfter(mv);
@@ -1777,12 +1905,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         });
 
         moves.forEach((mv, idx) => {
-          if (!Number.isFinite(mv.moverDelta) || mv.moverDelta < 0) return;
+          const praiseClass = classifyHighPraise(mv);
+          if (!praiseClass) return;
           const prev = moves[idx - 1];
           if (!prev) return;
           const prevKey = normalizeClassificationKey(prev.classification);
           if (!PREVIOUS_ERROR_KEYS.has(prevKey)) return;
-          mv.classification = isLikelySacrificeMove(mv) ? 'Brilliant' : 'Great';
+          mv.classification = praiseClass;
         });
 
         const summaryCounts = {};
@@ -1824,15 +1953,19 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         let largestDrop = null;
         let bestNonNegative = null;
         relevantMoves.forEach(mv => {
-          const delta = Number(mv.moverDelta);
-          if (!Number.isFinite(delta)) return;
-          if (delta < 0) {
-            if (!largestDrop || delta < Number(largestDrop.moverDelta) || (delta === Number(largestDrop.moverDelta) && mv.index < largestDrop.index)) {
+          const context = getCentipawnContext(mv);
+          const lossDelta = context && Number.isFinite(context.effectiveLoss) ? context.effectiveLoss : Number(mv.moverDelta);
+          const gainDelta = context && Number.isFinite(context.moverDelta) ? context.moverDelta : Number(mv.moverDelta);
+          if (Number.isFinite(lossDelta) && lossDelta < 0) {
+            if (!largestDrop || lossDelta < Number(largestDrop._effectiveLoss || largestDrop.moverDelta) || (lossDelta === Number(largestDrop._effectiveLoss || largestDrop.moverDelta) && mv.index < largestDrop.index)) {
               largestDrop = mv;
+              largestDrop._effectiveLoss = lossDelta;
             }
-          } else {
-            if (!bestNonNegative || delta > Number(bestNonNegative.moverDelta) || (delta === Number(bestNonNegative.moverDelta) && mv.index < bestNonNegative.index)) {
+          }
+          if (Number.isFinite(gainDelta) && gainDelta >= 0) {
+            if (!bestNonNegative || gainDelta > Number(bestNonNegative._gainDelta || bestNonNegative.moverDelta) || (gainDelta === Number(bestNonNegative._gainDelta || bestNonNegative.moverDelta) && mv.index < bestNonNegative.index)) {
               bestNonNegative = mv;
+              bestNonNegative._gainDelta = gainDelta;
             }
           }
         });
@@ -2058,7 +2191,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const totalGood = summaryData.totalGood || 0;
         const totalBad = summaryData.totalBad || 0;
         const accuracy = summaryData.totalMoves ? (summaryData.totalGood / summaryData.totalMoves) * 100 : 0;
-        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%. Narrative Summary: Automated engine insights summary generated from Stockfish evaluations.`;
+        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%. Narrative Summary: Automated engine insights summary generated from Stockfish evaluations with mate-to-cp scaling and context-aware loss bands.`;
       }
 
       function convertAutomatedMoveToFeatured(autoMove) {
@@ -2805,6 +2938,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       // ---------- Score helpers ----------
       function cpToProb(cp){ return 1 / (1 + Math.exp(-cp / 173)); }
+      function probToCp(prob) {
+        const clamped = clampProb(prob);
+        if (clamped == null) return null;
+        const safe = Math.min(Math.max(clamped, 1e-6), 1 - 1e-6);
+        return 173 * Math.log(safe / (1 - safe));
+      }
 
       function clampProb(p) {
         if (p == null || Number.isNaN(p)) return null;
