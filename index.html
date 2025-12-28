@@ -4349,6 +4349,24 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           });
       }
 
+      function computeAnalysisDepths() {
+        const depthInfo = getDepthSettingInfo();
+        const minDepth = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.min : 4;
+        const fallbackDeep = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : DEFAULT_DEEP_ANALYSIS_DEPTH;
+        const rawDeep = depthInfo.valid ? depthInfo.value : fallbackDeep;
+        const deepDepth = Number.isFinite(rawDeep) ? rawDeep : DEFAULT_DEEP_ANALYSIS_DEPTH;
+        const quickCap = QUICK_ANALYSIS_DEPTH;
+        let quickDepth = Math.min(quickCap, deepDepth);
+        if (deepDepth > minDepth && quickDepth >= deepDepth) {
+          quickDepth = Math.max(minDepth, Math.min(quickCap, deepDepth - 2));
+        }
+        if (!Number.isFinite(quickDepth)) {
+          quickDepth = Math.min(quickCap, deepDepth);
+        }
+        quickDepth = Math.max(minDepth, quickDepth);
+        return { deepDepth, quickDepth };
+      }
+
       async function runStockfishAnalysis() {
         const token = ++activeAnalysisToken;
         resetDeepAnalysisUpgrade();
@@ -4370,12 +4388,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
           automatedReviewText = '';
           probSeries = [];
-          const depthInfo = getDepthSettingInfo();
-          const deepDepth = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
-          const quickDepth = Math.max(
-            ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.min : 4,
-            Math.min(QUICK_ANALYSIS_DEPTH, deepDepth)
-          );
+          const { deepDepth, quickDepth } = computeAnalysisDepths();
           const quickResult = await runSingleDepthAnalysis({ stage: 'quick', depth: quickDepth, token });
           if (!quickResult || token !== activeAnalysisToken) return;
           applyAnalysisResult(quickResult);
