@@ -4170,7 +4170,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       async function runSingleDepthAnalysis(opts) {
         const stage = opts && opts.stage ? opts.stage : 'quick';
-        const depth = opts && Number.isFinite(opts.depth) ? opts.depth : ENGINE_GO_OPTIONS.depth;
+        const depth = resolveStageDepth(stage, opts && opts.depth);
         const token = opts && Number.isFinite(opts.token) ? opts.token : activeAnalysisToken;
         const sanMoves = game.history();
         let annotatedPgn = '';
@@ -4349,21 +4349,34 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           });
       }
 
+      function clampAnalysisDepth(value) {
+        const minDepth = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.min : 4;
+        const maxDepth = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.max : 30;
+        const fallbackDepth = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : DEFAULT_DEEP_ANALYSIS_DEPTH;
+        const numeric = Number.parseInt(value, 10);
+        const base = Number.isFinite(numeric) ? numeric : fallbackDepth;
+        const clamped = Math.max(minDepth, Math.min(maxDepth, base));
+        return Number.isFinite(clamped) ? clamped : fallbackDepth;
+      }
+
+      function resolveStageDepth(stage, requestedDepth) {
+        const clamped = clampAnalysisDepth(requestedDepth);
+        if (stage === 'quick') {
+          return Math.min(QUICK_ANALYSIS_DEPTH, clamped);
+        }
+        return clamped;
+      }
+
       function computeAnalysisDepths() {
         const depthInfo = getDepthSettingInfo();
         const minDepth = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.min : 4;
         const fallbackDeep = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : DEFAULT_DEEP_ANALYSIS_DEPTH;
         const rawDeep = depthInfo.valid ? depthInfo.value : fallbackDeep;
-        const deepDepth = Number.isFinite(rawDeep) ? rawDeep : DEFAULT_DEEP_ANALYSIS_DEPTH;
-        const quickCap = QUICK_ANALYSIS_DEPTH;
-        let quickDepth = Math.min(quickCap, deepDepth);
+        const deepDepth = resolveStageDepth('deep', rawDeep);
+        let quickDepth = resolveStageDepth('quick', deepDepth);
         if (deepDepth > minDepth && quickDepth >= deepDepth) {
-          quickDepth = Math.max(minDepth, Math.min(quickCap, deepDepth - 2));
+          quickDepth = resolveStageDepth('quick', deepDepth - 2);
         }
-        if (!Number.isFinite(quickDepth)) {
-          quickDepth = Math.min(quickCap, deepDepth);
-        }
-        quickDepth = Math.max(minDepth, quickDepth);
         return { deepDepth, quickDepth };
       }
 
