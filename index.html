@@ -1633,6 +1633,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         mate: { inaccuracy: -10, mistake: -40, blunder: -120, misclick: -260 },
         losing: { inaccuracy: -60, mistake: -150, blunder: -320, misclick: -640 }
       };
+      const MATE_ESCAPE_EXTENSION_THRESHOLD = 2;
+      const MATE_SHORTEN_SEVERE_THRESHOLD = 2;
       const WINNING_CP_THRESHOLD = 150;
       const EVEN_CP_BUFFER = 50;
       const PRAISE_GAIN_THRESHOLD = 120;
@@ -1860,18 +1862,36 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const primarySwing = context && Number.isFinite(context.effectiveLoss)
           ? Math.abs(context.effectiveLoss)
           : Number(moveRecord.moverDelta || 0);
-        let score = Math.abs(primarySwing);
-        if (!Number.isFinite(score)) score = 0;
-        if (opponentHasForcedMateAfter(moveRecord)) {
-          score = Math.max(score, 950 - Math.min(100, Math.abs(moveRecord.mateAfter || 0)));
+        const mateAfterDistance = mateDistance(moveRecord.mateAfter);
+        const mateBeforeDistance = mateDistance(moveRecord.mateBefore);
+        const opponentMateBefore = opponentHadForcedMateBefore(moveRecord);
+        const opponentMateAfter = opponentHasForcedMateAfter(moveRecord);
+        const moverMateBefore = hadMateForMoverBefore(moveRecord);
+        const moverMateAfter = retainsMateForMover(moveRecord);
+        let mateImpact = 0;
+        if (opponentMateAfter && !opponentMateBefore) {
+          mateImpact = Math.max(mateImpact, 1200 - Math.min(400, Math.max(0, mateAfterDistance) * 15));
         }
-        if (hadMateForMoverBefore(moveRecord) && !retainsMateForMover(moveRecord)) {
-          score = Math.max(score, 940);
+        if (opponentMateBefore && !opponentMateAfter) {
+          mateImpact = Math.max(mateImpact, 1150 - Math.min(200, Math.max(0, mateBeforeDistance) * 5));
         }
-        if (retainsMateForMover(moveRecord)) {
-          score = Math.max(score, 960 - Math.min(100, Math.abs(moveRecord.mateAfter || 0)));
+        if (opponentMateBefore && opponentMateAfter && Number.isFinite(mateAfterDistance) && Number.isFinite(mateBeforeDistance)) {
+          const mateDelta = mateBeforeDistance - mateAfterDistance;
+          if (mateDelta > 0) {
+            mateImpact = Math.max(mateImpact, 1100 - Math.min(350, Math.max(0, mateAfterDistance) * 10));
+          } else if (mateDelta < -MATE_ESCAPE_EXTENSION_THRESHOLD) {
+            mateImpact = Math.max(mateImpact, 1000 + Math.min(200, Math.abs(mateDelta) * 15));
+          }
         }
-        return score;
+        if (moverMateBefore && !moverMateAfter) {
+          mateImpact = Math.max(mateImpact, 1180);
+        } else if (moverMateBefore && moverMateAfter) {
+          mateImpact = Math.max(mateImpact, 1120 - Math.min(320, Math.max(0, mateAfterDistance) * 8));
+        } else if (!moverMateBefore && moverMateAfter) {
+          mateImpact = Math.max(mateImpact, 1100 - Math.min(300, Math.max(0, mateAfterDistance) * 12));
+        }
+        const cpScore = Number.isFinite(primarySwing) ? Math.abs(primarySwing) : 0;
+        return Math.max(cpScore, mateImpact);
       }
 
       function computeAutomatedMoveInsights(rawMoves, playerColor, playerOutcome) {
@@ -1894,6 +1914,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const worsenedExistingMate = opponentMateAfter && opponentMateBefore && mateAfterDistance < mateBeforeDistance;
           const maintainsOpponentMate = opponentMateAfter && opponentMateBefore && !worsenedExistingMate;
           mv._maintainsOpponentMate = maintainsOpponentMate;
+          const moverHadMate = hadMateForMoverBefore(mv);
+          const moverKeepsMate = retainsMateForMover(mv);
+          mv._maintainsMoverMate = moverHadMate && moverKeepsMate;
+          const opponentMateDistanceDelta = mateBeforeDistance - mateAfterDistance;
+          const mateExtension = opponentMateBefore && opponentMateAfter && Number.isFinite(opponentMateDistanceDelta) && opponentMateDistanceDelta <= -MATE_ESCAPE_EXTENSION_THRESHOLD;
+          const mateShortenedOrKept = opponentMateBefore && opponentMateAfter && (!Number.isFinite(opponentMateDistanceDelta) ? false : opponentMateDistanceDelta >= 0);
+          const brokeMateNet = opponentMateBefore && !opponentMateAfter;
 
           const lostMateForMover = hadMateForMoverBefore(mv) && !retainsMateForMover(mv);
           const needsSevere = createdNewMate || worsenedExistingMate || lostMateForMover;
@@ -1901,6 +1928,17 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (needsSevere) {
             const severeTarget = Number.isFinite(mv.moverDelta) && mv.moverDelta <= -50 ? 'Misclick??' : 'Blunder';
             mv.classification = chooseMoreSevereClassification(mv.classification, severeTarget);
+          }
+          if (mateShortenedOrKept) {
+            const severeMateShorten = Number.isFinite(opponentMateDistanceDelta) && opponentMateDistanceDelta >= MATE_SHORTEN_SEVERE_THRESHOLD;
+            const severeDrop = Number.isFinite(mv.moverDelta) && mv.moverDelta <= LOSS_BANDS_CP.mate.blunder;
+            const severeTarget = (severeMateShorten || severeDrop) ? 'Misclick??' : 'Blunder';
+            mv.classification = chooseMoreSevereClassification(mv.classification, severeTarget);
+          } else if (mateExtension) {
+            mv._extendsOpponentMate = true;
+          }
+          if (brokeMateNet) {
+            mv._breaksOpponentMate = true;
           }
         });
 
@@ -1923,10 +1961,18 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         });
 
         moves.forEach(mv => {
-          if (mv._maintainsOpponentMate || isForcedDefenseMove(mv)) {
+          if (mv._breaksOpponentMate) {
+            mv.classification = 'Great';
+          } else if (mv._extendsOpponentMate || mv._maintainsOpponentMate || isForcedDefenseMove(mv)) {
+            mv.classification = 'Forced';
+          }
+          if (mv._maintainsMoverMate) {
             mv.classification = 'Forced';
           }
           delete mv._maintainsOpponentMate;
+          delete mv._extendsOpponentMate;
+          delete mv._breaksOpponentMate;
+          delete mv._maintainsMoverMate;
         });
 
         const normalizedColor = playerColor === 'w' || playerColor === 'b'
@@ -1952,10 +1998,18 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
         let largestDrop = null;
         let bestNonNegative = null;
+        let highestImpact = null;
         relevantMoves.forEach(mv => {
           const context = getCentipawnContext(mv);
           const lossDelta = context && Number.isFinite(context.effectiveLoss) ? context.effectiveLoss : Number(mv.moverDelta);
           const gainDelta = context && Number.isFinite(context.moverDelta) ? context.moverDelta : Number(mv.moverDelta);
+          const impactScore = computeImpactScore(mv);
+          if (Number.isFinite(impactScore)) {
+            if (!highestImpact || impactScore > Number(highestImpact._impactScore || -Infinity) || (impactScore === Number(highestImpact._impactScore || -Infinity) && mv.index < highestImpact.index)) {
+              highestImpact = mv;
+              highestImpact._impactScore = impactScore;
+            }
+          }
           if (Number.isFinite(lossDelta) && lossDelta < 0) {
             if (!largestDrop || lossDelta < Number(largestDrop._effectiveLoss || largestDrop.moverDelta) || (lossDelta === Number(largestDrop._effectiveLoss || largestDrop.moverDelta) && mv.index < largestDrop.index)) {
               largestDrop = mv;
@@ -2020,6 +2074,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             bestPunishingFollow.relatedMistakeIndex = bestRelatedMistake.index;
             moveOfGame = bestPunishingFollow;
           }
+        }
+
+        if (!moveOfGame && highestImpact) {
+          moveOfGame = highestImpact;
         }
 
         if (!moveOfGame) {
