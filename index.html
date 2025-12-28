@@ -1199,6 +1199,7 @@
       // ====== Stockfish (same-origin Worker) ======
       const ENGINE_BUNDLE_VERSION = '20240609';
       const LOCAL_ENGINE = `engine/stockfish-nnue-16-single.js?v=${ENGINE_BUNDLE_VERSION}`;
+      const MIN_ANALYSIS_MULTIPV = 2;
       function resolveWorkerUrl(path) {
         if (!path) return path;
         try {
@@ -1228,6 +1229,7 @@
       let engineWorker = null;
       let engineReady = false;
       let currentMultiPvSetting = 1;
+      let currentScoreTracking = null;
       let engineInitTimeout = null;
       let lastInfoMsg = '';
       let currentScoreResolver = null;
@@ -1288,7 +1290,7 @@
         Object.entries(options).forEach(([name, value]) => {
           engineWorker.postMessage(`setoption name ${name} value ${value}`);
         });
-        setEngineMultiPv(1);
+        setEngineMultiPv(MIN_ANALYSIS_MULTIPV);
         engineWorker.postMessage('isready');
       }
 
@@ -1341,7 +1343,7 @@
       function initEngine(initial = false) {
         if (engineWorker) engineWorker.terminate();
         engineReady = false;
-        currentMultiPvSetting = 1;
+        currentMultiPvSetting = MIN_ANALYSIS_MULTIPV;
         if (initial) {
           $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
         } else {
@@ -1376,19 +1378,29 @@
           } else if (msg.startsWith('info')) {
             handleEngineInfoMessage(rawMsg);
           } else if (msg.startsWith('bestmove')) {
-            const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
-            const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
             const bmMatch = /bestmove\s(\S+)/.exec(msg);
             const bm = bmMatch ? bmMatch[1] : null;
+            const multipvScores = currentScoreTracking && currentScoreTracking.pvMap
+              ? Object.values(currentScoreTracking.pvMap).sort((a, b) => a.multipv - b.multipv)
+              : [];
+            const primaryPv = multipvScores.find(entry => entry && entry.multipv === 1);
+            const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
+            const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
+            let baseScore = null;
+            if (primaryPv) {
+              baseScore = { type: primaryPv.type, value: primaryPv.value, bestmove: primaryPv.move };
+            } else if (mt) {
+              baseScore = { type: 'mate', value: parseInt(mt[1], 10), bestmove: bm };
+            } else if (cp) {
+              baseScore = { type: 'cp', value: parseInt(cp[1], 10), bestmove: bm };
+            } else {
+              baseScore = { type: 'cp', value: 0, bestmove: bm };
+            }
+            const payload = { ...baseScore, bestmove: baseScore.bestmove || bm || null, multipvScores };
             if (currentScoreResolver) {
-              if (mt) {
-                currentScoreResolver({ type: 'mate', value: parseInt(mt[1], 10), bestmove: bm });
-              } else if (cp) {
-                currentScoreResolver({ type: 'cp', value: parseInt(cp[1], 10), bestmove: bm });
-              } else {
-                currentScoreResolver({ type: 'cp', value: 0, bestmove: bm });
-              }
-              currentScoreResolver = null;
+              finalizeCurrentScore(payload);
+            } else {
+              currentScoreTracking = null;
             }
           }
         };
@@ -1708,6 +1720,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (!moveRecord) return null;
         const mateKey = phase === 'after' ? 'mateAfter' : 'mateBefore';
         const probKey = phase === 'after' ? 'whiteProbAfter' : 'whiteProbBefore';
+        const cpKey = phase === 'after' ? 'whiteCpAfter' : 'whiteCpBefore';
+        const cpVal = Number(moveRecord[cpKey]);
+        if (Number.isFinite(cpVal)) return cpVal;
         const mateCp = mateScoreToCentipawns(moveRecord[mateKey]);
         if (mateCp != null) return mateCp;
         if (moveRecord[mateKey] === 0) return 0;
@@ -1725,19 +1740,24 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       function resolveBestMoveLoss(moveRecord) {
         if (!moveRecord) return null;
-        const candidates = [
-          moveRecord.bestMoveDelta,
-          moveRecord.bestMoveCpLoss,
+        const positiveCandidates = [
           moveRecord.bestMoveLoss,
-          moveRecord.bestmoveDelta,
+          moveRecord.bestMoveCpLoss,
           moveRecord.cpLoss,
           moveRecord.cpLossForMover
+        ].filter(val => Number.isFinite(Number(val)) && Number(val) > 0);
+        if (positiveCandidates.length) {
+          return -Math.abs(Number(positiveCandidates[0]));
+        }
+        const signedCandidates = [
+          moveRecord.bestMoveDelta,
+          moveRecord.bestmoveDelta
         ];
-        const raw = candidates.find(val => Number.isFinite(Number(val)));
+        const raw = signedCandidates.find(val => Number.isFinite(Number(val)));
         if (!Number.isFinite(Number(raw))) return null;
         const gap = Number(raw);
-        if (gap <= 0) return null;
-        return -Math.abs(gap);
+        if (gap >= 0) return null;
+        return gap;
       }
 
       function getCentipawnContext(moveRecord) {
@@ -1751,9 +1771,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           ? (moverAfter - moverBefore)
           : null;
         const bestMoveLoss = resolveBestMoveLoss(moveRecord);
-        const effectiveLoss = Number.isFinite(bestMoveLoss)
-          ? (Number.isFinite(moverDelta) ? Math.min(moverDelta, bestMoveLoss) : bestMoveLoss)
-          : moverDelta;
+        const effectiveLoss = Number.isFinite(bestMoveLoss) ? bestMoveLoss : moverDelta;
         const winningBefore = Number.isFinite(moverBefore) && moverBefore > WINNING_CP_THRESHOLD;
         const losingBefore = Number.isFinite(moverBefore) && moverBefore < -WINNING_CP_THRESHOLD;
         const droppedToEqual = winningBefore && Number.isFinite(moverAfter) && moverAfter <= EVEN_CP_BUFFER;
@@ -2120,9 +2138,17 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         };
       }
 
+      function getAutomatedLossDelta(moveRecord) {
+        const context = getCentipawnContext(moveRecord);
+        if (context && Number.isFinite(context.effectiveLoss)) return context.effectiveLoss;
+        if (moveRecord && Number.isFinite(moveRecord.moverDelta)) return moveRecord.moverDelta;
+        return null;
+      }
+
       function describeAutomatedImpact(delta) {
-        const swing = Math.abs(Number(delta || 0));
-        if (!Number.isFinite(swing)) return 'severe';
+        const numeric = Number(delta);
+        if (!Number.isFinite(numeric)) return 'severe';
+        const swing = Math.abs(numeric);
         if (swing >= 60) return 'devastating';
         if (swing >= 40) return 'huge';
         if (swing >= 25) return 'major';
@@ -2154,13 +2180,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (opponentHasForcedMateAfter(move)) {
             return 'Auto insight: allows a forced mate per Stockfish.';
           }
-          return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} drop flagged by Stockfish.`;
+          return `Auto insight: ${describeAutomatedImpact(getAutomatedLossDelta(move))} miss versus the top engine line.`;
         }
         if (key === 'misclick') {
           if (opponentHasForcedMateAfter(move)) {
             return 'Auto insight: hands the opponent a forced mate.';
           }
-          return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} collapse detected by Stockfish.`;
+          return `Auto insight: ${describeAutomatedImpact(getAutomatedLossDelta(move))} collapse against the engine recommendation.`;
         }
         if (key === 'forced') {
           return 'Auto insight: only defensive move available in an unavoidable mate.';
@@ -2188,10 +2214,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (opponentHasForcedMateAfter(move)) {
             return 'Auto insight: error that hands the opponent a forcing sequence.';
           }
-          return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} mistake that swung the evaluation.`;
+          return `Auto insight: ${describeAutomatedImpact(getAutomatedLossDelta(move))} mistake measured against the best line.`;
         }
         if (key === 'inaccuracy') {
-          return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} slip highlighted by Stockfish.`;
+          return `Auto insight: ${describeAutomatedImpact(getAutomatedLossDelta(move))} slip highlighted by Stockfish.`;
         }
         if (key === 'blunder' || key === 'misclick') {
           if (opponentHasForcedMateAfter(move)) {
@@ -2270,7 +2296,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const totalGood = summaryData.totalGood || 0;
         const totalBad = summaryData.totalBad || 0;
         const accuracy = summaryData.totalMoves ? (summaryData.totalGood / summaryData.totalMoves) * 100 : 0;
-        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%. Narrative Summary: Automated engine insights summary generated from Stockfish evaluations with mate-to-cp scaling and context-aware loss bands.`;
+        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%. Narrative Summary: Automated engine insights summary generated from Stockfish evaluations with mate-to-cp scaling, MultiPV best-move loss detection, and context-aware loss bands.`;
       }
 
       function convertAutomatedMoveToFeatured(autoMove) {
@@ -3956,14 +3982,70 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
+      function normalizeMultipvScores(rawScores) {
+        if (!Array.isArray(rawScores)) return [];
+        return rawScores.map(entry => {
+          const move = entry && entry.move ? normalizeUciMove(entry.move) : null;
+          const type = entry && entry.type === 'mate' ? 'mate' : 'cp';
+          const rawVal = entry ? Number(entry.value) : null;
+          const value = Number.isFinite(rawVal) ? rawVal : 0;
+          const multipv = entry && Number.isFinite(entry.multipv) ? Number(entry.multipv) : 1;
+          return {
+            move,
+            type,
+            value,
+            multipv,
+            depth: entry && entry.depth != null ? Number(entry.depth) : null
+          };
+        });
+      }
+
+      function normalizeScoreForMover(scoreEntry, moverColor) {
+        if (!scoreEntry) return null;
+        const color = moverColor === 'w' || moverColor === 'b' ? moverColor : null;
+        const type = scoreEntry.type === 'mate' ? 'mate' : 'cp';
+        const rawVal = Number(scoreEntry.value);
+        const value = Number.isFinite(rawVal) ? rawVal : 0;
+        const mateForMover = type === 'mate' ? value : null;
+        const moverCp = type === 'mate' ? mateScoreToCentipawns(value) : value;
+        const whiteCp = color === 'w' ? moverCp : color === 'b' ? -moverCp : null;
+        const mateForWhite = color === 'w'
+          ? mateForMover
+          : color === 'b' && Number.isFinite(mateForMover)
+            ? -mateForMover
+            : null;
+        return {
+          type,
+          value,
+          moverCp,
+          whiteCp,
+          mateForMover,
+          mateForWhite,
+          move: scoreEntry.move || null,
+          multipv: scoreEntry.multipv != null ? scoreEntry.multipv : null
+        };
+      }
+
       function normalizeEngineScore(score) {
-        if (!score) return { type: 'cp', value: 0, bestmove: null };
-        if (score.type === 'mate') {
-          const mateValue = Number(score.value);
-          return { type: 'mate', value: Number.isFinite(mateValue) ? mateValue : 0, bestmove: score.bestmove || null };
+        const base = score && score.type ? score : (score && score.score ? score.score : score);
+        const multipvScores = normalizeMultipvScores(score && score.multipvScores ? score.multipvScores : []);
+        if (!base) return { type: 'cp', value: 0, bestmove: null, multipvScores };
+        if (base.type === 'mate') {
+          const mateValue = Number(base.value);
+          return {
+            type: 'mate',
+            value: Number.isFinite(mateValue) ? mateValue : 0,
+            bestmove: base.bestmove || (multipvScores[0] ? multipvScores[0].move : null),
+            multipvScores
+          };
         }
-        const cpValue = Number(score.value);
-        return { type: 'cp', value: Number.isFinite(cpValue) ? cpValue : 0, bestmove: score.bestmove || null };
+        const cpValue = Number(base.value);
+        return {
+          type: 'cp',
+          value: Number.isFinite(cpValue) ? cpValue : 0,
+          bestmove: base.bestmove || (multipvScores[0] ? multipvScores[0].move : null),
+          multipvScores
+        };
       }
 
       function updateAnalysisProgress(stage, index, total, move, depth) {
@@ -4055,22 +4137,66 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const prefix = (i % 2 === 0) ? (moveNumber + '. ') : '';
           const move = sanMoves[i];
           updateAnalysisProgress(stage, i, sanMoves.length, move, depth);
+          const fenBefore = temp.fen();
+          const moverColor = temp.turn();
           const moveObj = temp.move(move);
           if (!moveObj) throw new Error('Encountered an invalid move during analysis.');
+          const playedUci = buildUciFromMoveLike(moveObj);
           const probBeforeMove = prevProb;
-          const score = normalizeEngineScore(await getScore(temp.fen(), { ...ENGINE_GO_OPTIONS, depth }));
+          const primaryScore = normalizeEngineScore(await getScoreWithTimeout(fenBefore, {
+            ...ENGINE_GO_OPTIONS,
+            depth,
+            multipv: MIN_ANALYSIS_MULTIPV,
+            targetMoves: playedUci ? [playedUci] : []
+          }, `ply ${i + 1}`));
+          const multipvScores = normalizeMultipvScores(primaryScore ? primaryScore.multipvScores : []);
+          let bestScoreEntry = multipvScores.find(pv => pv.multipv === 1);
+          if (!bestScoreEntry && primaryScore && primaryScore.bestmove) {
+            bestScoreEntry = {
+              move: normalizeUciMove(primaryScore.bestmove),
+              type: primaryScore.type,
+              value: primaryScore.value,
+              multipv: 1
+            };
+          }
+          let playedScoreEntry = playedUci ? multipvScores.find(pv => pv.move === playedUci) : null;
+          if (!playedScoreEntry && playedUci && primaryScore && normalizeUciMove(primaryScore.bestmove) === playedUci) {
+            playedScoreEntry = {
+              move: playedUci,
+              type: primaryScore.type,
+              value: primaryScore.value,
+              multipv: bestScoreEntry ? bestScoreEntry.multipv : 1
+            };
+          }
+          if (!playedScoreEntry && playedUci) {
+            const playedOnly = normalizeEngineScore(await getScoreWithTimeout(fenBefore, {
+              ...ENGINE_GO_OPTIONS,
+              depth,
+              searchmoves: [playedUci],
+              multipv: MIN_ANALYSIS_MULTIPV,
+              preserveMultiPv: true,
+              targetMoves: [playedUci]
+            }, `played ${i + 1}`));
+            if (playedOnly) {
+              playedScoreEntry = {
+                move: playedUci,
+                type: playedOnly.type,
+                value: playedOnly.value,
+                multipv: 1
+              };
+            }
+          }
+          const bestEval = normalizeScoreForMover(bestScoreEntry, moverColor);
+          const playedEval = normalizeScoreForMover(playedScoreEntry || bestScoreEntry, moverColor);
+          const probBeforeMove = prevProb;
           if (token !== activeAnalysisToken) return null;
           let evalStr = '';
           let prob = null;
-          let mateScore = null;
-          if (score.type === 'mate') {
-            mateScore = score.value;
-            if (temp.turn() === 'b') mateScore = -mateScore;
+          let mateScore = playedEval ? playedEval.mateForWhite : null;
+          if (Number.isFinite(mateScore)) {
             prob = (mateScore === 0) ? (moveObj.color === 'w' ? 1 : 0) : (mateScore > 0 ? 1 : 0);
-          } else {
-            let cp = score.value;
-            if (temp.turn() === 'b') cp = -cp;
-            prob = cpToProb(cp);
+          } else if (playedEval && Number.isFinite(playedEval.whiteCp)) {
+            prob = cpToProb(playedEval.whiteCp);
           }
           prob = clampProb(prob);
           let moverDelta = null;
@@ -4085,10 +4211,14 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             prevProb = prob;
           }
           const deltaStr = formatDeltaBraced(moverDelta);
-          if (mateScore != null) {
-            evalStr = `{#${mateScore}}`;
-          } else {
-            evalStr = deltaStr || '{0}';
+          evalStr = Number.isFinite(mateScore) ? `{#${mateScore}}` : (deltaStr || '{0}');
+          const bestMoveCp = bestEval ? bestEval.moverCp : null;
+          const playedMoveCp = playedEval ? playedEval.moverCp : null;
+          let bestMoveLoss = null;
+          let bestMoveDelta = null;
+          if (Number.isFinite(bestMoveCp) && Number.isFinite(playedMoveCp)) {
+            bestMoveDelta = playedMoveCp - bestMoveCp;
+            bestMoveLoss = bestMoveDelta < 0 ? Math.abs(bestMoveDelta) : 0;
           }
           localProbSeries.push(prob);
           engineMoveRecords.push({
@@ -4104,7 +4234,17 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             mateBefore: lastMateScore,
             mateAfter: mateScore,
             evaluation: evalStr,
-            move: simplifyMoveObject(moveObj)
+            move: simplifyMoveObject(moveObj),
+            bestMove: bestEval && bestEval.move ? bestEval.move : null,
+            bestMoveScore: bestEval ? { type: bestEval.type, value: bestEval.value } : null,
+            playedMoveScore: playedEval ? { type: playedEval.type, value: playedEval.value } : null,
+            bestMoveCp,
+            playedMoveCp,
+            bestMoveLoss,
+            bestMoveCpLoss: bestMoveLoss,
+            bestMoveDelta,
+            whiteCpAfter: playedEval ? playedEval.whiteCp : null,
+            whiteCpBefore: probBeforeMove != null ? probToCp(probBeforeMove) : null
           });
           lastMateScore = mateScore;
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
@@ -4155,7 +4295,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             return;
           }
           if (engineWorker) engineWorker.postMessage('stop');
-          setEngineMultiPv(1);
+          setEngineMultiPv(MIN_ANALYSIS_MULTIPV);
           const rawNameDuringAnalysis = getRawPlayerNameInput();
           if (rawNameDuringAnalysis) {
             updateReviewPlayerColorFromGame(game, rawNameDuringAnalysis);
@@ -4321,14 +4461,25 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
         function getScore(fen, opts) {
           return new Promise(resolve => {
-            currentScoreResolver = resolve; lastInfoMsg = '';
+            lastInfoMsg = '';
             const o = opts || ENGINE_GO_OPTIONS || {};
             const preserveMultiPv = !!o.preserveMultiPv;
-            const desiredMultiPv = Number.isFinite(o.multipv) ? Number(o.multipv) : null;
+            const desiredMultiPvRaw = Number.isFinite(o.multipv) ? Number(o.multipv) : null;
+            const desiredMultiPv = desiredMultiPvRaw ? Math.max(MIN_ANALYSIS_MULTIPV, desiredMultiPvRaw) : MIN_ANALYSIS_MULTIPV;
+            const targetMoves = Array.isArray(o.targetMoves)
+              ? o.targetMoves.map(normalizeUciMove).filter(Boolean)
+              : [];
+            currentScoreTracking = {
+              pvMap: {},
+              targetMoves: new Set(targetMoves),
+              fen,
+              desiredMultiPv
+            };
+            currentScoreResolver = resolve;
             if (!preserveMultiPv) {
-              setEngineMultiPv(desiredMultiPv || 1);
+              setEngineMultiPv(desiredMultiPv || MIN_ANALYSIS_MULTIPV);
             } else if (desiredMultiPv) {
-              setEngineMultiPv(desiredMultiPv);
+              setEngineMultiPv(desiredMultiPv || MIN_ANALYSIS_MULTIPV);
             }
             engineWorker.postMessage('position fen ' + fen);
             const parts = ['go'];
@@ -4349,21 +4500,77 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             const timeoutPromise = new Promise((_, reject) => {
               timeoutHandle = setTimeout(() => {
                 const label = contextLabel ? ` for ${contextLabel}` : '';
+                currentScoreResolver = null;
+                currentScoreTracking = null;
                 reject(new Error(`Engine response timed out${label}.`));
               }, ENGINE_REQUEST_TIMEOUT_MS);
             });
             return await Promise.race([scorePromise, timeoutPromise]);
           } catch (err) {
             console.warn('Engine request failed:', err && err.message ? err.message : err);
+            currentScoreResolver = null;
+            currentScoreTracking = null;
             return null;
           } finally {
             if (timeoutHandle) clearTimeout(timeoutHandle);
           }
         }
 
+      function parseMultipvInfo(msg) {
+        if (!msg || typeof msg !== 'string') return null;
+        const pvMatch = msg.match(/\spv\s+([^\s]+)/);
+        if (!pvMatch) return null;
+        const move = pvMatch[1];
+        const cpMatch = msg.match(/\bscore cp (-?\d+)/);
+        const mateMatch = msg.match(/\bscore mate (-?\d+)/);
+        let type = null;
+        let value = null;
+        if (mateMatch) {
+          type = 'mate';
+          value = parseInt(mateMatch[1], 10);
+        } else if (cpMatch) {
+          type = 'cp';
+          value = parseInt(cpMatch[1], 10);
+        }
+        if (type == null || !Number.isFinite(value)) return null;
+        const depthMatch = msg.match(/\bdepth\s+(\d+)/);
+        const multipvMatch = msg.match(/\bmultipv\s+(\d+)/);
+        const multipv = multipvMatch ? parseInt(multipvMatch[1], 10) : 1;
+        return {
+          move,
+          type,
+          value,
+          depth: depthMatch ? parseInt(depthMatch[1], 10) : null,
+          multipv: Number.isFinite(multipv) && multipv > 0 ? multipv : 1
+        };
+      }
+
+      function trackScoreInfo(msg) {
+        if (!currentScoreTracking || !msg || typeof msg !== 'string') return;
+        const parsed = parseMultipvInfo(msg);
+        if (!parsed) return;
+        const normalizedMove = normalizeUciMove(parsed.move);
+        const payload = { ...parsed, move: normalizedMove };
+        currentScoreTracking.pvMap[payload.multipv] = payload;
+        if (currentScoreTracking.targetMoves && currentScoreTracking.targetMoves.has(normalizedMove)) {
+          currentScoreTracking.played = payload;
+        }
+      }
+
+      function finalizeCurrentScore(payload) {
+        if (currentScoreResolver) {
+          currentScoreResolver(payload);
+          currentScoreResolver = null;
+        }
+        currentScoreTracking = null;
+      }
+
       function handleEngineInfoMessage(msg) {
         if (msg.startsWith('info depth')) {
           lastInfoMsg = msg;
+        }
+        if (msg.startsWith('info')) {
+          trackScoreInfo(msg);
         }
         processBestMoveInfo(msg);
         processPuzzleInfo(msg);
