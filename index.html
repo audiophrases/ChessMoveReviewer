@@ -296,7 +296,7 @@
             <!-- One-line summary appears here (from "Summary:") -->
             <div id="classification-legend" class="mb-3 p-2 rounded bg-[#0b0e15] text-xs text-gray-300">
               <p class="text-sm font-semibold text-gray-200">How moves are labeled</p>
-              <p class="mt-1">Mate scores are scaled like centipawns (1000 − 10 × distance) and loss bands run about -30 / -80 / -200 / -500 cp, tightening when you give up a win or forced mate and easing when already worse. Gaps to the engine&rsquo;s best move can still trigger Inaccuracy, Mistake, or Blunder even if the eval stays flat.</p>
+              <p class="mt-1">Evaluations are stored as centipawns for White (mates shown as #), not probability swings. Loss bands run about -30 / -80 / -200 / -500 cp, tightening when you give up a win or forced mate and easing when already worse. Gaps to the engine&rsquo;s best move can still trigger Inaccuracy, Mistake, or Blunder even if the eval stays flat.</p>
             </div>
             <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
             <div id="featured-move" class="hidden mb-3"></div>
@@ -333,6 +333,14 @@
       <h3 id="puzzle-result-title" class="text-2xl font-bold text-white mb-3">Puzzle Result</h3>
       <p id="puzzle-result-message" class="text-gray-300 mb-6"></p>
       <button id="close-puzzle-modal-btn" class="py-2 px-6 font-semibold text-white rounded-lg btn-primary">Continue</button>
+    </div>
+  </div>
+
+  <div id="deep-analysis-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50" aria-modal="true" role="dialog">
+    <div class="bg-[#141926] p-8 rounded-lg shadow-xl max-w-sm w-full text-center border border-[#1f2937]">
+      <h3 id="deep-analysis-modal-title" class="text-2xl font-bold text-white mb-3">Deeper analysis ready</h3>
+      <p id="deep-analysis-modal-detail" class="text-gray-300 mb-6">Apply the deeper Stockfish results now.</p>
+      <button id="confirm-deep-analysis-btn" class="py-2 px-6 font-semibold text-white rounded-lg btn-primary">OK</button>
     </div>
   </div>
 
@@ -440,6 +448,10 @@
       const deepAnalysisTitle = $('#deep-analysis-title');
       const deepAnalysisDetail = $('#deep-analysis-detail');
       const applyDeepAnalysisBtn = $('#apply-deep-analysis-btn');
+      const deepAnalysisModal = $('#deep-analysis-modal');
+      const deepAnalysisModalTitle = $('#deep-analysis-modal-title');
+      const deepAnalysisModalDetail = $('#deep-analysis-modal-detail');
+      const confirmDeepAnalysisBtn = $('#confirm-deep-analysis-btn');
       let awaitingUserGestureCopy = false;
       let pendingClipboardText = '';
       let gestureCopyListenerAttached = false;
@@ -2249,6 +2261,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (move.evaluation) return move.evaluation;
         if (Number.isFinite(move.mateAfter)) return `{#${move.mateAfter}}`;
         if (Number.isFinite(move.mateBefore)) return `{#${move.mateBefore}}`;
+        const cpAfter = formatCentipawnBraced(move.whiteCpAfter);
+        if (cpAfter) return cpAfter;
+        const cpBefore = formatCentipawnBraced(move.whiteCpBefore);
+        if (cpBefore) return cpBefore;
+        const probToken = formatProbBraced(move.whiteProbAfter);
+        if (probToken) return probToken;
         const deltaToken = formatDeltaBraced(move.moverDelta);
         if (deltaToken) return deltaToken;
         const whiteDeltaToken = formatDeltaBraced(move.whiteDelta);
@@ -3068,6 +3086,13 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const formatted = formatDeltaNumber(delta);
         if (!formatted) return '';
         return `{${formatted}}`;
+      }
+
+      function formatCentipawnBraced(cp) {
+        if (cp == null || !isFinite(cp)) return '';
+        let rounded = Math.round(cp);
+        if (Object.is(rounded, -0)) rounded = 0;
+        return `{${rounded}}`;
       }
 
       function formatProbBraced(prob) {
@@ -4069,6 +4094,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (deepAnalysisTitle.length) deepAnalysisTitle.text('');
         if (deepAnalysisDetail.length) deepAnalysisDetail.text('');
         if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+        closeDeepAnalysisModal();
       }
 
       function showDeepAnalysisInProgress(depth) {
@@ -4088,6 +4114,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           applyDeepAnalysisBtn.text(`Use depth ${depth} analysis`);
           applyDeepAnalysisBtn.removeClass('hidden').prop('disabled', false);
         }
+        openDeepAnalysisModal(depth);
       }
 
       function showDeepAnalysisError(message) {
@@ -4096,6 +4123,29 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (deepAnalysisTitle.length) deepAnalysisTitle.text('Deeper analysis unavailable');
         if (deepAnalysisDetail.length) deepAnalysisDetail.text(message || 'There was a problem running the deeper pass. The quick results are still available.');
         if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+      }
+
+      function openDeepAnalysisModal(depth) {
+        if (deepAnalysisModalTitle.length) deepAnalysisModalTitle.text(`Deeper analysis ready (depth ${depth})`);
+        if (deepAnalysisModalDetail.length) {
+          deepAnalysisModalDetail.text('Click OK to apply the deeper Stockfish results to your review.');
+        }
+        if (deepAnalysisModal.length) deepAnalysisModal.removeClass('hidden');
+      }
+
+      function closeDeepAnalysisModal() {
+        if (deepAnalysisModal.length) deepAnalysisModal.addClass('hidden');
+      }
+
+      function applyPendingDeepAnalysis() {
+        if (!pendingDeepAnalysis || pendingDeepAnalysis.token !== activeAnalysisToken || !pendingDeepAnalysis.result) return;
+        applyAnalysisResult(pendingDeepAnalysis.result);
+        if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Deep analysis applied (depth ${pendingDeepAnalysis.depth})`);
+        if (deepAnalysisDetail.length) deepAnalysisDetail.text('The deeper evaluation has replaced the quick results.');
+        markAnalysisComplete(`Deep analysis applied (depth ${pendingDeepAnalysis.depth}).`);
+        applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+        closeDeepAnalysisModal();
+        pendingDeepAnalysis = null;
       }
 
       function applyAnalysisResult(result) {
@@ -4142,7 +4192,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const moveObj = temp.move(move);
           if (!moveObj) throw new Error('Encountered an invalid move during analysis.');
           const playedUci = buildUciFromMoveLike(moveObj);
-          const probBeforeMove = prevProb;
           const primaryScore = normalizeEngineScore(await getScoreWithTimeout(fenBefore, {
             ...ENGINE_GO_OPTIONS,
             depth,
@@ -4188,20 +4237,36 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           }
           const bestEval = normalizeScoreForMover(bestScoreEntry, moverColor);
           const playedEval = normalizeScoreForMover(playedScoreEntry || bestScoreEntry, moverColor);
-          const probBeforeMove = prevProb;
           if (token !== activeAnalysisToken) return null;
           let evalStr = '';
+          const whiteCpBefore = Number.isFinite(bestEval && bestEval.whiteCp) ? bestEval.whiteCp
+            : Number.isFinite(playedEval && playedEval.whiteCp) ? playedEval.whiteCp
+            : null;
+          const whiteProbBefore = Number.isFinite(whiteCpBefore) ? clampProb(cpToProb(whiteCpBefore)) : prevProb;
+          const mateBefore = Number.isFinite(bestEval && bestEval.mateForWhite) ? bestEval.mateForWhite
+            : Number.isFinite(playedEval && playedEval.mateForWhite) ? playedEval.mateForWhite
+            : lastMateScore;
+          const whiteCpAfter = Number.isFinite(playedEval && playedEval.whiteCp) ? playedEval.whiteCp : null;
+          const mateScore = Number.isFinite(playedEval && playedEval.mateForWhite) ? playedEval.mateForWhite : null;
           let prob = null;
-          let mateScore = playedEval ? playedEval.mateForWhite : null;
           if (Number.isFinite(mateScore)) {
             prob = (mateScore === 0) ? (moveObj.color === 'w' ? 1 : 0) : (mateScore > 0 ? 1 : 0);
-          } else if (playedEval && Number.isFinite(playedEval.whiteCp)) {
-            prob = cpToProb(playedEval.whiteCp);
+          } else if (Number.isFinite(whiteCpAfter)) {
+            prob = cpToProb(whiteCpAfter);
           }
           prob = clampProb(prob);
           let moverDelta = null;
           let whiteDelta = null;
-          if (prob != null && prevProb != null) {
+          if (Number.isFinite(whiteCpBefore) && Number.isFinite(whiteCpAfter)) {
+            whiteDelta = whiteCpAfter - whiteCpBefore;
+            const moverSign = moveObj.color === 'w' ? 1 : -1;
+            moverDelta = whiteDelta * moverSign;
+            const probFromAfter = clampProb(cpToProb(whiteCpAfter));
+            if (probFromAfter != null) {
+              prevProb = probFromAfter;
+              prob = prob ?? probFromAfter;
+            }
+          } else if (prob != null && prevProb != null) {
             const diff = (prob - prevProb) * 100;
             const moverSign = moveObj.color === 'w' ? 1 : -1;
             moverDelta = diff * moverSign;
@@ -4211,7 +4276,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             prevProb = prob;
           }
           const deltaStr = formatDeltaBraced(moverDelta);
-          evalStr = Number.isFinite(mateScore) ? `{#${mateScore}}` : (deltaStr || '{0}');
+          const cpEval = formatCentipawnBraced(whiteCpAfter);
+          evalStr = Number.isFinite(mateScore) ? `{#${mateScore}}` : (cpEval || deltaStr || '{0}');
           const bestMoveCp = bestEval ? bestEval.moverCp : null;
           const playedMoveCp = playedEval ? playedEval.moverCp : null;
           let bestMoveLoss = null;
@@ -4229,9 +4295,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             san: move,
             moverDelta,
             whiteDelta,
-            whiteProbBefore: probBeforeMove,
+            whiteProbBefore,
             whiteProbAfter: prob,
-            mateBefore: lastMateScore,
+            mateBefore,
             mateAfter: mateScore,
             evaluation: evalStr,
             move: simplifyMoveObject(moveObj),
@@ -4243,10 +4309,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             bestMoveLoss,
             bestMoveCpLoss: bestMoveLoss,
             bestMoveDelta,
-            whiteCpAfter: playedEval ? playedEval.whiteCp : null,
-            whiteCpBefore: probBeforeMove != null ? probToCp(probBeforeMove) : null
+            whiteCpAfter,
+            whiteCpBefore
           });
-          lastMateScore = mateScore;
+          lastMateScore = mateScore != null ? mateScore : mateBefore;
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
         }
         const outcome = updatePlayerOutcomeFromGame(game);
@@ -4332,13 +4398,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       if (applyDeepAnalysisBtn.length) {
         applyDeepAnalysisBtn.on('click', function () {
-          if (!pendingDeepAnalysis || pendingDeepAnalysis.token !== activeAnalysisToken || !pendingDeepAnalysis.result) return;
-          applyAnalysisResult(pendingDeepAnalysis.result);
-          if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Deep analysis applied (depth ${pendingDeepAnalysis.depth})`);
-          if (deepAnalysisDetail.length) deepAnalysisDetail.text('The deeper evaluation has replaced the quick results.');
-          markAnalysisComplete(`Deep analysis applied (depth ${pendingDeepAnalysis.depth}).`);
-          applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
-          pendingDeepAnalysis = null;
+          applyPendingDeepAnalysis();
+        });
+      }
+      if (confirmDeepAnalysisBtn.length) {
+        confirmDeepAnalysisBtn.on('click', function () {
+          applyPendingDeepAnalysis();
         });
       }
 
