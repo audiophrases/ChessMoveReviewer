@@ -1236,7 +1236,8 @@
         }
       }
       const ENGINE_GO_OPTIONS = { depth: 24 };
-      const QUICK_ANALYSIS_DEPTH = 10;
+      const QUICK_ANALYSIS_DEPTH = 8;
+      const QUICK_ANALYSIS_FOLLOWUP_DEPTH = 6;
       const DEFAULT_DEEP_ANALYSIS_DEPTH = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : 24;
       let engineWorker = null;
       let engineReady = false;
@@ -4171,6 +4172,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       async function runSingleDepthAnalysis(opts) {
         const stage = opts && opts.stage ? opts.stage : 'quick';
         const depth = resolveStageDepth(stage, opts && opts.depth);
+        const isQuickStage = stage === 'quick';
+        const stageMultipv = isQuickStage ? 1 : MIN_ANALYSIS_MULTIPV;
+        const minDepth = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.min : 4;
+        const followupDepth = isQuickStage
+          ? Math.max(minDepth, Math.min(depth, QUICK_ANALYSIS_FOLLOWUP_DEPTH))
+          : depth;
         const token = opts && Number.isFinite(opts.token) ? opts.token : activeAnalysisToken;
         const sanMoves = game.history();
         let annotatedPgn = '';
@@ -4195,7 +4202,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const primaryScore = normalizeEngineScore(await getScoreWithTimeout(fenBefore, {
             ...ENGINE_GO_OPTIONS,
             depth,
-            multipv: MIN_ANALYSIS_MULTIPV,
+            multipv: stageMultipv,
             targetMoves: playedUci ? [playedUci] : []
           }, `ply ${i + 1}`));
           const multipvScores = normalizeMultipvScores(primaryScore ? primaryScore.multipvScores : []);
@@ -4220,9 +4227,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (!playedScoreEntry && playedUci) {
             const playedOnly = normalizeEngineScore(await getScoreWithTimeout(fenBefore, {
               ...ENGINE_GO_OPTIONS,
-              depth,
+              depth: followupDepth,
               searchmoves: [playedUci],
-              multipv: MIN_ANALYSIS_MULTIPV,
+              multipv: stageMultipv,
               preserveMultiPv: true,
               targetMoves: [playedUci]
             }, `played ${i + 1}`));
@@ -4556,7 +4563,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             const o = opts || ENGINE_GO_OPTIONS || {};
             const preserveMultiPv = !!o.preserveMultiPv;
             const desiredMultiPvRaw = Number.isFinite(o.multipv) ? Number(o.multipv) : null;
-            const desiredMultiPv = desiredMultiPvRaw ? Math.max(MIN_ANALYSIS_MULTIPV, desiredMultiPvRaw) : MIN_ANALYSIS_MULTIPV;
+            const desiredMultiPv = desiredMultiPvRaw ? Math.max(1, desiredMultiPvRaw) : MIN_ANALYSIS_MULTIPV;
             const targetMoves = Array.isArray(o.targetMoves)
               ? o.targetMoves.map(normalizeUciMove).filter(Boolean)
               : [];
