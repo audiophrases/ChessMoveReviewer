@@ -168,6 +168,12 @@
         Skip
       </button>
     </div>
+    <div class="mt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <button id="launch-deep-tab-btn" type="button" class="py-2 px-4 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">
+        Open deep analysis tab
+      </button>
+      <p id="deep-launch-warning" class="hidden text-xs text-amber-200 sm:text-right flex-1"></p>
+    </div>
   </section>
 
   <!-- Step 2: Stockfish Output & AI Instructions -->
@@ -415,6 +421,12 @@
 
       const STEP_HASHES = { 1: '', 2: '#step-2', 3: '#step-3', 4: '#step-4' };
       const DEFAULT_PLAYER_NAME = 'eugenime';
+      const APP_SEARCH_PARAMS = new URLSearchParams(window.location.search || '');
+      const APP_MODE = (APP_SEARCH_PARAMS.get('mode') || 'default').toLowerCase();
+      const DEEP_MODE = 'deep';
+      const DEEP_HANDOFF_ID = APP_SEARCH_PARAMS.get('handoff') || '';
+      const DEEP_HANDOFF_STORAGE_PREFIX = 'cmr.deepHandoff.v1.';
+      const DEEP_HANDOFF_TTL_MS = 15 * 60 * 1000;
       let formState = loadFormState();
       let currentStep = 1;
 
@@ -440,6 +452,8 @@
       const deepAnalysisTitle = $('#deep-analysis-title');
       const deepAnalysisDetail = $('#deep-analysis-detail');
       const applyDeepAnalysisBtn = $('#apply-deep-analysis-btn');
+      const deepLaunchBtn = $('#launch-deep-tab-btn');
+      const deepLaunchWarning = $('#deep-launch-warning');
       let awaitingUserGestureCopy = false;
       let pendingClipboardText = '';
       let gestureCopyListenerAttached = false;
@@ -516,10 +530,13 @@
       let storageAvailable = isLocalStorageAvailable();
       if (storageAvailable) {
         archiveEntries = loadArchiveEntriesFromStorage();
+        cleanupExpiredDeepHandoffs();
       }
       let lastFinalAnalysisText = '';
       let currentReviewMetadata = null;
       let pendingArchiveLoadNotice = null;
+      let pendingDeepAutostart = false;
+      let pendingDeepAutostartDepth = null;
 
       applySavedFormState();
       bindPersistentInput('#player-name-input', 'playerName');
@@ -1411,6 +1428,7 @@
       $('#depth-input, #threads-input, #hash-input').on('change', function(){ initEngine(); });
 
       initEngine(true);
+      initializeDeepModeFromParams();
 
       // Prompt (adds one-line Summary at the end)
       const ANALYSIS_PROMPT_TEMPLATE = `You are given:
@@ -3151,6 +3169,164 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
+      function showDeepLaunchWarning(message) {
+        if (!deepLaunchWarning.length) return;
+        if (message) {
+          deepLaunchWarning.text(message).removeClass('hidden');
+        } else {
+          deepLaunchWarning.text('').addClass('hidden');
+        }
+      }
+
+      function clearDeepLaunchWarning() {
+        showDeepLaunchWarning('');
+      }
+
+      function cleanupExpiredDeepHandoffs() {
+        if (!storageAvailable || !window.localStorage) return;
+        try {
+          const now = Date.now();
+          const staleKeys = [];
+          for (let i = 0; i < window.localStorage.length; i++) {
+            const key = window.localStorage.key(i);
+            if (!key || !key.startsWith(DEEP_HANDOFF_STORAGE_PREFIX)) continue;
+            const raw = window.localStorage.getItem(key);
+            if (!raw) {
+              staleKeys.push(key);
+              continue;
+            }
+            const parsed = JSON.parse(raw);
+            const createdAt = Number(parsed && parsed.createdAt);
+            if (!Number.isFinite(createdAt) || now - createdAt > DEEP_HANDOFF_TTL_MS) {
+              staleKeys.push(key);
+            }
+          }
+          staleKeys.forEach(k => { try { window.localStorage.removeItem(k); } catch (err) { /* noop */ } });
+        } catch (err) {
+          console.warn('Unable to clean up deep handoff entries:', err);
+        }
+      }
+
+      function normalizeDeepHandoffPayload(raw) {
+        if (!raw || typeof raw !== 'object') return null;
+        const pgn = raw.pgn != null ? String(raw.pgn).trim() : '';
+        if (!pgn) return null;
+        const createdAt = Number(raw.createdAt) || 0;
+        if (createdAt && Date.now() - createdAt > DEEP_HANDOFF_TTL_MS) return null;
+        const depth = sanitizeEngineSetting('depth', raw.depth);
+        const threads = sanitizeEngineSetting('threads', raw.threads);
+        const hash = sanitizeEngineSetting('hash', raw.hash);
+        const playerName = raw.playerName != null ? String(raw.playerName).trim() : '';
+        return { pgn, depth, threads, hash, playerName, createdAt: createdAt || Date.now() };
+      }
+
+      function storeDeepAnalysisHandoff(payload) {
+        if (!payload || !payload.pgn) {
+          return { success: false, reason: 'Missing PGN for deep analysis handoff.' };
+        }
+        if (!storageAvailable || !window.localStorage) {
+          return { success: false, reason: 'Deep analysis handoff unavailable in this browser.' };
+        }
+        cleanupExpiredDeepHandoffs();
+        const handoffId = `handoff-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const key = DEEP_HANDOFF_STORAGE_PREFIX + handoffId;
+        try {
+          window.localStorage.setItem(key, JSON.stringify(payload));
+          return { success: true, id: handoffId, key };
+        } catch (err) {
+          console.warn('Failed to store deep analysis handoff:', err);
+          return { success: false, reason: 'Unable to save deep analysis data for the new tab.' };
+        }
+      }
+
+      function consumeDeepAnalysisHandoff(handoffId) {
+        if (!handoffId || !storageAvailable || !window.localStorage) return null;
+        const key = DEEP_HANDOFF_STORAGE_PREFIX + handoffId;
+        try {
+          const raw = window.localStorage.getItem(key);
+          if (raw == null) return null;
+          window.localStorage.removeItem(key);
+          const parsed = normalizeDeepHandoffPayload(JSON.parse(raw));
+          return parsed;
+        } catch (err) {
+          console.warn('Failed to consume deep analysis handoff:', err);
+          return null;
+        }
+      }
+
+      function buildDeepAnalysisUrl(handoffId) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('mode', DEEP_MODE);
+        if (handoffId) {
+          url.searchParams.set('handoff', handoffId);
+        } else {
+          url.searchParams.delete('handoff');
+        }
+        url.hash = '';
+        return url.toString();
+      }
+
+      function buildDeepAnalysisPayload(pgn, depthValue) {
+        return {
+          pgn: String(pgn || ''),
+          depth: sanitizeEngineSetting('depth', depthValue),
+          threads: sanitizeEngineSetting('threads', $('#threads-input').val()),
+          hash: sanitizeEngineSetting('hash', $('#hash-input').val()),
+          playerName: getRawPlayerNameInput(),
+          createdAt: Date.now()
+        };
+      }
+
+      function applyDeepAnalysisPayload(payload) {
+        if (!payload) return false;
+        invalidateAnalysisState({ force: true });
+        $('#pgn-input').val(payload.pgn || '');
+        updateFormState('pgnInput', payload.pgn || '');
+        $('#pgn-input').trigger('input');
+        if (payload.playerName != null) {
+          $('#player-name-input').val(payload.playerName || '');
+          updateFormState('playerName', payload.playerName || '');
+          $('#player-name-input').trigger('input');
+        }
+        if (Number.isFinite(payload.depth)) {
+          const sanitized = sanitizeEngineSetting('depth', payload.depth);
+          $('#depth-input').val(sanitized);
+          updateFormState('depthInput', sanitized);
+        }
+        if (Number.isFinite(payload.threads)) {
+          const sanitizedThreads = sanitizeEngineSetting('threads', payload.threads);
+          $('#threads-input').val(sanitizedThreads);
+          updateFormState('threadsInput', sanitizedThreads);
+        }
+        if (Number.isFinite(payload.hash)) {
+          const sanitizedHash = sanitizeEngineSetting('hash', payload.hash);
+          $('#hash-input').val(sanitizedHash);
+          updateFormState('hashInput', sanitizedHash);
+        }
+        return true;
+      }
+
+      function launchDeepAnalysisTab(payload) {
+        if (!payload || !payload.pgn) {
+          showDeepLaunchWarning('Provide a PGN before opening a deep analysis tab.');
+          return false;
+        }
+        const record = storeDeepAnalysisHandoff(payload);
+        if (!record.success || !record.id) {
+          showDeepLaunchWarning(record.reason || 'Unable to stage deep analysis data for the new tab.');
+          return false;
+        }
+        const url = buildDeepAnalysisUrl(record.id);
+        const newTab = window.open(url, '_blank');
+        if (!newTab || newTab.closed === undefined) {
+          showDeepLaunchWarning('Pop-up blocked. Allow pop-ups to run deep analysis in a new tab.');
+          try { window.localStorage.removeItem(record.key || (DEEP_HANDOFF_STORAGE_PREFIX + record.id)); } catch (err) { /* noop */ }
+          return false;
+        }
+        try { newTab.focus(); } catch (err) { /* noop */ }
+        return true;
+      }
+
       function loadArchiveEntriesFromStorage() {
         if (typeof window === 'undefined' || !window.localStorage) return [];
         try {
@@ -3881,6 +4057,35 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         switchStep(stateStep, { skipHistory: true });
       });
 
+      function prepareAnalysisInputs() {
+        const pgnRaw = $('#pgn-input').val().trim();
+        if (!pgnRaw) {
+          showError('Please paste a PGN.');
+          return null;
+        }
+        const pgn = normalizePgn(pgnRaw);
+        if (!game.load_pgn(pgn)) {
+          const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm, ''));
+          if (!game.load_pgn(justMoves)) {
+            showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.');
+            return null;
+          }
+        }
+        setLastKnownHeaders(game.header());
+        const rawNameForAnalysis = getRawPlayerNameInput();
+        if (rawNameForAnalysis) {
+          updateReviewPlayerColorFromGame(game, rawNameForAnalysis);
+        }
+        updatePlayerOutcomeFromGame(game);
+        const depthInfoForAnalysis = getDepthSettingInfo();
+        if (!depthInfoForAnalysis.valid) {
+          showError('Please change the engine depth to somewhere between 4 and 30 before running the analysis.');
+          $('#depth-input').focus();
+          return null;
+        }
+        return { pgn, depthInfo: depthInfoForAnalysis };
+      }
+
       function invalidateAnalysisState(opts) {
         opts = opts || {};
         const hadData = opts.force
@@ -3930,30 +4135,56 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         updateArchiveControls();
       });
 
-      $('#analyze-pgn-btn').on('click', async function () {
-        const pgnRaw = $('#pgn-input').val().trim(); if (!pgnRaw) { showError('Please paste a PGN.'); return; }
-        const pgn = normalizePgn(pgnRaw);
-        if (!game.load_pgn(pgn)) {
-          const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm,''));
-          if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
-        }
-        setLastKnownHeaders(game.header());
-        const rawNameForAnalysis = getRawPlayerNameInput();
-        if (rawNameForAnalysis) {
-          updateReviewPlayerColorFromGame(game, rawNameForAnalysis);
-        }
-        updatePlayerOutcomeFromGame(game);
-        const depthInfoForAnalysis = getDepthSettingInfo();
-        if (!depthInfoForAnalysis.valid) {
-          showError('Please change the engine depth to somewhere between 4 and 30 before running the analysis.');
-          $('#depth-input').focus();
-          return;
+      async function handleAnalyzeClick(opts) {
+        opts = opts || {};
+        clearDeepLaunchWarning();
+        const inputs = prepareAnalysisInputs();
+        if (!inputs) return;
+        if (opts.launchDeepTab) {
+          const payload = buildDeepAnalysisPayload(inputs.pgn, inputs.depthInfo.value);
+          const launched = launchDeepAnalysisTab(payload);
+          if (!launched) {
+            console.warn('Deep analysis tab did not open.');
+          }
         }
         await waitForEngineReady();
         if (!engineReady) { handleEngineLoadFailure('Stockfish failed to initialize.'); return; }
         switchStep(2);
-        await runStockfishAnalysis();
-      });
+        const mode = opts.analysisMode || (opts.launchDeepTab ? 'quick-only' : 'standard');
+        await runStockfishAnalysis({ mode, targetDepth: inputs.depthInfo.value });
+      }
+
+      $('#analyze-pgn-btn').on('click', function () { handleAnalyzeClick(); });
+      if (deepLaunchBtn.length) {
+        deepLaunchBtn.on('click', function () { handleAnalyzeClick({ launchDeepTab: true, analysisMode: 'quick-only' }); });
+      }
+
+      async function autoStartDeepAnalysisFromHandoff() {
+        const depthOverride = pendingDeepAutostartDepth;
+        pendingDeepAutostart = false;
+        pendingDeepAutostartDepth = null;
+        const inputs = prepareAnalysisInputs();
+        if (!inputs) return;
+        switchStep(2, { replace: true });
+        await runStockfishAnalysis({ mode: 'deep-only', targetDepth: depthOverride || inputs.depthInfo.value });
+      }
+
+      function initializeDeepModeFromParams() {
+        if (APP_MODE !== DEEP_MODE) return;
+        if (!DEEP_HANDOFF_ID) {
+          showDeepLaunchWarning('Deep mode ready. Waiting for shared PGN or paste one to begin.');
+          return;
+        }
+        const payload = consumeDeepAnalysisHandoff(DEEP_HANDOFF_ID);
+        if (!payload) {
+          showDeepLaunchWarning('No shared deep analysis data found. Allow pop-ups and retry from the source tab.');
+          return;
+        }
+        applyDeepAnalysisPayload(payload);
+        pendingDeepAutostart = true;
+        pendingDeepAutostartDepth = payload.depth;
+        setTimeout(autoStartDeepAnalysisFromHandoff, 0);
+      }
 
       function setCopyButtonAnalyzing(active) {
         if (!copyStockfishBtn.length) return;
@@ -4155,11 +4386,20 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           });
       }
 
-      async function runStockfishAnalysis() {
+      async function runStockfishAnalysis(opts) {
+        const options = opts || {};
+        const mode = options.mode || 'standard';
+        const depthOverride = Number.isFinite(options.targetDepth)
+          ? sanitizeEngineSetting('depth', options.targetDepth)
+          : null;
         const token = ++activeAnalysisToken;
         resetDeepAnalysisUpgrade();
         setCopyButtonAnalyzing(true);
         try {
+          if (depthOverride != null) {
+            $('#depth-input').val(depthOverride);
+            updateFormState('depthInput', depthOverride);
+          }
           configureEngineOptions();
           await waitForEngineReady();
           if (!engineReady) {
@@ -4177,16 +4417,34 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           automatedReviewText = '';
           probSeries = [];
           const depthInfo = getDepthSettingInfo();
-          const deepDepth = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
+          const deepDepth = depthOverride != null
+            ? depthOverride
+            : (depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH);
           const quickDepth = Math.max(
             ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.min : 4,
             Math.min(QUICK_ANALYSIS_DEPTH, deepDepth)
           );
-          const quickResult = await runSingleDepthAnalysis({ stage: 'quick', depth: quickDepth, token });
-          if (!quickResult || token !== activeAnalysisToken) return;
-          applyAnalysisResult(quickResult);
-          markAnalysisComplete(`Quick analysis ready (depth ${quickDepth}).`);
-          if (deepDepth > quickDepth) {
+          const shouldRunQuick = mode !== 'deep-only';
+          const shouldRunDeepStage = (mode === 'deep-only') || (mode === 'standard' && deepDepth > quickDepth);
+          if (shouldRunQuick) {
+            const quickResult = await runSingleDepthAnalysis({ stage: 'quick', depth: quickDepth, token });
+            if (!quickResult || token !== activeAnalysisToken) return;
+            applyAnalysisResult(quickResult);
+            markAnalysisComplete(`Quick analysis ready (depth ${quickDepth}).`);
+            if (mode === 'quick-only' || !shouldRunDeepStage) {
+              resetDeepAnalysisUpgrade();
+              markAnalysisComplete(`Analysis complete (depth ${quickDepth}).`);
+              return;
+            }
+          }
+          if (mode === 'deep-only') {
+            const deepResult = await runSingleDepthAnalysis({ stage: 'deep', depth: deepDepth, token });
+            if (!deepResult || token !== activeAnalysisToken) return;
+            applyAnalysisResult(deepResult);
+            markAnalysisComplete(`Deep analysis ready (depth ${deepDepth}).`);
+            return;
+          }
+          if (shouldRunDeepStage) {
             startDeepAnalysisUpgrade(token, deepDepth);
           } else {
             resetDeepAnalysisUpgrade();
