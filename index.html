@@ -234,9 +234,6 @@
 
   <!-- Final Review Section (mobile-optimized) -->
   <main id="review-section" class="hidden flex-1 max-w-5xl w-full mx-auto">
-    <div class="w-full flex justify-start mb-3">
-      <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
-    </div>
     <div class="w-full grid grid-cols-1 lg:grid-cols-2 gap-3">
       <!-- Column A: Board + evaluation graph (sticky) -->
       <div class="lg:col-span-1 sticky top-2 board-sticky-wrapper">
@@ -256,6 +253,7 @@
                 <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
               </div>
               <div class="flex flex-wrap items-center justify-end gap-2">
+                <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
                 <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
                 <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
                 <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
@@ -5894,7 +5892,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         evalCtx.clearRect(0, 0, w, h);
         const baselineY = h / 2;
         evalCtx.fillStyle = '#f9fafb';
-        evalCtx.fillRect(0, 0, w, h);
+        evalCtx.fillRect(0, 0, w, baselineY);
+        evalCtx.fillStyle = '#0b0e15';
+        evalCtx.fillRect(0, baselineY, w, baselineY);
 
         const hasProbSeries = probSeries.length > 0;
         let xPoints = [];
