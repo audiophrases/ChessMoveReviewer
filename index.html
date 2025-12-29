@@ -1648,17 +1648,17 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         brilliant: 0
       };
       const SACRIFICE_PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
-      const LOSS_BANDS_CP = {
-        normal: { inaccuracy: -30, mistake: -80, blunder: -200, misclick: -500 },
-        winning: { inaccuracy: -20, mistake: -60, blunder: -150, misclick: -320 },
-        mate: { inaccuracy: -10, mistake: -40, blunder: -120, misclick: -260 },
-        losing: { inaccuracy: -60, mistake: -150, blunder: -320, misclick: -640 }
+      const LOSS_BANDS_PROB = {
+        normal: { inaccuracy: -5, mistake: -12, blunder: -26, misclick: -45 },
+        winning: { inaccuracy: -3, mistake: -9, blunder: -20, misclick: -36 },
+        mate: { inaccuracy: -2, mistake: -6, blunder: -15, misclick: -30 },
+        losing: { inaccuracy: -9, mistake: -20, blunder: -40, misclick: -60 }
       };
       const MATE_ESCAPE_EXTENSION_THRESHOLD = 2;
       const MATE_SHORTEN_SEVERE_THRESHOLD = 2;
-      const WINNING_CP_THRESHOLD = 150;
-      const EVEN_CP_BUFFER = 50;
-      const PRAISE_GAIN_THRESHOLD = 120;
+      const WINNING_PROB_THRESHOLD = 0.7;
+      const EVEN_PROB_BUFFER = 0.07;
+      const PRAISE_GAIN_THRESHOLD = 18;
       const PREVIOUS_ERROR_KEYS = new Set(['mistake', 'blunder', 'misclick']);
       const MOVE_OF_GAME_TARGET_KEYS = new Set(['brilliant', 'great', 'blunder', 'misclick']);
       let automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
@@ -1694,36 +1694,31 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return canonicalizeClassification(current);
       }
 
-      function mateScoreToCentipawns(mateScore) {
-        const numeric = Number(mateScore);
-        if (!Number.isFinite(numeric)) return null;
-        if (numeric === 0) return 0;
-        const distance = Math.max(0, Math.abs(numeric));
-        const magnitude = Math.max(0, 1000 - 10 * distance);
-        const sign = numeric > 0 ? 1 : -1;
-        return sign * magnitude;
-      }
-
-      function deriveWhiteCentipawns(moveRecord, phase) {
+      function deriveWhiteProbability(moveRecord, phase) {
         if (!moveRecord) return null;
         const mateKey = phase === 'after' ? 'mateAfter' : 'mateBefore';
         const probKey = phase === 'after' ? 'whiteProbAfter' : 'whiteProbBefore';
-        const mateCp = mateScoreToCentipawns(moveRecord[mateKey]);
-        if (mateCp != null) return mateCp;
-        if (moveRecord[mateKey] === 0) return 0;
-        const probVal = clampProb(moveRecord[probKey]);
-        if (probVal == null) return null;
-        return probToCp(probVal);
+        if (Number.isFinite(moveRecord[mateKey])) {
+          if (moveRecord[mateKey] === 0) return 0.5;
+          return moveRecord[mateKey] > 0 ? 1 : 0;
+        }
+        return clampProb(moveRecord[probKey]);
       }
 
-      function moverCentipawns(whiteCentipawns, color) {
-        if (!Number.isFinite(whiteCentipawns)) return null;
+      function resolveMoverProb(prob, color) {
+        const clamped = clampProb(prob);
+        if (clamped == null) return null;
         const sign = color === 'w' ? 1 : color === 'b' ? -1 : null;
         if (!sign) return null;
-        return whiteCentipawns * sign;
+        return sign === 1 ? clamped : (1 - clamped);
       }
 
-      function resolveBestMoveLoss(moveRecord) {
+      function computeMoverDeltaPercent(beforeProb, afterProb) {
+        if (!Number.isFinite(beforeProb) || !Number.isFinite(afterProb)) return null;
+        return (afterProb - beforeProb) * 100;
+      }
+
+      function resolveBestMoveLoss(moveRecord, opts) {
         if (!moveRecord) return null;
         const candidates = [
           moveRecord.bestMoveDelta,
@@ -1735,39 +1730,56 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         ];
         const raw = candidates.find(val => Number.isFinite(Number(val)));
         if (!Number.isFinite(Number(raw))) return null;
-        const gap = Number(raw);
-        if (gap <= 0) return null;
-        return -Math.abs(gap);
+        const normalizedLoss = -Math.abs(Number(raw));
+        const baseWhiteProb = opts && opts.whiteProbBefore != null
+          ? clampProb(opts.whiteProbBefore)
+          : clampProb(moveRecord.whiteProbBefore);
+        if (Math.abs(normalizedLoss) <= 1) {
+          return normalizedLoss * 100;
+        }
+        if (Math.abs(normalizedLoss) <= 100) {
+          return normalizedLoss;
+        }
+        const anchorProb = baseWhiteProb != null ? baseWhiteProb : 0.5;
+        const moverProbBefore = resolveMoverProb(anchorProb, moveRecord.color);
+        const moverSign = moveRecord.color === 'w' ? 1 : moveRecord.color === 'b' ? -1 : 0;
+        if (!Number.isFinite(moverProbBefore) || moverSign === 0) return normalizedLoss;
+        const baseWhiteCp = probToCp(anchorProb != null ? anchorProb : 0.5);
+        const deltaWhiteCp = normalizedLoss * moverSign;
+        const afterWhiteCp = baseWhiteCp + deltaWhiteCp;
+        const afterWhiteProb = clampProb(cpToProb(afterWhiteCp));
+        const moverProbAfter = resolveMoverProb(afterWhiteProb, moveRecord.color);
+        if (!Number.isFinite(moverProbAfter)) return normalizedLoss;
+        return (moverProbAfter - moverProbBefore) * 100;
       }
 
       function getCentipawnContext(moveRecord) {
         if (!moveRecord) return null;
         if (moveRecord._centipawnContext) return moveRecord._centipawnContext;
-        const whiteBefore = deriveWhiteCentipawns(moveRecord, 'before');
-        const whiteAfter = deriveWhiteCentipawns(moveRecord, 'after');
-        const moverBefore = moverCentipawns(whiteBefore, moveRecord.color);
-        const moverAfter = moverCentipawns(whiteAfter, moveRecord.color);
-        const moverDelta = (Number.isFinite(moverBefore) && Number.isFinite(moverAfter))
-          ? (moverAfter - moverBefore)
-          : null;
-        const bestMoveLoss = resolveBestMoveLoss(moveRecord);
+        const whiteProbBefore = deriveWhiteProbability(moveRecord, 'before');
+        const whiteProbAfter = deriveWhiteProbability(moveRecord, 'after');
+        const moverProbBefore = resolveMoverProb(whiteProbBefore, moveRecord.color);
+        const moverProbAfter = resolveMoverProb(whiteProbAfter, moveRecord.color);
+        const computedMoverDelta = computeMoverDeltaPercent(moverProbBefore, moverProbAfter);
+        const moverDelta = Number.isFinite(moveRecord.moverDelta) ? Number(moveRecord.moverDelta) : computedMoverDelta;
+        const bestMoveLoss = resolveBestMoveLoss(moveRecord, { whiteProbBefore });
         const effectiveLoss = Number.isFinite(bestMoveLoss)
           ? (Number.isFinite(moverDelta) ? Math.min(moverDelta, bestMoveLoss) : bestMoveLoss)
           : moverDelta;
-        const winningBefore = Number.isFinite(moverBefore) && moverBefore > WINNING_CP_THRESHOLD;
-        const losingBefore = Number.isFinite(moverBefore) && moverBefore < -WINNING_CP_THRESHOLD;
-        const droppedToEqual = winningBefore && Number.isFinite(moverAfter) && moverAfter <= EVEN_CP_BUFFER;
-        const droppedToLosing = winningBefore && Number.isFinite(moverAfter) && moverAfter < -EVEN_CP_BUFFER;
+        const winningBefore = Number.isFinite(moverProbBefore) && moverProbBefore > WINNING_PROB_THRESHOLD;
+        const losingBefore = Number.isFinite(moverProbBefore) && moverProbBefore < (1 - WINNING_PROB_THRESHOLD);
+        const droppedToEqual = winningBefore && Number.isFinite(moverProbAfter) && moverProbAfter <= (0.5 + EVEN_PROB_BUFFER);
+        const droppedToLosing = winningBefore && Number.isFinite(moverProbAfter) && moverProbAfter < (0.5 - EVEN_PROB_BUFFER);
         const retainsMate = retainsMateForMover(moveRecord);
         const lostMate = hadMateForMoverBefore(moveRecord) && !retainsMate;
         const bandKey = lostMate
           ? 'mate'
           : (winningBefore ? 'winning' : (losingBefore ? 'losing' : 'normal'));
         moveRecord._centipawnContext = {
-          whiteBefore,
-          whiteAfter,
-          moverBefore,
-          moverAfter,
+          whiteProbBefore,
+          whiteProbAfter,
+          moverBefore: moverProbBefore,
+          moverAfter: moverProbAfter,
           moverDelta,
           bestMoveLoss,
           effectiveLoss,
@@ -1786,7 +1798,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const fallback = plyIndex < 7 ? 'Book' : 'Good';
         const context = getCentipawnContext(moveRecord);
         if (!context) return fallback;
-        const bands = LOSS_BANDS_CP[context.bandKey] || LOSS_BANDS_CP.normal;
+        const bands = LOSS_BANDS_PROB[context.bandKey] || LOSS_BANDS_PROB.normal;
         const loss = context.effectiveLoss;
         let classification = fallback;
         if (Number.isFinite(loss) && loss < 0) {
@@ -1808,7 +1820,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const gain = context ? context.moverDelta : null;
         const positiveGain = Number.isFinite(gain) && gain >= PRAISE_GAIN_THRESHOLD;
         if (!positiveGain && !keepsMate) return null;
-        const winningAfter = keepsMate || (context && Number.isFinite(context.moverAfter) && context.moverAfter > WINNING_CP_THRESHOLD);
+        const winningAfter = keepsMate || (context && Number.isFinite(context.moverAfter) && context.moverAfter > WINNING_PROB_THRESHOLD);
         if (!winningAfter) return null;
         if (isLikelySacrificeMove(moveRecord) && (positiveGain || keepsMate)) return 'Brilliant';
         return 'Great';
@@ -1952,7 +1964,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           }
           if (mateShortenedOrKept) {
             const severeMateShorten = Number.isFinite(opponentMateDistanceDelta) && opponentMateDistanceDelta >= MATE_SHORTEN_SEVERE_THRESHOLD;
-            const severeDrop = Number.isFinite(mv.moverDelta) && mv.moverDelta <= LOSS_BANDS_CP.mate.blunder;
+            const severeDrop = Number.isFinite(mv.moverDelta) && mv.moverDelta <= LOSS_BANDS_PROB.mate.blunder;
             const severeTarget = (severeMateShorten || severeDrop) ? 'Misclick??' : 'Blunder';
             mv.classification = chooseMoreSevereClassification(mv.classification, severeTarget);
           } else if (mateExtension) {
@@ -2270,7 +2282,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const totalGood = summaryData.totalGood || 0;
         const totalBad = summaryData.totalBad || 0;
         const accuracy = summaryData.totalMoves ? (summaryData.totalGood / summaryData.totalMoves) * 100 : 0;
-        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%. Narrative Summary: Automated engine insights summary generated from Stockfish evaluations with mate-to-cp scaling and context-aware loss bands.`;
+        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%. Narrative Summary: Automated engine insights summary generated from Stockfish evaluations with probability-based scaling and context-aware loss bands.`;
       }
 
       function convertAutomatedMoveToFeatured(autoMove) {
