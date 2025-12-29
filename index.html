@@ -5925,15 +5925,21 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           });
 
           if (values.length > 0) {
-            evalCtx.fillStyle = '#0b0e15';
+            evalCtx.save();
+            const gradient = evalCtx.createLinearGradient(0, 0, 0, h);
+            gradient.addColorStop(0, 'rgba(249, 250, 251, 0.6)');
+            gradient.addColorStop(0.5, 'rgba(249, 250, 251, 0.35)');
+            gradient.addColorStop(1, 'rgba(15, 17, 21, 0.65)');
+            evalCtx.fillStyle = gradient;
             evalCtx.beginPath();
-            evalCtx.moveTo(0, 0);
-            evalCtx.lineTo(w, 0);
-            for (let i = values.length - 1; i >= 0; i--) {
+            evalCtx.moveTo(0, baselineY);
+            for (let i = 0; i < values.length; i++) {
               evalCtx.lineTo(xPoints[i], yPoints[i]);
             }
+            evalCtx.lineTo(w, baselineY);
             evalCtx.closePath();
             evalCtx.fill();
+            evalCtx.restore();
           }
 
           if (values.length > 0 && Array.isArray(movesWithAnalysis) && movesWithAnalysis.length === xPoints.length) {
