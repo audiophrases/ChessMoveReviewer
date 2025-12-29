@@ -1236,8 +1236,7 @@
         }
       }
       const ENGINE_GO_OPTIONS = { depth: 24 };
-      const QUICK_ANALYSIS_DEPTH = 8;
-      const QUICK_ANALYSIS_FOLLOWUP_DEPTH = 6;
+      const QUICK_ANALYSIS_DEPTH = 10;
       const DEFAULT_DEEP_ANALYSIS_DEPTH = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : 24;
       let engineWorker = null;
       let engineReady = false;
@@ -4174,10 +4173,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const depth = resolveStageDepth(stage, opts && opts.depth);
         const isQuickStage = stage === 'quick';
         const stageMultipv = isQuickStage ? 1 : MIN_ANALYSIS_MULTIPV;
-        const minDepth = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.min : 4;
-        const followupDepth = isQuickStage
-          ? Math.max(minDepth, Math.min(depth, QUICK_ANALYSIS_FOLLOWUP_DEPTH))
-          : depth;
+        const followupDepth = depth;
         const token = opts && Number.isFinite(opts.token) ? opts.token : activeAnalysisToken;
         const sanMoves = game.history();
         let annotatedPgn = '';
@@ -4198,6 +4194,67 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const moverColor = temp.turn();
           const moveObj = temp.move(move);
           if (!moveObj) throw new Error('Encountered an invalid move during analysis.');
+          if (isQuickStage) {
+            const whiteProbBefore = prevProb;
+            const primaryScore = normalizeEngineScore(await getScoreWithTimeout(temp.fen(), {
+              ...ENGINE_GO_OPTIONS,
+              depth,
+              multipv: stageMultipv
+            }, `ply ${i + 1}`));
+            const postEval = normalizeScoreForMover(primaryScore, temp.turn());
+            if (token !== activeAnalysisToken) return null;
+            const whiteCpAfter = Number.isFinite(postEval && postEval.whiteCp) ? postEval.whiteCp : null;
+            const mateScore = Number.isFinite(postEval && postEval.mateForWhite) ? postEval.mateForWhite : null;
+            let prob = whiteProbBefore;
+            if (Number.isFinite(mateScore)) {
+              prob = (mateScore === 0) ? (moveObj.color === 'w' ? 1 : 0) : (mateScore > 0 ? 1 : 0);
+            } else if (Number.isFinite(whiteCpAfter)) {
+              prob = cpToProb(whiteCpAfter);
+            }
+            prob = clampProb(prob);
+            let moverDelta = null;
+            let whiteDelta = null;
+            if (prob != null && whiteProbBefore != null) {
+              const diff = (prob - whiteProbBefore) * 100;
+              whiteDelta = diff;
+              moverDelta = diff * (moveObj.color === 'w' ? 1 : -1);
+            }
+            if (prob != null) {
+              prevProb = prob;
+            }
+            const deltaStr = formatDeltaBraced(moverDelta);
+            const cpEval = formatCentipawnBraced(whiteCpAfter);
+            const evalStr = Number.isFinite(mateScore) ? `{#${mateScore}}` : (cpEval || deltaStr || '{0}');
+            localProbSeries.push(prob);
+            engineMoveRecords.push({
+              index: i,
+              ply: i,
+              moveNumber,
+              color: moveObj.color,
+              san: move,
+              moverDelta,
+              whiteDelta,
+              whiteProbBefore,
+              whiteProbAfter: prob,
+              mateBefore: lastMateScore,
+              mateAfter: mateScore,
+              evaluation: evalStr,
+              move: simplifyMoveObject(moveObj),
+              bestMove: null,
+              bestMoveScore: null,
+              playedMoveScore: postEval ? { type: postEval.type, value: postEval.value } : null,
+              bestMoveCp: null,
+              playedMoveCp: Number.isFinite(postEval && postEval.moverCp) ? postEval.moverCp : null,
+              bestMoveLoss: null,
+              bestMoveCpLoss: null,
+              bestMoveDelta: null,
+              whiteCpAfter,
+              whiteCpBefore: null
+            });
+            lastMateScore = mateScore != null ? mateScore : lastMateScore;
+            annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
+            continue;
+          }
           const playedUci = buildUciFromMoveLike(moveObj);
           const primaryScore = normalizeEngineScore(await getScoreWithTimeout(fenBefore, {
             ...ENGINE_GO_OPTIONS,
