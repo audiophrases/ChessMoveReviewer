@@ -280,6 +280,18 @@
 
       <!-- Column B: Independently scrollable analysis (no titles) -->
       <div class="lg:col-span-1 flex flex-col gap-3">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-[#101522] border border-[#1f2937] rounded-lg p-3">
+          <div class="space-y-1">
+            <p id="analysis-depth-context" class="text-xs text-gray-300">Viewing quick depth 10 analysis.</p>
+            <p id="manual-deep-analysis-hint" class="text-[11px] text-gray-400 leading-tight hidden">Browse the quick review while a deeper pass runs.</p>
+          </div>
+          <button id="manual-deep-analysis-btn" type="button" class="relative min-w-[220px] py-2 px-3 text-sm font-semibold text-white rounded-md btn-primary whitespace-nowrap">
+            <span id="manual-deep-analysis-label" class="block text-center">Run depth 24 analysis</span>
+            <span id="manual-deep-analysis-progress" class="hidden mt-1 w-full h-1 bg-blue-200/30 rounded-full overflow-hidden">
+              <span id="manual-deep-analysis-progress-bar" class="block h-full bg-blue-400" style="width: 0%"></span>
+            </span>
+          </button>
+        </div>
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div class="flex flex-wrap items-center gap-2">
             <button id="save-archive-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>
@@ -436,6 +448,12 @@
       const deepAnalysisTitle = $('#deep-analysis-title');
       const deepAnalysisDetail = $('#deep-analysis-detail');
       const applyDeepAnalysisBtn = $('#apply-deep-analysis-btn');
+      const manualDeepAnalysisBtn = $('#manual-deep-analysis-btn');
+      const manualDeepAnalysisLabel = $('#manual-deep-analysis-label');
+      const manualDeepAnalysisProgress = $('#manual-deep-analysis-progress');
+      const manualDeepAnalysisProgressBar = $('#manual-deep-analysis-progress-bar');
+      const analysisDepthContext = $('#analysis-depth-context');
+      const manualDeepAnalysisHint = $('#manual-deep-analysis-hint');
       let awaitingUserGestureCopy = false;
       let pendingClipboardText = '';
       let gestureCopyListenerAttached = false;
@@ -446,6 +464,8 @@
       let playerGameOutcome = null;
       let pendingDeepAnalysis = null;
       let activeAnalysisToken = 0;
+      let manualDeepState = { status: 'idle', depth: DEFAULT_DEEP_ANALYSIS_DEPTH, token: 0 };
+      let lastQuickAnalysisDepth = QUICK_ANALYSIS_DEPTH;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
@@ -1407,6 +1427,7 @@
       $('#depth-input, #threads-input, #hash-input').on('change', function(){ initEngine(); });
 
       initEngine(true);
+      resetManualDeepAnalysisUI({ depth: getManualDeepDepth(), resetPending: true });
 
       // Prompt (adds one-line Summary at the end)
       const ANALYSIS_PROMPT_TEMPLATE = `You are given:
@@ -3975,6 +3996,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       }
 
       function updateAnalysisProgress(stage, index, total, move, depth) {
+        if (stage === 'manual-deep') {
+          const percent = total ? ((index + 1) / total) * 100 : 0;
+          setManualDeepProgress(percent);
+          return;
+        }
         const label = stage === 'deep' ? 'Deep analysis' : 'Quick analysis';
         if (progressTextEl.length) {
           progressTextEl.text(`${label} (depth ${depth}) ${index + 1}/${total}: ${move}`);
@@ -3989,12 +4015,80 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (progressBarEl.length) progressBarEl.css('width', '100%');
       }
 
+      function updateAnalysisDepthContext(quickDepth, deepDepth, opts = {}) {
+        if (analysisDepthContext.length) {
+          const contextDepth = Number.isFinite(quickDepth) ? quickDepth : QUICK_ANALYSIS_DEPTH;
+          const appliedLabel = opts.applied ? ' (loaded)' : '';
+          analysisDepthContext.text(`Viewing depth ${contextDepth}${appliedLabel} analysis.`);
+        }
+        if (manualDeepAnalysisHint.length) {
+          const showHint = opts.showHint === true;
+          manualDeepAnalysisHint.toggleClass('hidden', !showHint);
+        }
+      }
+
+      function setManualDeepProgress(percent) {
+        if (!manualDeepAnalysisProgress.length || !manualDeepAnalysisProgressBar.length) return;
+        manualDeepAnalysisProgress.removeClass('hidden');
+        const clamped = Math.max(0, Math.min(100, percent));
+        manualDeepAnalysisProgressBar.css('width', clamped + '%');
+      }
+
+      function setManualDeepButtonState(status, depth) {
+        if (!manualDeepAnalysisBtn.length) return;
+        const resolvedDepth = Number.isFinite(depth) ? depth : getManualDeepDepth();
+        manualDeepState.status = status;
+        manualDeepState.depth = resolvedDepth;
+        if (status === 'running') {
+          manualDeepAnalysisBtn.prop('disabled', true);
+          if (manualDeepAnalysisLabel.length) manualDeepAnalysisLabel.text(`Depth ${resolvedDepth} analysis in progress…`);
+          setManualDeepProgress(5);
+          updateAnalysisDepthContext(lastQuickAnalysisDepth, resolvedDepth, { showHint: true });
+        } else if (status === 'ready') {
+          manualDeepAnalysisBtn.prop('disabled', false);
+          if (manualDeepAnalysisLabel.length) manualDeepAnalysisLabel.text(`Load depth ${resolvedDepth} analysis`);
+          manualDeepAnalysisProgress.addClass('hidden');
+          updateAnalysisDepthContext(lastQuickAnalysisDepth, resolvedDepth, { showHint: false });
+        } else if (status === 'applied') {
+          manualDeepAnalysisBtn.prop('disabled', false);
+          if (manualDeepAnalysisLabel.length) manualDeepAnalysisLabel.text(`Depth ${resolvedDepth} analysis loaded`);
+          manualDeepAnalysisProgress.addClass('hidden');
+          updateAnalysisDepthContext(resolvedDepth, resolvedDepth, { showHint: false, applied: true });
+        } else if (status === 'error') {
+          manualDeepAnalysisBtn.prop('disabled', false);
+          if (manualDeepAnalysisLabel.length) manualDeepAnalysisLabel.text('Retry depth analysis');
+          manualDeepAnalysisProgress.addClass('hidden');
+          updateAnalysisDepthContext(lastQuickAnalysisDepth, resolvedDepth, { showHint: false });
+        } else {
+          manualDeepAnalysisBtn.prop('disabled', false);
+          if (manualDeepAnalysisLabel.length) manualDeepAnalysisLabel.text(`Run depth ${resolvedDepth} analysis`);
+          manualDeepAnalysisProgress.addClass('hidden');
+          updateAnalysisDepthContext(lastQuickAnalysisDepth, resolvedDepth, { showHint: false });
+        }
+      }
+
+      function resetManualDeepAnalysisUI(opts = {}) {
+        const depth = Number.isFinite(opts.depth) ? opts.depth : getManualDeepDepth();
+        manualDeepState = { status: 'idle', depth, token: 0 };
+        if (opts.resetPending) {
+          pendingDeepAnalysis = null;
+        }
+        setManualDeepButtonState('idle', depth);
+      }
+
+      function getManualDeepDepth() {
+        const depthInfo = getDepthSettingInfo();
+        const configured = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
+        return Math.max(configured, QUICK_ANALYSIS_DEPTH);
+      }
+
       function resetDeepAnalysisUpgrade() {
         pendingDeepAnalysis = null;
         if (deepAnalysisBanner.length) deepAnalysisBanner.addClass('hidden');
         if (deepAnalysisTitle.length) deepAnalysisTitle.text('');
         if (deepAnalysisDetail.length) deepAnalysisDetail.text('');
         if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+        resetManualDeepAnalysisUI();
       }
 
       function showDeepAnalysisInProgress(depth) {
@@ -4174,20 +4268,14 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           probSeries = [];
           const depthInfo = getDepthSettingInfo();
           const deepDepth = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
-          const quickDepth = Math.max(
-            ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.min : 4,
-            Math.min(QUICK_ANALYSIS_DEPTH, deepDepth)
-          );
+          const quickDepth = sanitizeEngineSetting('depth', QUICK_ANALYSIS_DEPTH);
           const quickResult = await runSingleDepthAnalysis({ stage: 'quick', depth: quickDepth, token });
           if (!quickResult || token !== activeAnalysisToken) return;
           applyAnalysisResult(quickResult);
-          markAnalysisComplete(`Quick analysis ready (depth ${quickDepth}).`);
-          if (deepDepth > quickDepth) {
-            startDeepAnalysisUpgrade(token, deepDepth);
-          } else {
-            resetDeepAnalysisUpgrade();
-            markAnalysisComplete(`Analysis complete (depth ${quickDepth}).`);
-          }
+          lastQuickAnalysisDepth = quickDepth;
+          resetManualDeepAnalysisUI({ depth: getManualDeepDepth(), resetPending: true });
+          markAnalysisComplete(`Quick analysis ready (depth ${quickDepth}). Run the deep analysis to upgrade results.`);
+          updateAnalysisDepthContext(quickDepth, deepDepth, { showHint: false });
         } catch (err) {
           if (token === activeAnalysisToken) {
             console.error('Stockfish analysis failed', err);
@@ -4202,12 +4290,44 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         applyDeepAnalysisBtn.on('click', function () {
           if (!pendingDeepAnalysis || pendingDeepAnalysis.token !== activeAnalysisToken || !pendingDeepAnalysis.result) return;
           applyAnalysisResult(pendingDeepAnalysis.result);
+          lastQuickAnalysisDepth = pendingDeepAnalysis.depth;
           if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Deep analysis applied (depth ${pendingDeepAnalysis.depth})`);
           if (deepAnalysisDetail.length) deepAnalysisDetail.text('The deeper evaluation has replaced the quick results.');
           markAnalysisComplete(`Deep analysis applied (depth ${pendingDeepAnalysis.depth}).`);
           applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+          setManualDeepButtonState('applied', pendingDeepAnalysis.depth);
           pendingDeepAnalysis = null;
         });
+      }
+
+      async function startManualDeepAnalysis() {
+        if (!engineReady) {
+          showError('Engine is not ready yet. Please wait and try again.');
+          return;
+        }
+        if (!lastEngineMoveRecords || !lastEngineMoveRecords.length) {
+          showError('Run the quick depth 10 analysis before starting the deep pass.');
+          return;
+        }
+        const depth = getManualDeepDepth();
+        const token = ++activeAnalysisToken;
+        manualDeepState.token = token;
+        pendingDeepAnalysis = { token, depth, result: null };
+        setManualDeepButtonState('running', depth);
+        setManualDeepProgress(0);
+        try {
+          const result = await runSingleDepthAnalysis({ stage: 'manual-deep', depth, token });
+          if (!result || token !== activeAnalysisToken) return;
+          pendingDeepAnalysis = { token, depth, result };
+          manualDeepState.token = token;
+          setManualDeepButtonState('ready', depth);
+          setManualDeepProgress(100);
+        } catch (err) {
+          if (token !== activeAnalysisToken) return;
+          console.error('Manual deep analysis failed', err);
+          pendingDeepAnalysis = null;
+          setManualDeepButtonState('error', depth);
+        }
       }
 
       function hideCopyManualReminder() {
@@ -4982,6 +5102,20 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       });
 
       $('#goto-step3-btn').on('click', function(){ switchStep(3); });
+
+      if (manualDeepAnalysisBtn.length) {
+        manualDeepAnalysisBtn.on('click', function () {
+          if (manualDeepState.status === 'running') return;
+          if (manualDeepState.status === 'ready' && pendingDeepAnalysis && pendingDeepAnalysis.result && pendingDeepAnalysis.token === manualDeepState.token) {
+            applyAnalysisResult(pendingDeepAnalysis.result);
+            lastQuickAnalysisDepth = manualDeepState.depth;
+            setManualDeepButtonState('applied', manualDeepState.depth);
+            pendingDeepAnalysis = null;
+            return;
+          }
+          startManualDeepAnalysis();
+        });
+      }
 
       // ====== Step 3: accept PGN or comments-only and build review ======
       $('#generate-review-btn').on('click', function () {
