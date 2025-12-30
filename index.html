@@ -412,6 +412,7 @@
       const DEFAULT_PLAYER_NAME = 'eugenime';
       let formState = loadFormState();
       let currentStep = 1;
+      let pendingEngineGoDepth = null;
 
       // ====== App state ======
       let board = null;
@@ -1226,7 +1227,11 @@
           return path;
         }
       }
-      const ENGINE_GO_OPTIONS = { depth: resolveDepthFromInput() };
+      const initialEngineDepth = Number.isFinite(pendingEngineGoDepth)
+        ? pendingEngineGoDepth
+        : resolveDepthFromInput();
+      const ENGINE_GO_OPTIONS = { depth: initialEngineDepth };
+      pendingEngineGoDepth = null;
       const QUICK_ANALYSIS_DEPTH = 10;
       const DEFAULT_DEEP_ANALYSIS_DEPTH = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : 24;
       const defaultManualDeepDepth = Number.isFinite(DEFAULT_DEEP_ANALYSIS_DEPTH)
@@ -3934,7 +3939,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           $('#hash-input').val(sanitizedHash);
           if (sanitizedHash !== formState.hashInput) updateFormState('hashInput', sanitizedHash);
         }
-        ENGINE_GO_OPTIONS.depth = resolveDepthFromInput();
+        pendingEngineGoDepth = resolveDepthFromInput();
         if (formState.stockfishOutput != null) $('#stockfish-output').val(formState.stockfishOutput);
         if (formState.annotatedPgn != null) lastAnnotatedPgn = formState.annotatedPgn;
         if (lastAnnotatedPgn) refreshStockfishOutput();
