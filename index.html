@@ -409,6 +409,7 @@
       });
 
       const STEP_HASHES = { 1: '', 2: '#step-2', 3: '#step-3', 4: '#step-4' };
+      const RUN_NEW_ANALYSIS_STORAGE_KEY = 'cmr.runNewPayload.v1';
       const DEFAULT_PLAYER_NAME = 'eugenime';
       let formState = loadFormState();
       let currentStep = 1;
@@ -525,6 +526,7 @@
       let pendingArchiveLoadNotice = null;
 
       applySavedFormState();
+      applyRunNewAnalysisPayloadFromUrl();
       bindPersistentInput('#player-name-input', 'playerName');
       bindPersistentInput('#pgn-input', 'pgnInput');
       $('#pgn-input').on('input', function () {
@@ -3148,6 +3150,80 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         // Disabled: Avoid persisting PGN or analysis data to storage.
       }
 
+      function applyRunNewAnalysisPayloadFromUrl() {
+        const params = new URLSearchParams(window.location.search || '');
+        if (!params.has('carry') && !params.get('pgn')) return;
+        let payload = null;
+        const queryPgn = params.get('pgn');
+        if (params.has('carry') && storageAvailable) {
+          try {
+            const rawPayload = window.localStorage.getItem(RUN_NEW_ANALYSIS_STORAGE_KEY);
+            if (rawPayload) payload = JSON.parse(rawPayload);
+          } catch (err) {
+            console.warn('Unable to read carried analysis payload:', err);
+          } finally {
+            try { window.localStorage.removeItem(RUN_NEW_ANALYSIS_STORAGE_KEY); } catch (err) { /* ignore */ }
+          }
+        }
+        if (!payload) payload = {};
+        if (!payload.pgn && queryPgn) payload.pgn = queryPgn;
+        const playerNameFromQuery = params.get('playerName');
+        if (playerNameFromQuery && !payload.playerName) payload.playerName = playerNameFromQuery;
+        let applied = false;
+        if (payload.pgn) {
+          $('#pgn-input').val(payload.pgn);
+          updateFormState('pgnInput', payload.pgn);
+          applied = true;
+        }
+        if (payload.playerName) {
+          $('#player-name-input').val(payload.playerName);
+          updateFormState('playerName', payload.playerName);
+        }
+        if (payload.headers && typeof payload.headers === 'object') {
+          setLastKnownHeaders(payload.headers);
+          applied = true;
+        }
+        if (applied) {
+          params.delete('carry');
+          params.delete('pgn');
+          params.delete('playerName');
+          try {
+            const newSearch = params.toString();
+            const cleanedUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash;
+            if (window.history && window.history.replaceState) {
+              window.history.replaceState(window.history.state || {}, '', cleanedUrl);
+            }
+          } catch (err) {
+            console.warn('Unable to clean carried payload parameters:', err);
+          }
+        }
+      }
+
+      function prepareRunNewAnalysisPayload() {
+        const rawPgn = ($('#pgn-input').val() || '').trim();
+        const pgn = rawPgn || lastAnnotatedPgn || '';
+        if (!pgn) return null;
+        return {
+          pgn,
+          playerName: getRawPlayerNameInput(),
+          headers: lastKnownHeaders || {}
+        };
+      }
+
+      function persistRunNewAnalysisPayload(payload) {
+        if (!storageAvailable || !payload || !payload.pgn) return false;
+        try {
+          window.localStorage.setItem(RUN_NEW_ANALYSIS_STORAGE_KEY, JSON.stringify({
+            ...payload,
+            storedAt: Date.now()
+          }));
+          return true;
+        } catch (err) {
+          console.warn('Unable to persist run-new payload:', err);
+          return false;
+        }
+      }
+
       function isLocalStorageAvailable() {
         try {
           if (typeof window === 'undefined' || !window.localStorage) return false;
@@ -3919,24 +3995,40 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       $('#back-to-step2-btn').on('click', function(){ switchStep(2); });
       $('#back-to-step3-btn').on('click', function(){ switchStep(3); });
       $('#run-new-analysis-btn').on('click', function(){
-        const targetUrl = window.location.origin + window.location.pathname;
+        const payload = prepareRunNewAnalysisPayload();
+        const target = new URL(window.location.href);
+        target.hash = '';
+        if (payload) {
+          target.searchParams.set('pgn', payload.pgn);
+          if (payload.playerName) {
+            target.searchParams.set('playerName', payload.playerName);
+          } else {
+            target.searchParams.delete('playerName');
+          }
+          const persisted = storageAvailable && persistRunNewAnalysisPayload(payload);
+          if (persisted) {
+            target.searchParams.set('carry', '1');
+          } else {
+            target.searchParams.delete('carry');
+          }
+        } else {
+          target.searchParams.delete('pgn');
+          target.searchParams.delete('playerName');
+          target.searchParams.delete('carry');
+        }
+        const targetUrl = target.toString();
         let newWindow = null;
         try {
           newWindow = window.open(targetUrl, '_blank', 'noopener,noreferrer');
           if (newWindow && typeof newWindow.focus === 'function') {
             newWindow.focus();
-            return;
           }
         } catch (err) {
           console.warn('Unable to open new analysis tab:', err);
         }
-
-        invalidateAnalysisState({ force: true });
-        game.reset();
-        if (board && typeof board.position === 'function') {
-          board.position('start', true);
+        if (!newWindow) {
+          showError('Your browser blocked the new analysis tab. Please allow pop-ups for this site or open a new tab manually.');
         }
-        switchStep(1);
       });
       $('#clear-pgn-btn').on('click', function(){
         const pgnInput = $('#pgn-input');
