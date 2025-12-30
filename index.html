@@ -1210,11 +1210,14 @@
             return normalized;
           }
           const { origin, pathname } = window.location;
-          let base = origin || '';
-          if (pathname && typeof pathname === 'string') {
-            const dir = pathname.replace(/[^/]*$/, '');
-            base = base + dir;
+          const pathIsFile = pathname && /\.[^/]+$/.test(pathname.split('/').pop() || '');
+          let basePath = pathname || '/';
+          if (pathIsFile) {
+            basePath = pathname.replace(/[^/]*$/, '');
+          } else if (!basePath.endsWith('/')) {
+            basePath = `${basePath}/`;
           }
+          const base = `${origin || ''}${basePath}`;
           if (!base) return normalized;
           return new URL(normalized, base).toString();
         } catch (err) {
