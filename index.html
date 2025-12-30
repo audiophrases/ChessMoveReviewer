@@ -412,6 +412,7 @@
       const DEFAULT_PLAYER_NAME = 'eugenime';
       let formState = loadFormState();
       let currentStep = 1;
+      let pendingEngineGoDepth = null;
 
       // ====== App state ======
       let board = null;
@@ -1226,14 +1227,24 @@
           return path;
         }
       }
-      const ENGINE_GO_OPTIONS = { depth: resolveDepthFromInput() };
+      const initialEngineDepth = Number.isFinite(pendingEngineGoDepth)
+        ? pendingEngineGoDepth
+        : resolveDepthFromInput();
+      const ENGINE_GO_OPTIONS = { depth: initialEngineDepth };
+      pendingEngineGoDepth = null;
       const QUICK_ANALYSIS_DEPTH = 10;
       const DEFAULT_DEEP_ANALYSIS_DEPTH = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : 24;
       const defaultManualDeepDepth = Number.isFinite(DEFAULT_DEEP_ANALYSIS_DEPTH)
         ? DEFAULT_DEEP_ANALYSIS_DEPTH
         : (Number.isFinite(ENGINE_GO_OPTIONS.depth) ? ENGINE_GO_OPTIONS.depth : 24);
       manualDeepState = { status: 'idle', depth: defaultManualDeepDepth, token: 0 };
-      lastQuickAnalysisDepth = QUICK_ANALYSIS_DEPTH;
+      function getQuickAnalysisDepth() {
+        const depthInfo = getDepthSettingInfo();
+        if (depthInfo.valid) return depthInfo.value;
+        const fallback = Number.isFinite(ENGINE_GO_OPTIONS.depth) ? ENGINE_GO_OPTIONS.depth : QUICK_ANALYSIS_DEPTH;
+        return sanitizeEngineSetting('depth', fallback);
+      }
+      lastQuickAnalysisDepth = getQuickAnalysisDepth();
       const ENGINE_AUTO_RETRY_LIMIT = 2;
       let engineInitInFlight = null;
       let engineWorker = null;
@@ -3934,7 +3945,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           $('#hash-input').val(sanitizedHash);
           if (sanitizedHash !== formState.hashInput) updateFormState('hashInput', sanitizedHash);
         }
-        ENGINE_GO_OPTIONS.depth = resolveDepthFromInput();
+        pendingEngineGoDepth = resolveDepthFromInput();
         if (formState.stockfishOutput != null) $('#stockfish-output').val(formState.stockfishOutput);
         if (formState.annotatedPgn != null) lastAnnotatedPgn = formState.annotatedPgn;
         if (lastAnnotatedPgn) refreshStockfishOutput();
@@ -4214,7 +4225,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       function updateAnalysisDepthContext(quickDepth, deepDepth, opts = {}) {
         if (analysisDepthContext.length) {
-          const contextDepth = Number.isFinite(quickDepth) ? quickDepth : QUICK_ANALYSIS_DEPTH;
+          const contextDepth = Number.isFinite(quickDepth) ? quickDepth : getQuickAnalysisDepth();
           const appliedLabel = opts.applied ? ' (loaded)' : '';
           analysisDepthContext.text(`Viewing depth ${contextDepth}${appliedLabel} analysis.`);
         }
@@ -4276,7 +4287,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       function getManualDeepDepth() {
         const depthInfo = getDepthSettingInfo();
         const configured = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
-        return Math.max(configured, QUICK_ANALYSIS_DEPTH);
+        const quickDepth = Number.isFinite(lastQuickAnalysisDepth) ? lastQuickAnalysisDepth : getQuickAnalysisDepth();
+        return Math.max(configured, quickDepth);
       }
 
       function resetDeepAnalysisUpgrade() {
@@ -4465,7 +4477,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           probSeries = [];
           const depthInfo = getDepthSettingInfo();
           const deepDepth = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
-          const quickDepth = sanitizeEngineSetting('depth', QUICK_ANALYSIS_DEPTH);
+          const quickDepth = getQuickAnalysisDepth();
           const quickResult = await runSingleDepthAnalysis({ stage: 'quick', depth: quickDepth, token });
           if (!quickResult || token !== activeAnalysisToken) return;
           applyAnalysisResult(quickResult);
@@ -4503,7 +4515,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           return;
         }
         if (!lastEngineMoveRecords || !lastEngineMoveRecords.length) {
-          showError('Run the quick depth 10 analysis before starting the deep pass.');
+          const requiredDepth = Number.isFinite(lastQuickAnalysisDepth) ? lastQuickAnalysisDepth : getQuickAnalysisDepth();
+          showError(`Run the quick depth ${requiredDepth} analysis before starting the deep pass.`);
           return;
         }
         const depth = getManualDeepDepth();
