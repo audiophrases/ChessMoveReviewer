@@ -4204,9 +4204,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           setManualDeepProgress(percent);
           return;
         }
-        const label = stage === 'deep' ? 'Deep analysis' : 'Quick analysis';
+        const isDeepStage = stage === 'deep';
+        const depthLabel = `Depth ${depth}`;
+        const label = isDeepStage ? `Deep analysis ${depthLabel}` : depthLabel;
         if (progressTextEl.length) {
-          progressTextEl.text(`${label} (depth ${depth}) ${index + 1}/${total}: ${move}`);
+          progressTextEl.text(`${label} ${index + 1}/${total}: ${move}`);
         }
         if (progressBarEl.length) {
           progressBarEl.css('width', (((index + 1) / total) * 100) + '%');
@@ -4478,7 +4480,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           applyAnalysisResult(quickResult);
           lastQuickAnalysisDepth = quickDepth;
           resetManualDeepAnalysisUI({ depth: getManualDeepDepth(), resetPending: true });
-          markAnalysisComplete(`Quick analysis ready (depth ${quickDepth}). Run the deep analysis to upgrade results.`);
+          markAnalysisComplete(`Depth ${quickDepth} ready. Run the deep analysis to upgrade results.`);
           updateAnalysisDepthContext(quickDepth, deepDepth, { showHint: false });
         } catch (err) {
           if (token === activeAnalysisToken) {
