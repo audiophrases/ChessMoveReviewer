@@ -253,9 +253,9 @@
                 <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
               </div>
               <div class="flex flex-wrap items-center justify-end gap-2">
-                <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
-                <button id="run-new-analysis-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-primary whitespace-nowrap">Run new analysis</button>
                 <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
+                <button id="run-new-analysis-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-primary whitespace-nowrap">Run new analysis</button>
+                <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
                 <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
                 <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
               </div>
@@ -279,17 +279,6 @@
 
       <!-- Column B: Independently scrollable analysis (no titles) -->
       <div class="lg:col-span-1 flex flex-col gap-3">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-[#101522] border border-[#1f2937] rounded-lg p-3">
-          <div class="space-y-1">
-            <p id="manual-deep-analysis-hint" class="text-[11px] text-gray-400 leading-tight hidden">Browse the quick review while a deeper pass runs.</p>
-          </div>
-          <button id="manual-deep-analysis-btn" type="button" class="relative min-w-[220px] py-2 px-3 text-sm font-semibold text-white rounded-md btn-primary whitespace-nowrap">
-            <span id="manual-deep-analysis-label" class="block text-center">Run depth 24 analysis</span>
-            <span id="manual-deep-analysis-progress" class="hidden mt-1 w-full h-1 bg-blue-200/30 rounded-full overflow-hidden">
-              <span id="manual-deep-analysis-progress-bar" class="block h-full bg-blue-400" style="width: 0%"></span>
-            </span>
-          </button>
-        </div>
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div class="flex flex-wrap items-center gap-2">
             <button id="save-archive-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>
