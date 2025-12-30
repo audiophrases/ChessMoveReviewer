@@ -290,14 +290,18 @@
           <p id="archive-feedback" class="hidden text-xs"></p>
         </div>
         <div id="move-analysis-shell" class="bg-[#101522] p-3 rounded-lg portrait-panel comment-panel">
-          <div id="move-analysis-scroll" class="overflow-y-auto">
-            <!-- One-line summary appears here (from "Summary:") -->
-            <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
-            <div id="featured-move" class="hidden mb-3"></div>
-            <div id="move-analysis-container" class="space-y-1"></div>
+            <div id="move-analysis-scroll" class="overflow-y-auto">
+              <!-- One-line summary appears here (from "Summary:") -->
+              <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
+              <div id="analysis-depth-pill" class="hidden mb-3 inline-flex items-center gap-2 text-xs text-gray-200">
+                <span id="analysis-depth-label" class="px-2 py-1 rounded bg-[#0b0e15] border border-[#1f2937] font-semibold text-gray-100"></span>
+                <span id="analysis-pass-label" class="text-gray-400"></span>
+              </div>
+              <div id="featured-move" class="hidden mb-3"></div>
+              <div id="move-analysis-container" class="space-y-1"></div>
+            </div>
           </div>
         </div>
-      </div>
     </div>
   </main>
 
@@ -407,6 +411,7 @@
         rules.fallback = sanitizeEngineSetting(key, rules.fallback);
       });
 
+      const FORM_STATE_STORAGE_KEY = 'cmr.formState.v1';
       const STEP_HASHES = { 1: '', 2: '#step-2', 3: '#step-3', 4: '#step-4' };
       const DEFAULT_PLAYER_NAME = 'eugenime';
       let formState = loadFormState();
@@ -434,6 +439,9 @@
       const deepAnalysisTitle = $('#deep-analysis-title');
       const deepAnalysisDetail = $('#deep-analysis-detail');
       const applyDeepAnalysisBtn = $('#apply-deep-analysis-btn');
+      const analysisDepthPill = $('#analysis-depth-pill');
+      const analysisDepthLabel = $('#analysis-depth-label');
+      const analysisPassLabel = $('#analysis-pass-label');
       let awaitingUserGestureCopy = false;
       let pendingClipboardText = '';
       let gestureCopyListenerAttached = false;
@@ -442,6 +450,8 @@
       let lastAnnotatedPgn = '';
       let lastKnownHeaders = {};
       let playerGameOutcome = null;
+      let lastAnalysisDepth = null;
+      let lastAnalysisPass = null;
       let pendingDeepAnalysis = null;
       let activeAnalysisToken = 0;
       const engineStatusBanner = $('#engine-status-banner');
@@ -621,6 +631,8 @@
         updateFormState('annotatedPgn', '');
         $('#stockfish-output').val('');
         updateFormState('stockfishOutput', '');
+        clearAnalysisProvenance();
+        renderAnalysisProvenanceUI();
         const headers = parsePgnHeaders(game.pgn);
         setLastKnownHeaders(headers);
         setReviewPlayerColor(game && game.color ? game.color : null);
@@ -3126,11 +3138,31 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       }
 
       function loadFormState() {
-        return {};
+        if (typeof window === 'undefined' || !isLocalStorageAvailable()) return {};
+        try {
+          const raw = window.localStorage.getItem(FORM_STATE_STORAGE_KEY);
+          if (!raw) return {};
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (err) {
+          console.warn('Failed to load form state:', err);
+          return {};
+        }
       }
 
       function persistFormState() {
-        // Disabled: Avoid persisting PGN or analysis data to storage.
+        if (typeof window === 'undefined' || !isLocalStorageAvailable()) return;
+        try {
+          const payload = formState && typeof formState === 'object' ? { ...formState } : {};
+          Object.keys(payload).forEach(key => {
+            if (payload[key] == null) {
+              delete payload[key];
+            }
+          });
+          window.localStorage.setItem(FORM_STATE_STORAGE_KEY, JSON.stringify(payload));
+        } catch (err) {
+          console.warn('Failed to persist form state:', err);
+        }
       }
 
       function isLocalStorageAvailable() {
@@ -3161,6 +3193,28 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
+      function sanitizeAnalysisDepth(value) {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+      }
+
+      function normalizeAnalysisPass(value) {
+        const normalized = String(value || '').trim().toLowerCase();
+        if (normalized === 'deep') return 'deep';
+        if (normalized === 'quick') return 'quick';
+        return null;
+      }
+
+      function formatAnalysisProvenance(depth, pass) {
+        const normalizedDepth = sanitizeAnalysisDepth(depth);
+        const normalizedPass = normalizeAnalysisPass(pass);
+        const parts = [];
+        if (normalizedDepth != null) parts.push(`Depth ${normalizedDepth}`);
+        if (normalizedPass === 'deep') parts.push('Deep pass');
+        else if (normalizedPass === 'quick') parts.push('Quick pass');
+        return parts.join(' • ');
+      }
+
       function normalizeArchiveEntry(entry) {
         if (!entry || typeof entry !== 'object') return null;
         if (!entry.finalAnalysis) return null;
@@ -3174,6 +3228,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           pgn: entry.pgn || '',
           annotatedPgn: entry.annotatedPgn || '',
           stockfishOutput: entry.stockfishOutput || '',
+          analysisDepth: sanitizeAnalysisDepth(entry.analysisDepth),
+          analysisPass: normalizeAnalysisPass(entry.analysisPass || entry.analysisType),
           summary: entry.summary || '',
           playerColor: entry.playerColor || null,
           playerName: entry.playerName || '',
@@ -3199,6 +3255,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             pgn: entry.pgn || '',
             annotatedPgn: entry.annotatedPgn || '',
             stockfishOutput: entry.stockfishOutput || '',
+            analysisDepth: sanitizeAnalysisDepth(entry.analysisDepth),
+            analysisPass: normalizeAnalysisPass(entry.analysisPass || entry.analysisType),
             summary: entry.summary || '',
             playerColor: entry.playerColor || null,
             playerName: entry.playerName || '',
@@ -3313,6 +3371,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           else if (entry.playerColor === 'black') infoParts.push('You were Black');
           if (infoParts.length) {
             $('<p class="text-xs text-gray-400"></p>').text(infoParts.join(' • ')).appendTo(textWrap);
+          }
+          const depthLabel = formatAnalysisProvenance(entry.analysisDepth, entry.analysisPass);
+          if (depthLabel) {
+            $('<p class="text-xs text-gray-400"></p>').text(depthLabel).appendTo(textWrap);
           }
           const actions = $('<div class="flex items-center gap-2 shrink-0"></div>').appendTo(header);
           $('<button type="button" class="py-1 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" data-archive-action="load"></button>')
@@ -3483,6 +3545,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           pgn: pgnSnapshot || '',
           annotatedPgn: meta.annotatedPgn || lastAnnotatedPgn || '',
           stockfishOutput: meta.stockfishOutput || ($('#stockfish-output').val() || ''),
+          analysisDepth: sanitizeAnalysisDepth(meta.analysisDepth != null ? meta.analysisDepth : lastAnalysisDepth),
+          analysisPass: normalizeAnalysisPass(meta.analysisPass || lastAnalysisPass),
           summary: meta.summary || '',
           playerColor: meta.playerColor || reviewPlayerColor,
           playerName: meta.playerName || getPlayerName(),
@@ -3641,6 +3705,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           $('#stockfish-output').val(entry.stockfishOutput);
           updateFormState('stockfishOutput', entry.stockfishOutput);
         }
+        setAnalysisProvenance(sanitizeAnalysisDepth(entry.analysisDepth), normalizeAnalysisPass(entry.analysisPass));
+        renderAnalysisProvenanceUI();
         if (entry.playerColor) {
           const assignedColor = setReviewPlayerColor(entry.playerColor);
           playerGameOutcome = derivePlayerOutcome(entry.resultCode || '', assignedColor);
@@ -3657,6 +3723,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           opponent: entry.opponent || '',
           annotatedPgn: entry.annotatedPgn || '',
           stockfishOutput: entry.stockfishOutput || '',
+          analysisDepth: sanitizeAnalysisDepth(entry.analysisDepth),
+          analysisPass: normalizeAnalysisPass(entry.analysisPass),
           pgn: entry.pgn || '',
           resultCode: entry.resultCode || '',
           resultLabel: entry.resultLabel || '',
@@ -3672,12 +3740,17 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return true;
       }
 
-      const TRANSIENT_FORM_KEYS = new Set(['pgnInput', 'finalAnalysisInput', 'stockfishOutput']);
+      const TRANSIENT_FORM_KEYS = new Set(['pgnInput', 'finalAnalysisInput', 'stockfishOutput', 'annotatedPgn']);
 
       function updateFormState(key, value) {
-        if (!key || TRANSIENT_FORM_KEYS.has(String(key))) return;
+        const normalizedKey = String(key || '');
+        if (!normalizedKey || TRANSIENT_FORM_KEYS.has(normalizedKey)) return;
         if (!formState || typeof formState !== 'object') formState = {};
-        formState[key] = value;
+        if (value == null) {
+          delete formState[normalizedKey];
+        } else {
+          formState[normalizedKey] = value;
+        }
         persistFormState();
       }
 
@@ -3736,6 +3809,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (progressTextEl.length) progressTextEl.text('');
           resetDeepAnalysisUpgrade();
         }
+        renderAnalysisProvenanceUI();
       }
 
       function bindPersistentInput(selector, key, opts) {
@@ -3774,6 +3848,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (formState.stockfishOutput != null) $('#stockfish-output').val(formState.stockfishOutput);
         if (formState.annotatedPgn != null) lastAnnotatedPgn = formState.annotatedPgn;
         if (lastAnnotatedPgn) refreshStockfishOutput();
+        const savedDepth = sanitizeAnalysisDepth(formState.analysisDepth);
+        const savedPass = normalizeAnalysisPass(formState.analysisPass);
+        if (savedDepth != null || savedPass) {
+          setAnalysisProvenance(savedDepth, savedPass, { persist: false });
+        }
+        renderAnalysisProvenanceUI();
       }
 
       function switchStep(step, opts) {
@@ -3881,8 +3961,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           || !!(lastAnnotatedPgn
             || (lastEngineMoveRecords && lastEngineMoveRecords.length)
             || (automatedMoveInsights && Array.isArray(automatedMoveInsights.moves) && automatedMoveInsights.moves.length)
-            || (automatedReviewText && String(automatedReviewText).trim()));
+            || (automatedReviewText && String(automatedReviewText).trim())
+            || lastAnalysisDepth != null
+            || normalizeAnalysisPass(lastAnalysisPass));
         if (!hadData) return;
+        clearAnalysisProvenance();
         lastEngineMoveRecords = null;
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         automatedReviewText = '';
@@ -3987,6 +4070,82 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (progressBarEl.length) progressBarEl.css('width', '100%');
       }
 
+      function setAnalysisProvenance(depth, pass, opts) {
+        const normalizedDepth = sanitizeAnalysisDepth(depth);
+        const normalizedPass = normalizeAnalysisPass(pass);
+        lastAnalysisDepth = normalizedDepth;
+        lastAnalysisPass = normalizedPass;
+        if (!formState || typeof formState !== 'object') formState = {};
+        if (normalizedDepth == null) delete formState.analysisDepth;
+        else formState.analysisDepth = normalizedDepth;
+        if (normalizedPass == null) delete formState.analysisPass;
+        else formState.analysisPass = normalizedPass;
+        if (!opts || opts.persist !== false) {
+          persistFormState();
+        }
+      }
+
+      function clearAnalysisProvenance(opts) {
+        lastAnalysisDepth = null;
+        lastAnalysisPass = null;
+        if (!formState || typeof formState !== 'object') formState = {};
+        delete formState.analysisDepth;
+        delete formState.analysisPass;
+        if (!opts || opts.persist !== false) {
+          persistFormState();
+        }
+        if (analysisDepthPill.length) {
+          analysisDepthPill.addClass('hidden');
+          if (analysisDepthLabel.length) analysisDepthLabel.text('');
+          if (analysisPassLabel.length) analysisPassLabel.text('');
+        }
+        if (!pendingDeepAnalysis && deepAnalysisBanner.length) {
+          deepAnalysisBanner.addClass('hidden');
+          if (deepAnalysisTitle.length) deepAnalysisTitle.text('');
+          if (deepAnalysisDetail.length) deepAnalysisDetail.text('');
+          if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+        }
+      }
+
+      function showDeepAnalysisApplied(depth) {
+        if (!deepAnalysisBanner.length) return;
+        deepAnalysisBanner.removeClass('hidden');
+        const appliedTitle = depth != null ? `Applied (depth ${depth})` : 'Applied (depth unknown)';
+        if (deepAnalysisTitle.length) deepAnalysisTitle.text(appliedTitle);
+        if (deepAnalysisDetail.length) deepAnalysisDetail.text('The deeper evaluation has replaced the quick results.');
+        if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+      }
+
+      function renderAnalysisProvenanceUI() {
+        const depth = sanitizeAnalysisDepth(lastAnalysisDepth);
+        const pass = normalizeAnalysisPass(lastAnalysisPass);
+        const label = formatAnalysisProvenance(depth, pass);
+        if (analysisDepthPill.length) {
+          if (label) {
+            analysisDepthPill.removeClass('hidden');
+            if (analysisDepthLabel.length) analysisDepthLabel.text(depth != null ? `Depth ${depth}` : 'Depth unknown');
+            if (analysisPassLabel.length) {
+              if (pass === 'deep') analysisPassLabel.text('Deep pass applied');
+              else if (pass === 'quick') analysisPassLabel.text('Quick pass applied');
+              else analysisPassLabel.text('');
+            }
+          } else {
+            analysisDepthPill.addClass('hidden');
+            if (analysisDepthLabel.length) analysisDepthLabel.text('');
+            if (analysisPassLabel.length) analysisPassLabel.text('');
+          }
+        }
+        if (pendingDeepAnalysis) return;
+        if (pass === 'deep') {
+          showDeepAnalysisApplied(depth);
+        } else if (deepAnalysisBanner.length) {
+          deepAnalysisBanner.addClass('hidden');
+          if (deepAnalysisTitle.length) deepAnalysisTitle.text('');
+          if (deepAnalysisDetail.length) deepAnalysisDetail.text('');
+          if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+        }
+      }
+
       function resetDeepAnalysisUpgrade() {
         pendingDeepAnalysis = null;
         if (deepAnalysisBanner.length) deepAnalysisBanner.addClass('hidden');
@@ -4033,10 +4192,14 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         automatedReviewText = result.automatedReviewText || '';
         lastAnnotatedPgn = (result.annotatedPgn || '').trim();
         probSeries = Array.isArray(result.probSeries) ? result.probSeries.slice() : [];
+        const appliedDepth = sanitizeAnalysisDepth(result.depthUsed);
+        const appliedPass = normalizeAnalysisPass(result.analysisType);
+        setAnalysisProvenance(appliedDepth, appliedPass);
         const combined = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
         $('#stockfish-output').val(combined);
         updateFormState('stockfishOutput', combined);
         updateFormState('annotatedPgn', lastAnnotatedPgn);
+        renderAnalysisProvenanceUI();
         $('#goto-step3-btn').prop('disabled', false);
         autoCopyStockfishOutputToClipboard();
         autoCompleteReviewFlow();
@@ -4124,6 +4287,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           probSeries: localProbSeries,
           automatedMoveInsights: autoInsights,
           automatedReviewText: autoText,
+          analysisType: stage,
           depthUsed: depth
         };
       }
@@ -4152,6 +4316,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       async function runStockfishAnalysis() {
         const token = ++activeAnalysisToken;
         resetDeepAnalysisUpgrade();
+        clearAnalysisProvenance();
         setCopyButtonAnalyzing(true);
         try {
           configureEngineOptions();
@@ -4199,12 +4364,22 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       if (applyDeepAnalysisBtn.length) {
         applyDeepAnalysisBtn.on('click', function () {
           if (!pendingDeepAnalysis || pendingDeepAnalysis.token !== activeAnalysisToken || !pendingDeepAnalysis.result) return;
-          applyAnalysisResult(pendingDeepAnalysis.result);
-          if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Deep analysis applied (depth ${pendingDeepAnalysis.depth})`);
-          if (deepAnalysisDetail.length) deepAnalysisDetail.text('The deeper evaluation has replaced the quick results.');
-          markAnalysisComplete(`Deep analysis applied (depth ${pendingDeepAnalysis.depth}).`);
-          applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+          const appliedDepth = sanitizeAnalysisDepth(pendingDeepAnalysis.depth);
+          const appliedResult = pendingDeepAnalysis.result ? { ...pendingDeepAnalysis.result } : null;
           pendingDeepAnalysis = null;
+          if (!appliedResult) return;
+          if (appliedResult.depthUsed == null && appliedDepth != null) {
+            appliedResult.depthUsed = appliedDepth;
+          }
+          if (!appliedResult.analysisType) {
+            appliedResult.analysisType = 'deep';
+          }
+          applyAnalysisResult(appliedResult);
+          const depthLabel = appliedDepth != null ? ` (depth ${appliedDepth})` : '';
+          const completionMessage = depthLabel ? `Deep analysis applied${depthLabel}.` : 'Deep analysis applied.';
+          markAnalysisComplete(completionMessage);
+          applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+          showDeepAnalysisApplied(appliedDepth);
         });
       }
 
@@ -5332,6 +5507,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           opponent: opponentLabel,
           annotatedPgn: lastAnnotatedPgn,
           stockfishOutput: $('#stockfish-output').val() || '',
+          analysisDepth: sanitizeAnalysisDepth(lastAnalysisDepth),
+          analysisPass: normalizeAnalysisPass(lastAnalysisPass),
           pgn: pgnSnapshot,
           resultCode: headersSnapshot.Result || '',
           resultLabel: describeResult(headersSnapshot.Result || ''),
