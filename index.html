@@ -3930,6 +3930,18 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       $('#back-to-step2-btn').on('click', function(){ switchStep(2); });
       $('#back-to-step3-btn').on('click', function(){ switchStep(3); });
       $('#run-new-analysis-btn').on('click', function(){
+        const targetUrl = window.location.origin + window.location.pathname;
+        let newWindow = null;
+        try {
+          newWindow = window.open(targetUrl, '_blank', 'noopener,noreferrer');
+          if (newWindow && typeof newWindow.focus === 'function') {
+            newWindow.focus();
+            return;
+          }
+        } catch (err) {
+          console.warn('Unable to open new analysis tab:', err);
+        }
+
         invalidateAnalysisState({ force: true });
         game.reset();
         if (board && typeof board.position === 'function') {
