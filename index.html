@@ -246,25 +246,20 @@
             <p id="material-top-label" class="text-center text-xs text-gray-300 leading-tight mb-1">White: 0</p>
             <div id="board" class="chessboard-container rounded-lg overflow-hidden"></div>
             <p id="material-bottom-label" class="text-center text-xs text-gray-300 leading-tight mt-1">Black: 0</p>
-            <div id="controls" class="mt-3 flex flex-wrap items-center justify-between gap-2 w-full">
-              <div class="flex flex-col gap-1">
-                <div class="flex flex-wrap items-center gap-2">
-                  <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
-                  <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
-                  <button id="save-archive-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>
-                    Save to Archive
-                  </button>
-                  <button id="start-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-primary whitespace-nowrap">Start puzzle</button>
-                  <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
-                </div>
-                <p id="archive-feedback" class="hidden text-xs text-gray-300"></p>
-              </div>
-              <div class="flex flex-wrap items-center justify-end gap-2">
-                <button id="run-new-analysis-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-primary whitespace-nowrap">Run new analysis</button>
+            <div id="controls" class="mt-3 flex flex-col gap-1 w-full">
+              <div class="flex flex-wrap items-center gap-2">
+                <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
                 <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
                 <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
                 <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
+                <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
+                <button id="run-new-analysis-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-primary whitespace-nowrap">Depth</button>
+                <button id="save-archive-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>
+                  Save
+                </button>
+                <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
               </div>
+              <p id="archive-feedback" class="hidden text-xs text-gray-300"></p>
             </div>
             <div id="puzzle-panel" class="mt-3 p-3 rounded-lg bg-[#101522] border border-[#1f2937] hidden">
               <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -4995,8 +4990,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
         function formatBestEvalDisplay(primary, secondary) {
           if (!primary) return '';
-          const best = formatEvalForMove('Best', primary);
-          const second = secondary ? formatEvalForMove('2nd', secondary) : '';
+          const best = formatEvalForMove('', primary);
+          const second = secondary ? formatEvalForMove('', secondary) : '';
           return [best, second].filter(Boolean).join(' | ');
         }
 
@@ -5004,16 +4999,18 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (!moveInfo) return '';
           const san = moveInfo.san || '';
           const prob = getWhiteWinProbabilityForMove(moveInfo);
+          const prefixText = prefix ? `${prefix}: ` : '';
           if (prob != null) {
             const pct = Math.round(prob * 100);
-            return `${prefix}: ${pct}% ${san}`.trim();
+            return `${prefixText}${pct}% ${san}`.trim();
           }
           const evalText = formatBestEval(moveInfo);
           if (evalText) {
             const moveText = san ? ' ' + san : '';
-            return `${prefix}: ${evalText}${moveText}`.trim();
+            return `${prefixText}${evalText}${moveText}`.trim();
           }
-          return san ? `${prefix}: ${san}` : '';
+          if (!prefix) return san;
+          return `${prefix}: ${san}`;
         }
 
         function getWhiteWinProbabilityForMove(moveInfo) {
