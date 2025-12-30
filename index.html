@@ -1236,6 +1236,7 @@
       manualDeepState = { status: 'idle', depth: defaultManualDeepDepth, token: 0 };
       lastQuickAnalysisDepth = QUICK_ANALYSIS_DEPTH;
       const ENGINE_AUTO_RETRY_LIMIT = 2;
+      let engineInitInFlight = null;
       let engineWorker = null;
       let engineReady = false;
       let currentMultiPvSetting = 1;
@@ -1274,6 +1275,7 @@
       const PUZZLE_CLOSE_SCORE_THRESHOLD = 35;
       const PUZZLE_MATE_SCORE = 100000;
       const ENGINE_REQUEST_TIMEOUT_MS = 8000;
+      let engineAssetCheckPromise = null;
 
       function setEngineMultiPv(value, options = {}) {
         const numeric = Number.parseInt(value, 10);
@@ -1362,6 +1364,7 @@
 
       function handleEngineLoadFailure(detailMessage) {
         engineReady = false;
+        engineInitInFlight = null;
         clearEngineRetryTimer();
         engineInitAttempts = 0;
         $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
@@ -1373,77 +1376,109 @@
         });
       }
 
-      function initEngine(initial = false, opts = {}) {
-        const isAutoRetry = opts && opts.isAutoRetry === true;
-        const allowAutoRetry = !opts || opts.allowAutoRetry !== false;
-        if (!isAutoRetry) {
-          engineInitAttempts = 0;
+      async function ensureEngineAssetsReachable() {
+        if (typeof fetch !== 'function') return true;
+        if (engineAssetCheckPromise) return engineAssetCheckPromise;
+        const preflight = (async () => {
+          try {
+            const response = await fetch(LOCAL_ENGINE, { method: 'HEAD', cache: 'no-store' });
+            if (response && response.ok) return true;
+            console.warn('Engine bundle not reachable', response && response.status, response && response.statusText);
+            return false;
+          } catch (err) {
+            console.warn('Engine bundle preflight failed:', err);
+            return false;
+          }
+        })();
+        engineAssetCheckPromise = preflight;
+        const result = await preflight;
+        if (!result) engineAssetCheckPromise = null;
+        return result;
+      }
+
+      async function initEngine(initial = false, opts = {}) {
+        if (engineInitInFlight) {
+          // Allow the newest attempt to replace any previous one.
         }
-        engineInitAttempts += 1;
-        if (engineWorker) engineWorker.terminate();
-        engineReady = false;
-        currentMultiPvSetting = 1;
-        clearEngineRetryTimer();
-        if (initial) {
-          $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
-        } else {
-          $('#analyze-pgn-btn').prop('disabled', true);
-        }
-        showEngineStatus({
-          tone: 'info',
-          message: 'Loading Stockfish engine…',
-          detail: 'This can take a few seconds on mobile devices.'
-        });
-        try {
-          engineWorker = new Worker(resolveWorkerUrl(LOCAL_ENGINE));
-        } catch (err) {
-          console.error('Engine load error', err);
-          handleEngineLoadFailure(err && err.message ? err.message : 'Worker could not be created.');
-          return;
-        }
-        engineWorker.onerror = function (err) {
-          console.error('Engine load error', err);
-          handleEngineLoadFailure('Worker reported an error during initialization.');
-        };
-        engineWorker.onmessage = function (e) {
-          const rawMsg = String(e.data || '');
-          const msg = rawMsg.trim();
-          if (msg === 'uciok') {
-            configureEngineOptions();
-          } else if (msg === 'readyok') {
-            engineReady = true;
-            clearTimeout(engineInitTimeout);
-            clearEngineRetryTimer();
+        const initPromise = (async () => {
+          const isAutoRetry = opts && opts.isAutoRetry === true;
+          const allowAutoRetry = !opts || opts.allowAutoRetry !== false;
+          if (!isAutoRetry) {
             engineInitAttempts = 0;
-            $('#analyze-pgn-btn').prop('disabled', false).text('Analyze');
-            hideEngineStatus();
-          } else if (msg.startsWith('info')) {
-            handleEngineInfoMessage(rawMsg);
-          } else if (msg.startsWith('bestmove')) {
-            const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
-            const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
-            const bmMatch = /bestmove\s(\S+)/.exec(msg);
-            const bm = bmMatch ? bmMatch[1] : null;
-            if (currentScoreResolver) {
-              if (mt) {
-                currentScoreResolver({ type: 'mate', value: parseInt(mt[1], 10), bestmove: bm });
-              } else if (cp) {
-                currentScoreResolver({ type: 'cp', value: parseInt(cp[1], 10), bestmove: bm });
-              } else {
-                currentScoreResolver({ type: 'cp', value: 0, bestmove: bm });
+          }
+          engineInitAttempts += 1;
+          if (engineWorker) engineWorker.terminate();
+          engineReady = false;
+          currentMultiPvSetting = 1;
+          clearEngineRetryTimer();
+          if (initial) {
+            $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
+          } else {
+            $('#analyze-pgn-btn').prop('disabled', true);
+          }
+          showEngineStatus({
+            tone: 'info',
+            message: 'Loading Stockfish engine…',
+            detail: 'This can take a few seconds on mobile devices.'
+          });
+          const assetsReady = await ensureEngineAssetsReachable();
+          if (!assetsReady) {
+            handleEngineLoadFailure('Engine files are missing or blocked. Please reload the page.');
+            return;
+          }
+          try {
+            engineWorker = new Worker(resolveWorkerUrl(LOCAL_ENGINE));
+          } catch (err) {
+            console.error('Engine load error', err);
+            handleEngineLoadFailure(err && err.message ? err.message : 'Worker could not be created.');
+            return;
+          }
+          engineWorker.onerror = function (err) {
+            console.error('Engine load error', err);
+            handleEngineLoadFailure('Worker reported an error during initialization.');
+          };
+          engineWorker.onmessage = function (e) {
+            const rawMsg = String(e.data || '');
+            const msg = rawMsg.trim();
+            if (msg === 'uciok') {
+              configureEngineOptions();
+            } else if (msg === 'readyok') {
+              engineReady = true;
+              clearTimeout(engineInitTimeout);
+              clearEngineRetryTimer();
+              engineInitAttempts = 0;
+              $('#analyze-pgn-btn').prop('disabled', false).text('Analyze');
+              hideEngineStatus();
+            } else if (msg.startsWith('info')) {
+              handleEngineInfoMessage(rawMsg);
+            } else if (msg.startsWith('bestmove')) {
+              const cp = /score cp (-?\d+)/.exec(lastInfoMsg);
+              const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
+              const bmMatch = /bestmove\s(\S+)/.exec(msg);
+              const bm = bmMatch ? bmMatch[1] : null;
+              if (currentScoreResolver) {
+                if (mt) {
+                  currentScoreResolver({ type: 'mate', value: parseInt(mt[1], 10), bestmove: bm });
+                } else if (cp) {
+                  currentScoreResolver({ type: 'cp', value: parseInt(cp[1], 10), bestmove: bm });
+                } else {
+                  currentScoreResolver({ type: 'cp', value: 0, bestmove: bm });
+                }
+                currentScoreResolver = null;
               }
-              currentScoreResolver = null;
             }
-          }
-        };
-        engineWorker.postMessage('uci');
-        engineInitTimeout = setTimeout(() => {
-          if (!engineReady) {
-            engineWorker.terminate();
-            handleEngineLoadFailure('Initialization timed out.');
-          }
-        }, 20000);
-        scheduleEngineRetry({ allowAutoRetry });
+          };
+          engineWorker.postMessage('uci');
+          engineInitTimeout = setTimeout(() => {
+            if (!engineReady) {
+              engineWorker.terminate();
+              handleEngineLoadFailure('Initialization timed out.');
+            }
+          }, 20000);
+          scheduleEngineRetry({ allowAutoRetry });
+        })();
+        engineInitInFlight = initPromise.finally(() => { engineInitInFlight = null; });
+        return initPromise;
       }
 
       if (retryEngineBtn.length) {
@@ -4082,7 +4117,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           }
         }
         if (popupBlocked) {
-          showError('Your browser blocked the new analysis tab. Please allow pop-ups for this site or open a new tab manually.');
+          console.warn('New analysis tab was blocked by the browser; user may need to allow pop-ups.');
         }
       });
       $('#clear-pgn-btn').on('click', function(){
@@ -4816,7 +4851,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (!fenSnapshot || !normalizedSnapshot) return;
           cancelBestMoveResponseTimer();
           cancelBestMoveStallTimer();
-          initEngine();
+          await initEngine();
           try {
             await waitForEngineReady();
           } catch (err) {
