@@ -1235,10 +1235,13 @@
         : (Number.isFinite(ENGINE_GO_OPTIONS.depth) ? ENGINE_GO_OPTIONS.depth : 24);
       manualDeepState = { status: 'idle', depth: defaultManualDeepDepth, token: 0 };
       lastQuickAnalysisDepth = QUICK_ANALYSIS_DEPTH;
+      const ENGINE_AUTO_RETRY_LIMIT = 2;
       let engineWorker = null;
       let engineReady = false;
       let currentMultiPvSetting = 1;
       let engineInitTimeout = null;
+      let engineWarmupRetryHandle = null;
+      let engineInitAttempts = 0;
       let lastInfoMsg = '';
       let currentScoreResolver = null;
       let showBestMove = false;
@@ -1337,8 +1340,30 @@
         if (retryEngineBtn.length) retryEngineBtn.addClass('hidden');
       }
 
+      function clearEngineRetryTimer() {
+        if (engineWarmupRetryHandle) {
+          clearTimeout(engineWarmupRetryHandle);
+          engineWarmupRetryHandle = null;
+        }
+      }
+
+      function scheduleEngineRetry(options = {}) {
+        const allowAutoRetry = options.allowAutoRetry !== false;
+        if (!allowAutoRetry) return;
+        if (engineInitAttempts >= ENGINE_AUTO_RETRY_LIMIT) return;
+        clearEngineRetryTimer();
+        engineWarmupRetryHandle = setTimeout(() => {
+          engineWarmupRetryHandle = null;
+          if (engineReady) return;
+          console.warn('Retrying Stockfish initialization after stalled load.');
+          initEngine(true, { isAutoRetry: true, allowAutoRetry: false });
+        }, 12000);
+      }
+
       function handleEngineLoadFailure(detailMessage) {
         engineReady = false;
+        clearEngineRetryTimer();
+        engineInitAttempts = 0;
         $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
         showEngineStatus({
           tone: 'error',
@@ -1348,10 +1373,17 @@
         });
       }
 
-      function initEngine(initial = false) {
+      function initEngine(initial = false, opts = {}) {
+        const isAutoRetry = opts && opts.isAutoRetry === true;
+        const allowAutoRetry = !opts || opts.allowAutoRetry !== false;
+        if (!isAutoRetry) {
+          engineInitAttempts = 0;
+        }
+        engineInitAttempts += 1;
         if (engineWorker) engineWorker.terminate();
         engineReady = false;
         currentMultiPvSetting = 1;
+        clearEngineRetryTimer();
         if (initial) {
           $('#analyze-pgn-btn').prop('disabled', true).text('Loading Engine...');
         } else {
@@ -1381,6 +1413,8 @@
           } else if (msg === 'readyok') {
             engineReady = true;
             clearTimeout(engineInitTimeout);
+            clearEngineRetryTimer();
+            engineInitAttempts = 0;
             $('#analyze-pgn-btn').prop('disabled', false).text('Analyze');
             hideEngineStatus();
           } else if (msg.startsWith('info')) {
@@ -1409,6 +1443,7 @@
             handleEngineLoadFailure('Initialization timed out.');
           }
         }, 20000);
+        scheduleEngineRetry({ allowAutoRetry });
       }
 
       if (retryEngineBtn.length) {
@@ -4017,16 +4052,36 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           target.searchParams.delete('carry');
         }
         const targetUrl = target.toString();
-        let newWindow = null;
+        let popupBlocked = false;
         try {
-          newWindow = window.open(targetUrl, '_blank', 'noopener,noreferrer');
-          if (newWindow && typeof newWindow.focus === 'function') {
-            newWindow.focus();
+          const newWindow = window.open(targetUrl, '_blank');
+          if (newWindow) {
+            try { newWindow.opener = null; } catch (err) { /* ignore */ }
+            if (newWindow && typeof newWindow.focus === 'function') {
+              newWindow.focus();
+            }
+          } else {
+            popupBlocked = true;
           }
         } catch (err) {
           console.warn('Unable to open new analysis tab:', err);
+          popupBlocked = true;
         }
-        if (!newWindow) {
+        if (popupBlocked) {
+          try {
+            const link = document.createElement('a');
+            link.href = targetUrl;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            popupBlocked = false;
+          } catch (err) {
+            console.warn('Fallback new analysis tab open failed:', err);
+          }
+        }
+        if (popupBlocked) {
           showError('Your browser blocked the new analysis tab. Please allow pop-ups for this site or open a new tab manually.');
         }
       });
