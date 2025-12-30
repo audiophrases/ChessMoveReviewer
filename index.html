@@ -464,8 +464,8 @@
       let playerGameOutcome = null;
       let pendingDeepAnalysis = null;
       let activeAnalysisToken = 0;
-      let manualDeepState = { status: 'idle', depth: DEFAULT_DEEP_ANALYSIS_DEPTH, token: 0 };
-      let lastQuickAnalysisDepth = QUICK_ANALYSIS_DEPTH;
+      let manualDeepState = null;
+      let lastQuickAnalysisDepth = null;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
@@ -1241,6 +1241,11 @@
       const ENGINE_GO_OPTIONS = { depth: 24 };
       const QUICK_ANALYSIS_DEPTH = 10;
       const DEFAULT_DEEP_ANALYSIS_DEPTH = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : 24;
+      const defaultManualDeepDepth = Number.isFinite(DEFAULT_DEEP_ANALYSIS_DEPTH)
+        ? DEFAULT_DEEP_ANALYSIS_DEPTH
+        : (Number.isFinite(ENGINE_GO_OPTIONS.depth) ? ENGINE_GO_OPTIONS.depth : 24);
+      manualDeepState = { status: 'idle', depth: defaultManualDeepDepth, token: 0 };
+      lastQuickAnalysisDepth = QUICK_ANALYSIS_DEPTH;
       let engineWorker = null;
       let engineReady = false;
       let currentMultiPvSetting = 1;
