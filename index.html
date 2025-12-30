@@ -234,9 +234,6 @@
 
   <!-- Final Review Section (mobile-optimized) -->
   <main id="review-section" class="hidden flex-1 max-w-5xl w-full mx-auto">
-    <div class="w-full flex justify-start mb-3">
-      <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
-    </div>
     <div class="w-full grid grid-cols-1 lg:grid-cols-2 gap-3">
       <!-- Column A: Board + evaluation graph (sticky) -->
       <div class="lg:col-span-1 sticky top-2 board-sticky-wrapper">
@@ -257,6 +254,8 @@
               </div>
               <div class="flex flex-wrap items-center justify-end gap-2">
                 <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
+                <button id="run-new-analysis-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-primary whitespace-nowrap">Run new analysis</button>
+                <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
                 <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
                 <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
               </div>
@@ -3931,6 +3930,14 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       $('#back-to-step1-btn').on('click', function(){ switchStep(1); });
       $('#back-to-step2-btn').on('click', function(){ switchStep(2); });
       $('#back-to-step3-btn').on('click', function(){ switchStep(3); });
+      $('#run-new-analysis-btn').on('click', function(){
+        invalidateAnalysisState({ force: true });
+        game.reset();
+        if (board && typeof board.position === 'function') {
+          board.position('start', true);
+        }
+        switchStep(1);
+      });
       $('#clear-pgn-btn').on('click', function(){
         const pgnInput = $('#pgn-input');
         pgnInput.val('').focus();
@@ -4316,17 +4323,25 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
         const depth = getManualDeepDepth();
         const token = ++activeAnalysisToken;
+        pendingDeepAnalysis = null;
         manualDeepState.token = token;
-        pendingDeepAnalysis = { token, depth, result: null };
         setManualDeepButtonState('running', depth);
         setManualDeepProgress(0);
+        if (progressTextEl.length) progressTextEl.text(`Manual depth ${depth} analysis running...`);
         try {
           const result = await runSingleDepthAnalysis({ stage: 'manual-deep', depth, token });
-          if (!result || token !== activeAnalysisToken) return;
+          if (!result || token !== activeAnalysisToken) {
+            if (token === activeAnalysisToken) setManualDeepButtonState('error', depth);
+            return;
+          }
           pendingDeepAnalysis = { token, depth, result };
           manualDeepState.token = token;
-          setManualDeepButtonState('ready', depth);
+          applyAnalysisResult(result);
+          lastQuickAnalysisDepth = depth;
+          pendingDeepAnalysis = null;
+          setManualDeepButtonState('applied', depth);
           setManualDeepProgress(100);
+          markAnalysisComplete(`Depth ${depth} analysis applied.`);
         } catch (err) {
           if (token !== activeAnalysisToken) return;
           console.error('Manual deep analysis failed', err);
@@ -5111,13 +5126,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       if (manualDeepAnalysisBtn.length) {
         manualDeepAnalysisBtn.on('click', function () {
           if (manualDeepState.status === 'running') return;
-          if (manualDeepState.status === 'ready' && pendingDeepAnalysis && pendingDeepAnalysis.result && pendingDeepAnalysis.token === manualDeepState.token) {
-            applyAnalysisResult(pendingDeepAnalysis.result);
-            lastQuickAnalysisDepth = manualDeepState.depth;
-            setManualDeepButtonState('applied', manualDeepState.depth);
-            pendingDeepAnalysis = null;
-            return;
-          }
           startManualDeepAnalysis();
         });
       }
