@@ -5356,6 +5356,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         currentReviewMetadata = null;
         lastFinalAnalysisText = '';
         updateArchiveControls();
+        game.reset();
         let finalAnalysisRaw = $('#final-analysis-input').val().trim();
         if (!finalAnalysisRaw) {
           if (automatedReviewText) {
@@ -5366,25 +5367,16 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             return;
           }
         }
-        let pgn = normalizePgn(finalAnalysisRaw); let loaded = game.load_pgn(pgn);
-        const parsed = parseAnalysis(finalAnalysisRaw);
-        let invalidMove = null;
-        if (!loaded && parsed.moves.length) {
-          const sanList = parsed.moves.map(m => m.san);
-          let rebuiltPGN = buildPGNFromSAN(sanList) + ' *';
-          game.reset(); loaded = game.load_pgn(rebuiltPGN);
-          if (!loaded) {
-            invalidMove = findInvalidMove(sanList);
-          } else {
-            pgn = rebuiltPGN;
-          }
-        }
-        if (!loaded) {
-          if (invalidMove) showError('Illegal move "' + invalidMove.san + '" at position ' + invalidMove.index + '.');
+        const loadResult = attemptBuildGameFromAnalysis(finalAnalysisRaw);
+        const parsed = loadResult.parsed;
+        let pgn = loadResult.pgn;
+        if (!loadResult.loaded) {
+          if (loadResult.invalidMove) showError('Illegal move "' + loadResult.invalidMove.san + '" at position ' + loadResult.invalidMove.index + '.');
           else showError('Could not find or reconstruct a valid PGN from the text you pasted.');
           return;
         }
 
+        game = loadResult.chess;
         updatePlayerOutcomeFromGame(game);
         lastFinalAnalysisText = finalAnalysisRaw;
 
@@ -5729,6 +5721,28 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return null;
       }
 
+      function attemptBuildGameFromAnalysis(text) {
+        const parsed = parseAnalysis(text);
+        const chess = new Chess();
+        let pgn = normalizePgn(text);
+        let loaded = chess.load_pgn(pgn);
+        let invalidMove = null;
+
+        if (!loaded && parsed.moves.length) {
+          const sanList = parsed.moves.map(m => m.san);
+          const rebuiltPGN = buildPGNFromSAN(sanList) + ' *';
+          chess.reset();
+          loaded = chess.load_pgn(rebuiltPGN);
+          if (!loaded) {
+            invalidMove = findInvalidMove(sanList);
+          } else {
+            pgn = rebuiltPGN;
+          }
+        }
+
+        return { chess, loaded, pgn, parsed, invalidMove };
+      }
+
       // Parse analysis lines with optional {eval} and final Summary:
       function parseAnalysis(text) {
         const lines = text.split('\n'); const parsedMoves = []; const criticalMoments = {}; const summaries = {}; const metadataLines = []; let currentSummary = null; let lastSan = null; let summaryLine = ''; let inSummary = false; let featuredMove = null;
@@ -5957,7 +5971,20 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
+      function runFinalReviewRegressionChecks() {
+        const baseline = new Chess();
+        baseline.load_pgn('1. e4 e5 2. Nf3 Nc6 3. Bb5 a6');
+        const previousFen = baseline.fen();
+        const invalidText = 'Summary: Missing PGN content';
+        const result = attemptBuildGameFromAnalysis(invalidText);
+        const startFen = new Chess().fen();
+        if (result.loaded || result.chess.fen() !== startFen || result.chess.fen() === previousFen) {
+          console.warn('Final review regression check failed: invalid review input should not reuse the previous game state.');
+        }
+      }
+
       runParseAnalysisFixtures();
+      runFinalReviewRegressionChecks();
 
       // Convert evaluation string like "{+0.23}", "{-1.10}", "{#3}" (WHITE-relative already)
       function parseEvalToCp(evalStr) { if (!evalStr) return null; const s = String(evalStr).replace(/[{}\s]/g,''); if (!s) return null; if (s[0] === '#') return s.includes('-') ? -999 : 999; const num = parseFloat(s); if (isNaN(num)) return null; return Math.round(num * 100); }
