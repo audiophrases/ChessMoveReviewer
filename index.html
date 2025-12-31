@@ -253,7 +253,6 @@
                 <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
                 <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
                 <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
-                <button id="run-new-analysis-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-primary whitespace-nowrap">Depth</button>
                 <button id="save-archive-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>
                   Save
                 </button>
@@ -404,6 +403,7 @@
 
       const STEP_HASHES = { 1: '', 2: '#step-2', 3: '#step-3', 4: '#step-4' };
       const RUN_NEW_ANALYSIS_STORAGE_KEY = 'cmr.runNewPayload.v1';
+      const RUN_NEW_ANALYSIS_SESSION_KEY = 'cmr.runNewPayload.session.v1';
       const DEFAULT_PLAYER_NAME = 'eugenime';
       let formState = loadFormState();
       let currentStep = 1;
@@ -3233,9 +3233,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       function applyRunNewAnalysisPayloadFromUrl() {
         const params = new URLSearchParams(window.location.search || '');
-        if (!params.has('carry') && !params.get('pgn')) return;
-        let payload = null;
         const queryPgn = params.get('pgn');
+        const playerNameFromQuery = params.get('playerName');
+        let payload = null;
+
         if (params.has('carry') && storageAvailable) {
           try {
             const rawPayload = window.localStorage.getItem(RUN_NEW_ANALYSIS_STORAGE_KEY);
@@ -3246,10 +3247,23 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             try { window.localStorage.removeItem(RUN_NEW_ANALYSIS_STORAGE_KEY); } catch (err) { /* ignore */ }
           }
         }
+
+        if (!payload) {
+          try {
+            const fallbackRaw = window.sessionStorage.getItem(RUN_NEW_ANALYSIS_SESSION_KEY);
+            if (fallbackRaw) payload = JSON.parse(fallbackRaw);
+          } catch (err) {
+            console.warn('Unable to read session carried payload:', err);
+          } finally {
+            try { window.sessionStorage.removeItem(RUN_NEW_ANALYSIS_SESSION_KEY); } catch (err) { /* ignore */ }
+          }
+        }
+
+        if (!payload && !queryPgn && !playerNameFromQuery) return;
         if (!payload) payload = {};
         if (!payload.pgn && queryPgn) payload.pgn = queryPgn;
-        const playerNameFromQuery = params.get('playerName');
         if (playerNameFromQuery && !payload.playerName) payload.playerName = playerNameFromQuery;
+
         let applied = false;
         if (payload.pgn) {
           $('#pgn-input').val(payload.pgn);
@@ -3264,6 +3278,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           setLastKnownHeaders(payload.headers);
           applied = true;
         }
+
         if (applied) {
           params.delete('carry');
           params.delete('pgn');
@@ -4080,24 +4095,28 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const payload = prepareRunNewAnalysisPayload();
         const target = new URL(window.location.href);
         target.hash = '';
+
         if (payload) {
-          target.searchParams.set('pgn', payload.pgn);
-          if (payload.playerName) {
-            target.searchParams.set('playerName', payload.playerName);
-          } else {
-            target.searchParams.delete('playerName');
-          }
+          target.searchParams.delete('pgn');
+          target.searchParams.delete('playerName');
           const persisted = storageAvailable && persistRunNewAnalysisPayload(payload);
           if (persisted) {
             target.searchParams.set('carry', '1');
+            try { window.sessionStorage.removeItem(RUN_NEW_ANALYSIS_SESSION_KEY); } catch (err) { /* ignore */ }
           } else {
             target.searchParams.delete('carry');
+            try {
+              window.sessionStorage.setItem(RUN_NEW_ANALYSIS_SESSION_KEY, JSON.stringify(payload));
+            } catch (err) {
+              console.warn('Unable to persist run-new payload in session:', err);
+            }
           }
         } else {
           target.searchParams.delete('pgn');
           target.searchParams.delete('playerName');
           target.searchParams.delete('carry');
         }
+
         const targetUrl = target.toString();
         let popupBlocked = false;
         try {
@@ -4114,6 +4133,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           console.warn('Unable to open new analysis tab:', err);
           popupBlocked = true;
         }
+
         if (popupBlocked) {
           try {
             const link = document.createElement('a');
@@ -4128,6 +4148,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             console.warn('Fallback new analysis tab open failed:', err);
           }
         }
+
         if (popupBlocked) {
           console.warn('New analysis tab was blocked by the browser; user may need to allow pop-ups.');
         }
