@@ -6006,8 +6006,10 @@ Narrative Summary: <one sentence>`;
           });
 
           moves.forEach((mv, moveIndex) => {
-            if (!mv || !mv.analysis || !mv.analysis.classification) return;
-            const classificationKey = normalizeClassificationKey(mv.analysis.classification);
+            if (!mv || mv.color !== reviewPlayerColor) return;
+            const loss = deriveNavigationLoss(mv);
+            if (!Number.isFinite(loss) || loss > -NAVIGATION_DROP_THRESHOLD) return;
+            const classificationKey = normalizeClassificationKey(mv.analysis && mv.analysis.classification);
             if (!classificationKey || !CLASSIFICATION_MARKER_KEYS.includes(classificationKey)) return;
             const style = getClassificationMarkerStyle(classificationKey);
             const resolvedIndex = resolveMarkerIndex(moveIndex);
