@@ -20,9 +20,6 @@
     .move-item { transition: background-color 0.2s ease-in-out; border-radius: 0.5rem; }
     .move-item.highlight { background-color: #243249; }
     .move-item:hover { background-color: #1c273a; }
-    .move-item.featured { border: 1px solid rgba(250, 204, 21, 0.35); background-color: rgba(250, 204, 21, 0.06); }
-    .move-item.featured:hover { background-color: rgba(250, 204, 21, 0.12); }
-    .move-item.featured.highlight { background-color: #243249; }
     #eval-graph { cursor: pointer; transition: opacity 0.2s ease-in-out; }
     #eval-graph.exploration-disabled { opacity: 0.85; }
     #move-analysis-scroll::-webkit-scrollbar { width: 8px; }
@@ -298,7 +295,6 @@
             <!-- One-line summary appears here (from "Summary:") -->
             <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
             <div id="move-analysis-container" class="space-y-1"></div>
-            <div id="featured-move" class="hidden"></div>
           </div>
         </div>
       </div>
@@ -457,8 +453,6 @@
       let awaitingUserGestureCopy = false;
       let pendingClipboardText = '';
       let gestureCopyListenerAttached = false;
-      let featuredMoveData = null;
-      let featuredMoveIndex = -1;
       let lastAnnotatedPgn = '';
       let lastKnownHeaders = {};
       let playerGameOutcome = null;
@@ -1587,7 +1581,7 @@
       const ANALYSIS_PROMPT_TEMPLATE = `You are given:
 1) A PGN with SAN moves and mover-centric deltas {…}.
 2) An “Automated Insights” block listing each half-move with its FINAL classification (Book, Good, Forced, Inaccuracy, Mistake, Blunder, Misclick??, Great, Brilliant).
-3) Precomputed Summary counts, Accuracy, Move of the game.
+3) Precomputed Summary counts and Accuracy.
 4) The name of the player being coached: eugenime.
 Do NOT change any classification or counts.
 
@@ -1599,7 +1593,6 @@ TASK
   Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
   Accuracy: <Accuracy percentage>
   Narrative Summary: One-sentence overview of the game of the player being coached.
-  Move of the game: <move> - {<eval>} <classification>: <one-sentence why it’s most impactful>
 
 COMMENTING RULES
 - You are addressing the player being coached.
@@ -1624,15 +1617,13 @@ INPUT FORMAT (example)
 <one line per half-move with FINAL classification>
 Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
 Accuracy: <Accuracy percentage>
-Move of the game: <move> - {<eval>} <classification>: <reason>
 
 OUTPUT FORMAT (strict)
 <move> - {<eval>} <classification>: <comment>
 ...
 Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
 Accuracy: <Accuracy percentage>
-Narrative Summary: <one sentence>
-Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
+Narrative Summary: <one sentence>`;
 
       function getPlayerName() {
         const raw = $('#player-name-input').val();
@@ -2351,49 +2342,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return '';
       }
 
-      function buildAutomatedMoveOfGameComment(move) {
-        if (!move) return '';
-        const key = normalizeClassificationKey(move.classification);
-        const context = move.moveOfGameContext || '';
-        if (context === 'win-conversion' && (key === 'brilliant' || key === 'great' || key === 'good')) {
-          return 'Auto insight: capitalizes on the opponent\'s slip to convert the game.';
-        }
-        if (context === 'loss-critical' && (key === 'mistake' || key === 'blunder' || key === 'misclick' || key === 'inaccuracy')) {
-          return 'Auto insight: decisive error that the opponent punished with precise play.';
-        }
-        if (key === 'brilliant' || key === 'great') {
-          if (retainsMateForMover(move)) {
-            return 'Auto insight: decisive tactic that keeps the mate on the board.';
-          }
-          return 'Auto insight: engine-marked turning point that secured the advantage.';
-        }
-        if (key === 'mistake') {
-          if (opponentHasForcedMateAfter(move)) {
-            return 'Auto insight: error that hands the opponent a forcing sequence.';
-          }
-          return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} mistake that swung the evaluation.`;
-        }
-        if (key === 'inaccuracy') {
-          return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} slip highlighted by Stockfish.`;
-        }
-        if (key === 'blunder' || key === 'misclick') {
-          if (opponentHasForcedMateAfter(move)) {
-            return 'Auto insight: pivotal mistake that yields a forced mate.';
-          }
-          return 'Auto insight: largest collapse in evaluation during the game.';
-        }
-        if (key === 'forced') {
-          return 'Auto insight: best defensive try while staring down a forced mate.';
-        }
-        if (key === 'good' || key === 'book') {
-          if (Number.isFinite(move.moverDelta) && move.moverDelta > 0) {
-            return 'Auto insight: precise move that kept or grew the initiative.';
-          }
-          return 'Auto insight: steady choice that held the evaluation in balance.';
-        }
-        return 'Auto insight: most impactful swing detected by Stockfish.';
-      }
-
       function formatAutomatedMoveLabel(move, idx) {
         if (!move) return '';
         const moveNumber = move.moveNumber || Math.floor(idx / 2) + 1;
@@ -2430,15 +2378,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           lines.push('', summaryLine);
         }
 
-        if (insights.moveOfGame) {
-          const featured = insights.moveOfGame;
-          const label = formatAutomatedMoveLabel(featured, featured.index || 0);
-          const evaluation = formatAutomatedEvaluation(featured);
-          const classification = featured.classification || 'Great';
-          const justification = buildAutomatedMoveOfGameComment(featured);
-          lines.push(`Move of the game: ${label} - ${evaluation} ${classification}: ${justification}`);
-        }
-
         return lines.join('\n');
       }
 
@@ -2454,18 +2393,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const totalBad = summaryData.totalBad || 0;
         const accuracy = summaryData.totalMoves ? (summaryData.totalGood / summaryData.totalMoves) * 100 : 0;
         return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%. Narrative Summary: Automated engine insights summary generated from Stockfish evaluations with probability-based scaling and context-aware loss bands.`;
-      }
-
-      function convertAutomatedMoveToFeatured(autoMove) {
-        if (!autoMove) return null;
-        return {
-          san: autoMove.san,
-          displaySan: null,
-          evaluation: autoMove.evaluation || null,
-          classification: autoMove.classification || null,
-          text: '',
-          index: autoMove.index
-        };
       }
       function normalizeSanToken(value) {
         if (!value) return '';
@@ -3473,8 +3400,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           finalAnalysis: lastFinalAnalysisText,
           movesWithAnalysis,
           probSeries,
-          featuredMoveData,
-          featuredMoveIndex,
           reviewPlayerColor,
           playerGameOutcome,
           lastKnownHeaders: headersSnapshot || {},
@@ -3550,7 +3475,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           resultLabel: entry.resultLabel || '',
           headers: entry.headers && typeof entry.headers === 'object' ? entry.headers : {},
           movesCount: Number.isFinite(Number(entry.movesCount)) ? Number(entry.movesCount) : null,
-          featuredMove: entry.featuredMove && typeof entry.featuredMove === 'object' ? entry.featuredMove : null,
           createdAt,
           updatedAt
         };
@@ -3575,7 +3499,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             resultLabel: entry.resultLabel || '',
             headers: entry.headers || {},
             movesCount: entry.movesCount != null ? entry.movesCount : null,
-            featuredMove: entry.featuredMove || null,
             createdAt: entry.createdAt || Date.now(),
             updatedAt: entry.updatedAt || entry.createdAt || Date.now()
           })) : [];
@@ -3738,9 +3661,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (entry.summary) {
             $('<p class="text-sm text-gray-300 mt-2 whitespace-pre-wrap break-words"></p>').text(entry.summary).appendTo(item);
           }
-          if (entry.featuredMove && entry.featuredMove.displaySan) {
-            $('<p class="text-xs text-yellow-300 mt-1"></p>').text('Move of the Game: ' + entry.featuredMove.displaySan).appendTo(item);
-          }
           if (entry.movesCount) {
             $('<p class="text-xs text-gray-500 mt-1"></p>').text(entry.movesCount + ' moves').appendTo(item);
           }
@@ -3813,66 +3733,19 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return todayLabel || 'Unknown Date';
       }
 
-      function extractFeaturedMoveMeta(meta) {
-        if (meta && meta.featuredMove && typeof meta.featuredMove === 'object') {
-          return meta.featuredMove;
-        }
-        if (meta && meta.featuredMoveData && typeof meta.featuredMoveData === 'object') {
-          return meta.featuredMoveData;
-        }
-        if (featuredMoveData && typeof featuredMoveData === 'object') {
-          return featuredMoveData;
-        }
-        return null;
-      }
-
-      function extractFeaturedDelta(featured) {
-        if (!featured || typeof featured !== 'object') return null;
-        const candidates = [featured.delta, featured.moverDelta];
-        for (const candidate of candidates) {
-          const numeric = Number(candidate);
-          if (Number.isFinite(numeric)) return numeric;
-        }
-        if (featured.evaluation) {
-          const evalInfo = parseEvaluationToken(featured.evaluation);
-          if (evalInfo && Number.isFinite(evalInfo.delta)) return Number(evalInfo.delta);
-        }
-        return null;
-      }
-
-      function formatDeltaForArchiveTitle(delta) {
-        if (!Number.isFinite(delta)) return '';
-        const sign = delta > 0 ? '+' : delta < 0 ? '-' : '';
-        const magnitude = Math.abs(delta);
-        let formatted;
-        if (magnitude >= 100) {
-          formatted = Math.round(magnitude).toString();
-        } else if (magnitude >= 10) {
-          formatted = Math.round(magnitude).toString();
-        } else if (magnitude >= 1) {
-          formatted = (Math.round(magnitude * 10) / 10).toFixed(1);
-        } else {
-          formatted = (Math.round(magnitude * 100) / 100).toFixed(2);
-        }
-        formatted = formatted.replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
-        return `${sign}${formatted}`;
-      }
-
       function buildArchiveTitle(meta) {
         const headers = meta && meta.headers ? meta.headers : (game && typeof game.header === 'function' ? game.header() : {});
         const dateLabel = deriveArchiveDateLabel(meta, headers);
-        const featured = extractFeaturedMoveMeta(meta);
-        const classification = featured && featured.classification
-          ? String(featured.classification).trim()
-          : '';
-        const deltaValue = extractFeaturedDelta(featured);
-        let deltaLabel = formatDeltaForArchiveTitle(deltaValue);
-        if (!deltaLabel) {
-          deltaLabel = '0';
-        }
-        const classLabel = classification || 'Unclassified';
-        const baseLabel = [dateLabel || 'Unknown Date', classLabel].join(' - ');
-        return `${baseLabel}: ${deltaLabel}`;
+        const white = headers.White || 'White';
+        const black = headers.Black || 'Black';
+        const matchup = (headers.White || headers.Black)
+          ? `${white} vs ${black}`
+          : 'Chess Game';
+        const resultCode = meta && meta.resultCode ? meta.resultCode : (headers.Result || '');
+        const resultLabel = meta && meta.resultLabel ? meta.resultLabel : describeResult(resultCode);
+        const parts = [dateLabel || 'Unknown Date', matchup];
+        if (resultLabel) parts.push(resultLabel);
+        return parts.filter(Boolean).join(' • ');
       }
 
       function buildArchiveEntry(customTitle) {
@@ -3903,7 +3776,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           resultLabel,
           headers,
           movesCount: meta.movesCount != null ? meta.movesCount : (Array.isArray(movesWithAnalysis) ? movesWithAnalysis.length : null),
-          featuredMove: meta.featuredMove || null,
           createdAt: now,
           updatedAt: now
         };
@@ -4072,8 +3944,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           pgn: entry.pgn || '',
           resultCode: entry.resultCode || '',
           resultLabel: entry.resultLabel || '',
-          movesCount: entry.movesCount || null,
-          featuredMove: entry.featuredMove || null
+          movesCount: entry.movesCount || null
         };
         closeArchiveModal();
         pendingArchiveLoadNotice = entry.title || 'Review';
@@ -4120,14 +3991,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         probSeries = Array.isArray(payload.probSeries) && payload.probSeries.length === movesWithAnalysis.length
           ? payload.probSeries
           : movesWithAnalysis.map(mv => mv.prob);
-        featuredMoveData = payload.featuredMoveData || null;
-        featuredMoveIndex = Number.isInteger(payload.featuredMoveIndex)
-          ? payload.featuredMoveIndex
-          : findFeaturedMoveIndex(movesWithAnalysis, featuredMoveData);
-        if (featuredMoveData && featuredMoveIndex >= 0 && movesWithAnalysis[featuredMoveIndex]) {
-          movesWithAnalysis[featuredMoveIndex].isFeatured = true;
-          movesWithAnalysis[featuredMoveIndex].featuredMeta = featuredMoveData;
-        }
         const summaryText = payload.summary || (payload.currentReviewMetadata && payload.currentReviewMetadata.summary) || '';
         if (summaryText) {
           $('#game-summary').removeClass('hidden').html(formatSummaryLine(summaryText));
@@ -4153,11 +4016,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           pgn: pgnText,
           resultCode: metadataFromPayload.resultCode || headersFromPayload.Result || '',
           resultLabel: metadataFromPayload.resultLabel || describeResult(headersFromPayload.Result || ''),
-          movesCount: metadataFromPayload.movesCount || movesWithAnalysis.length,
-          featuredMove: featuredMoveData ? { ...featuredMoveData } : (metadataFromPayload.featuredMove || null)
+          movesCount: metadataFromPayload.movesCount || movesWithAnalysis.length
         };
         currentMoveIndex = Number.isInteger(payload.currentMoveIndex) ? payload.currentMoveIndex : -1;
-        renderFeaturedMoveSummary();
         renderReviewUi(currentMoveIndex >= 0 ? currentMoveIndex : -1);
         updateArchiveControls();
         return true;
@@ -4409,8 +4270,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         lastAnnotatedPgn = '';
         movesWithAnalysis = [];
         currentMoveIndex = -1;
-        featuredMoveData = null;
-        featuredMoveIndex = -1;
         reviewPlayerColor = null;
         probSeries = [];
         resetDeepAnalysisUpgrade();
@@ -5917,104 +5776,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           $('#game-summary').addClass('hidden').html('');
         }
 
-        featuredMoveData = parsed.featuredMove || null;
-        featuredMoveIndex = -1;
-        if (featuredMoveData) {
-          const idx = findFeaturedMoveIndex(movesWithAnalysis, featuredMoveData);
-          if (idx >= 0) {
-            const meta = { ...featuredMoveData, index: idx };
-            const moveRecord = movesWithAnalysis[idx];
-            if (moveRecord) {
-              const deltaCandidates = [
-                meta.delta,
-                moveRecord.delta,
-                moveRecord.analysis && moveRecord.analysis.delta,
-                moveRecord.automated && moveRecord.automated.moverDelta
-              ];
-              const resolvedDelta = deltaCandidates.find(value => {
-                if (value == null || value === '') return false;
-                const numeric = Number(value);
-                return Number.isFinite(numeric);
-              });
-              if (resolvedDelta != null) {
-                meta.delta = Number(resolvedDelta);
-              }
-              if (!meta.evaluation) {
-                const evaluationCandidates = [
-                  moveRecord.analysis && moveRecord.analysis.displayEvaluation,
-                  moveRecord.displayEvaluation,
-                  moveRecord.analysis && moveRecord.analysis.evaluation
-                ];
-                const evaluationValue = evaluationCandidates.find(value => value);
-                if (evaluationValue) {
-                  meta.evaluation = evaluationValue;
-                } else if (meta.delta != null && Number.isFinite(meta.delta)) {
-                  meta.evaluation = formatDeltaBraced(meta.delta);
-                }
-              }
-              if (!meta.classification && moveRecord.analysis && moveRecord.analysis.classification) {
-                meta.classification = moveRecord.analysis.classification;
-              }
-            }
-            featuredMoveData = meta;
-            featuredMoveIndex = idx;
-            movesWithAnalysis[idx].isFeatured = true;
-            movesWithAnalysis[idx].featuredMeta = meta;
-          }
-        }
-        if (!featuredMoveData && hasAutomatedMoves && automatedMoveInsights.moveOfGame) {
-          const autoFeatured = convertAutomatedMoveToFeatured(automatedMoveInsights.moveOfGame);
-          if (autoFeatured) {
-            const idx = typeof autoFeatured.index === 'number' ? autoFeatured.index : -1;
-            if (idx >= 0 && idx < movesWithAnalysis.length) {
-              const meta = { ...autoFeatured, index: idx };
-              const moveRecord = movesWithAnalysis[idx];
-              if (moveRecord) {
-                const deltaCandidates = [
-                  meta.delta,
-                  moveRecord.delta,
-                  moveRecord.analysis && moveRecord.analysis.delta,
-                  moveRecord.automated && moveRecord.automated.moverDelta
-                ];
-                const resolvedDelta = deltaCandidates.find(value => {
-                  if (value == null || value === '') return false;
-                  const numeric = Number(value);
-                  return Number.isFinite(numeric);
-                });
-                if (resolvedDelta != null) {
-                  meta.delta = Number(resolvedDelta);
-                }
-                if (!meta.evaluation) {
-                  const evaluationCandidates = [
-                    moveRecord.analysis && moveRecord.analysis.displayEvaluation,
-                    moveRecord.displayEvaluation,
-                    moveRecord.analysis && moveRecord.analysis.evaluation
-                  ];
-                  const evaluationValue = evaluationCandidates.find(value => value);
-                  if (evaluationValue) {
-                    meta.evaluation = evaluationValue;
-                  } else if (meta.delta != null && Number.isFinite(meta.delta)) {
-                    meta.evaluation = formatDeltaBraced(meta.delta);
-                  }
-                }
-                if (!meta.classification) {
-                  const classCandidates = [
-                    moveRecord.analysis && moveRecord.analysis.classification,
-                    moveRecord.automated && moveRecord.automated.classification
-                  ];
-                  const classValue = classCandidates.find(value => value);
-                  if (classValue) meta.classification = classValue;
-                }
-              }
-              featuredMoveData = meta;
-              featuredMoveIndex = idx;
-              movesWithAnalysis[idx].isFeatured = true;
-              movesWithAnalysis[idx].featuredMeta = meta;
-            }
-          }
-        }
-        renderFeaturedMoveSummary();
-
         renderReviewUi(-1);
         reviewUiRenderDeferred = false;
 
@@ -6030,8 +5791,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           pgn: pgnSnapshot,
           resultCode: headersSnapshot.Result || '',
           resultLabel: describeResult(headersSnapshot.Result || ''),
-          movesCount: movesWithAnalysis.length,
-          featuredMove: featuredMoveData ? { ...featuredMoveData } : null
+          movesCount: movesWithAnalysis.length
         };
         updateArchiveControls();
         if (pendingArchiveLoadNotice) {
@@ -6079,7 +5839,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       // Parse analysis lines with optional {eval} and final Summary:
       function parseAnalysis(text) {
-        const lines = text.split('\n'); const parsedMoves = []; const criticalMoments = {}; const summaries = {}; const metadataLines = []; let currentSummary = null; let lastSan = null; let summaryLine = ''; let inSummary = false; let featuredMove = null;
+        const lines = text.split('\n'); const parsedMoves = []; const criticalMoments = {}; const summaries = {}; const metadataLines = []; let currentSummary = null; let lastSan = null; let summaryLine = ''; let inSummary = false;
         const moveRegex = /^(?:\s*\d+\.{1,3}\s*)?(\S+)\s*(.*)$/;
         const evaluationPrefixRegex = /^(?:[-–—]\s*)?(\{[^}]+\}|#?-?\s*[+–-]?\d+(?:\.\d+)?%?)(?:\s+|[-–—]\s+)?(.*)$/;
         const metadataLineRegex = /^\s*(Accuracy|Win\s*Rate|Winrate|ACPL|CPL|Result|Outcome|Termination|Avg\.?|Average|Blunders|Mistakes|Inaccuracies|Eval|Evaluation|Notes?)/i;
@@ -6088,31 +5848,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         // Allow leading whitespace before "Summary:" to handle AI outputs
         // that may indent or space the final summary line.
         const summaryLineRegex = /^\s*Summary[^:]*:\s*(.*)/i;
-        const moveOfGameRegex = /^\s*Move of the game:\s*((?:\d+\.{1,3}\s*|\.{3}\s*)?)(\S+)(?:\s*(?:[-–—]\s*)?(\{[^}]+\}))?\s*([A-Za-z0-9!?\'"()\-\s]+?):\s*(.*)$/i;
-
-        function assignFeatured(match) {
-          if (!match) return false;
-          if (featuredMove) return true;
-          const prefixRaw = match[1] || '';
-          const rawSan = match[2] || '';
-          const combinedSan = prefixRaw + rawSan;
-          let san = normalizeSanToken(combinedSan);
-          if (!san) san = normalizeSanToken(rawSan);
-          if (!san) san = rawSan.trim();
-          if (!san) return true;
-          const needsSpace = prefixRaw && rawSan && !/\s$/.test(prefixRaw) ? ' ' : '';
-          let displaySan = rawSan.trim();
-          if (prefixRaw) {
-            displaySan = (prefixRaw + needsSpace + rawSan).trim();
-          }
-          if (!displaySan) displaySan = san;
-          const evaluation = (match[3] || '').trim() || null;
-          const classification = (match[4] || '').trim();
-          const justification = (match[5] || '').trim();
-          const evalInfo = parseEvaluationToken(evaluation);
-          featuredMove = { san, displaySan, evaluation, classification, text: justification, ...evalInfo };
-          return true;
-        }
 
         function parseMoveSegment(segment) {
           const baseMatch = segment.match(moveRegex);
@@ -6160,7 +5895,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
         const moveNumberSplitRegex = /\d+\.{1,3}\s*/g;
         function splitCompositeLine(rawLine) {
-          if (summaryLineRegex.test(rawLine) || summaryHeaderRegex.test(rawLine) || moveOfGameRegex.test(rawLine) || metadataLineRegex.test(rawLine)) {
+          if (summaryLineRegex.test(rawLine) || summaryHeaderRegex.test(rawLine) || metadataLineRegex.test(rawLine)) {
             return [rawLine];
           }
           const matches = [...rawLine.matchAll(moveNumberSplitRegex)].filter(match => {
@@ -6193,7 +5928,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (inSummary) {
             const trimmed = line.trim();
             if (!trimmed) return;
-            if (assignFeatured(line.match(moveOfGameRegex))) { inSummary = false; return; }
             summaryLine += ' ' + trimmed;
             return;
           }
@@ -6206,8 +5940,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             if (inSummary) { summaryLine += ' ' + trimmed; return; }
 
             const sl = segment.match(summaryLineRegex); if (sl) { summaryLine = sl[1].trim(); inSummary = true; return; }
-            if (assignFeatured(segment.match(moveOfGameRegex))) return;
             const sh = segment.match(summaryHeaderRegex); if (sh) { const key = sh[1].replace(/\s/g,''); summaries[key] = []; currentSummary = key; return; }
+            if (/^Move of the game:/i.test(trimmed)) { metadataLines.push(trimmed); return; }
             if (metadataLineRegex.test(trimmed)) { metadataLines.push(trimmed); return; }
             const m = parseMoveSegment(trimmed);
             if (m) {
@@ -6219,7 +5953,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           });
         });
         const combinedSummary = [summaryLine, ...metadataLines].filter(Boolean).join(' ').trim();
-        return { moves: parsedMoves, criticalMoments, summaries, summary: combinedSummary, featuredMove };
+        return { moves: parsedMoves, criticalMoments, summaries, summary: combinedSummary };
       }
 
       const parseAnalysisFixtures = [
@@ -6400,102 +6134,15 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return String(value).replace(/[{}\s]/g, '').toLowerCase();
       }
 
-      function findFeaturedMoveIndex(list, featured) {
-        if (!featured || !Array.isArray(list) || !list.length) return -1;
-        let targetSan = normalizeSanToken(featured.san);
-        if (!targetSan && featured.displaySan) targetSan = normalizeSanToken(featured.displaySan);
-        if (!targetSan) return -1;
-        const targetClass = normalizeClassificationKey(featured.classification);
-        const targetEval = normalizeEvaluationString(featured.evaluation);
-        const matchesBase = mv => {
-          if (!mv) return false;
-          if (mv.analysis && normalizeSanToken(mv.analysis.san) === targetSan) return true;
-          return normalizeSanToken(mv.san) === targetSan;
-        };
-        const matchesClass = mv => matchesBase(mv) && mv.analysis && (!targetClass || normalizeClassificationKey(mv.analysis.classification) === targetClass);
-        const matchesEval = mv => {
-          if (!targetEval || !matchesClass(mv)) return false;
-          const candidates = [
-            mv.analysis ? mv.analysis.evaluation : null,
-            mv.analysis ? mv.analysis.displayEvaluation : null,
-            mv.displayEvaluation
-          ];
-          return candidates.some(candidate => normalizeEvaluationString(candidate) === targetEval);
-        };
-        let idx = -1;
-        if (targetEval) idx = list.findIndex(matchesEval);
-        if (idx === -1 && targetClass) idx = list.findIndex(matchesClass);
-        if (idx === -1) idx = list.findIndex(matchesBase);
-        return idx;
-      }
-
-      function renderFeaturedMoveSummary() {
-        const container = $('#featured-move');
-        if (!container.length) return;
-        container.addClass('hidden').empty();
-        if (!featuredMoveData) return;
-        const idxFromData = typeof featuredMoveData.index === 'number' ? featuredMoveData.index : -1;
-        const idx = (idxFromData >= 0 && idxFromData < movesWithAnalysis.length)
-          ? idxFromData
-          : ((featuredMoveIndex >= 0 && featuredMoveIndex < movesWithAnalysis.length) ? featuredMoveIndex : -1);
-        const move = idx >= 0 ? movesWithAnalysis[idx] : null;
-        const evaluationSegments = move ? buildEvaluationSegments(move) : [];
-        let displaySan = featuredMoveData.displaySan || featuredMoveData.san;
-        if (move) {
-          const moveNumber = Math.floor(idx / 2) + 1;
-          const prefix = move.color === 'w' ? moveNumber + '. ' : moveNumber + '... ';
-          displaySan = prefix + move.san;
-        }
-        let evaluationHtml = '';
-        if (evaluationSegments.length) {
-          evaluationHtml = '<div class="flex items-center gap-2 text-xs sm:text-sm flex-wrap">' + evaluationSegments.join('') + '</div>';
-        } else if (featuredMoveData.evaluation) {
-          evaluationHtml = '<span class="font-mono text-xs text-yellow-300">' + featuredMoveData.evaluation + '</span>';
-        }
-        const classificationClass = getStyleForClassification(featuredMoveData.classification) || '';
-        const classificationHtml = featuredMoveData.classification
-          ? '<span class="ml-auto px-2 py-0.5 text-xs font-semibold uppercase tracking-wide rounded border border-yellow-500/40 bg-yellow-500/10 ' + classificationClass + '">' + featuredMoveData.classification + '</span>'
-          : '';
-        const justificationHtml = featuredMoveData.text
-          ? '<p class="mt-2 text-sm text-gray-200">' + formatText(featuredMoveData.text) + '</p>'
-          : '';
-        const isClickable = !!move;
-        const tag = isClickable ? 'button' : 'div';
-        const attrs = isClickable ? ' type="button" data-move-index="' + idx + '"' : '';
-        const baseClasses = 'w-full text-left p-3 sm:p-4 rounded-lg border border-yellow-500/40 bg-yellow-500/10' + (isClickable ? ' hover:bg-yellow-500/20 transition cursor-pointer focus:outline-none focus:ring-2 focus:ring-yellow-400/60' : ' opacity-90');
-        const headerParts = [
-          '<span class="text-xs uppercase tracking-wide text-yellow-300 font-semibold">Move of the game</span>',
-          '<span class="font-bold text-lg text-white">' + displaySan + '</span>'
-        ];
-        if (evaluationHtml) headerParts.push(evaluationHtml);
-        if (classificationHtml) headerParts.push(classificationHtml);
-        const headerHtml = '<div class="flex items-center gap-3 flex-wrap sm:flex-nowrap">' + headerParts.join('') + '</div>';
-        container.removeClass('hidden').html('<' + tag + attrs + ' class="' + baseClasses + '">' + headerHtml + justificationHtml + '</' + tag + '>');
-        if (isClickable) {
-          container.find('button[data-move-index]').on('click', function(){
-            const targetIdx = Number($(this).data('move-index'));
-            if (Number.isNaN(targetIdx)) return;
-            clearExploration();
-            goToMove(targetIdx, { scrollMode: 'center' });
-          });
-        }
-      }
-
       function renderMoveList() {
-        const featuredCard = $('#featured-move');
-        const preservedFeaturedCard = featuredCard.length ? featuredCard.detach() : null;
         const c = $('#move-analysis-container').empty();
         movesWithAnalysis.forEach((mv, i) => {
           const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
           const evalSegments = buildEvaluationSegments(mv);
           const evalHtml = evalSegments.length ? '<div class="flex items-center gap-2 ml-2">' + evalSegments.join('') + '</div>' : '';
           const moveClasses = ['move-item', 'p-2', 'cursor-pointer'];
-          if (mv.isFeatured) moveClasses.push('featured');
           const classificationHtml = mv.analysis
             ? '<span class="font-semibold text-sm ml-2 ' + getStyleForClassification(mv.analysis.classification) + '">' + mv.analysis.classification + '</span>'
-            : '';
-          const badgeHtml = mv.isFeatured
-            ? '<span class="ml-auto text-xs uppercase tracking-wide text-yellow-300 font-semibold">Move of the Game</span>'
             : '';
           const commentHtml = (mv.analysis && mv.analysis.text)
             ? '<p class="pl-12 text-gray-300 text-sm">' + formatText(mv.analysis.text) + '</p>'
@@ -6507,7 +6154,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
                 '<span class="font-bold text-lg text-white">' + mv.san + '</span>' +
                 evalHtml +
                 classificationHtml +
-                badgeHtml +
               '</div>' +
               commentHtml +
               (mv.criticalMoment ? '<p class="pl-12 mt-1 text-xs text-yellow-300 bg-yellow-900/40 p-2 rounded">' + formatText('Critical Moment: ' + mv.criticalMoment) + '</p>' : '') +
@@ -6520,14 +6166,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           clearExploration();
           goToMove(idx, { scrollMode: 'center' });
         });
-        if (preservedFeaturedCard && preservedFeaturedCard.length) {
-          const firstMove = c.children('.move-item').first();
-          if (firstMove.length) {
-            preservedFeaturedCard.insertAfter(firstMove);
-          } else {
-            c.prepend(preservedFeaturedCard);
-          }
-        }
       }
 
       function ensureBoardInitialized() {
