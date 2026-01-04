@@ -6780,15 +6780,42 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const scrollItemToTop = () => {
           if (!item) return;
           const hasScrollableContainer = container.scrollHeight > (container.clientHeight + 1);
-          if (hasScrollableContainer) {
-            const paddingTop = parseFloat(window.getComputedStyle(container).paddingTop || '0') || 0;
-            const target = Math.max((item.offsetTop || 0) - paddingTop, 0);
-            container.scrollTo({ top: target, behavior });
-          } else {
+          const containerStyles = window.getComputedStyle(container);
+          const paddingTop = parseFloat(containerStyles.paddingTop || '0') || 0;
+          const visibleBlockHeight = (el) => {
+            if (!el || el.classList.contains('hidden')) return 0;
+            const rect = el.getBoundingClientRect();
+            const styles = window.getComputedStyle(el);
+            const marginTop = parseFloat(styles.marginTop || '0') || 0;
+            const marginBottom = parseFloat(styles.marginBottom || '0') || 0;
+            return rect.height + marginTop + marginBottom;
+          };
+          const summaryHeight = visibleBlockHeight(document.getElementById('game-summary'));
+          const featuredHeight = visibleBlockHeight(document.getElementById('featured-move'));
+          const moveList = document.getElementById('move-analysis-container');
+          const itemOffsetWithinList = (() => {
+            if (!moveList) return item.offsetTop || 0;
+            const listRect = moveList.getBoundingClientRect();
             const itemRect = item.getBoundingClientRect();
+            return (itemRect.top - listRect.top) + (moveList.scrollTop || 0);
+          })();
+          const target = Math.max(paddingTop + summaryHeight + featuredHeight + itemOffsetWithinList, 0);
+          if (hasScrollableContainer) {
+            if (container.classList.contains('overflow-y-auto') && typeof item.scrollIntoView === 'function') {
+              item.scrollIntoView({ block: 'start', behavior, inline: 'nearest' });
+              const adjustedTop = Math.max(target, 0);
+              if (Math.abs(container.scrollTop - adjustedTop) > 1) {
+                container.scrollTo({ top: adjustedTop, behavior });
+              }
+            } else {
+              container.scrollTo({ top: target, behavior });
+            }
+          } else {
             const currentScroll = window.scrollY || window.pageYOffset || 0;
-            const target = Math.max(currentScroll + itemRect.top - 8, 0);
-            window.scrollTo({ top: target, behavior });
+            const containerRect = container.getBoundingClientRect();
+            const containerTop = currentScroll + (containerRect.top || 0);
+            const targetTop = Math.max(containerTop + target - 8, 0);
+            window.scrollTo({ top: targetTop, behavior });
           }
         };
         if (mode === 'center') {
