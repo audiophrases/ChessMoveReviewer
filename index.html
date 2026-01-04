@@ -3020,7 +3020,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         puzzleGraphIndex = -1;
         clearPuzzleContextHighlight();
         if (puzzleReturnIndex != null && puzzleReturnIndex >= -1) {
-          goToMove(puzzleReturnIndex, { scrollMode: 'none' });
+          goToMove(puzzleReturnIndex, { scrollMode: 'center' });
         }
         renderEvalGraph(currentMoveIndex);
         updatePuzzleInfo();
@@ -6424,7 +6424,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             const targetIdx = Number($(this).data('move-index'));
             if (Number.isNaN(targetIdx)) return;
             clearExploration();
-            goToMove(targetIdx, { scrollMode: 'none' });
+            goToMove(targetIdx, { scrollMode: 'center' });
           });
         }
       }
@@ -6464,7 +6464,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const idx = Number($(this).data('move-index'));
           if (Number.isNaN(idx)) return;
           clearExploration();
-          goToMove(idx, { scrollMode: 'none' });
+          goToMove(idx, { scrollMode: 'center' });
         });
       }
 
@@ -6502,7 +6502,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         updateMaterialDisplay();
         rebuildPuzzleQueue();
         if (Number.isInteger(targetMoveIndex) && targetMoveIndex >= 0) {
-          goToMove(targetMoveIndex, { scrollMode: 'none' });
+          goToMove(targetMoveIndex, { scrollMode: 'center' });
         } else {
           syncNavigationControls();
         }
