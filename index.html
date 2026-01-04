@@ -31,8 +31,14 @@
     .btn-primary { background-color: #3b82f6; transition: background-color 0.2s; }
     .btn-primary:hover { background-color: #2563eb; }
     .btn-primary:disabled { background-color: #374151; cursor: not-allowed; }
-    .btn-secondary { background-color: #374151; transition: background-color: 0.2s; }
+    .btn-secondary { background-color: #374151; transition: background-color 0.2s; }
     .btn-secondary:hover { background-color: #4b5563; }
+    #prev-btn { background-color: #ef4444; }
+    #prev-btn:hover { background-color: #dc2626; }
+    #prev-btn:disabled { background-color: #7f1d1d; cursor: not-allowed; }
+    #next-btn { background-color: #22c55e; }
+    #next-btn:hover { background-color: #16a34a; }
+    #next-btn:disabled { background-color: #14532d; cursor: not-allowed; }
     #toggle-eval-btn { border: 1px solid transparent; transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
     #toggle-eval-btn.best-active { background-color: #0b0e15; border-color: rgba(250, 204, 21, 0.4); color: #facc15; font-family: 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace; }
     #toggle-eval-btn.best-active:hover { background-color: #131a2c; }
@@ -252,10 +258,11 @@
                 <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
                 <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
                 <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
-                <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
-                <button id="save-archive-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>
+                <button id="copy-fen-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">FEN</button>
+                <button id="save-archive-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary whitespace-nowrap" disabled>
                   Save
                 </button>
+                <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
                 <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
               </div>
               <p id="archive-feedback" class="hidden text-xs text-gray-300"></p>
@@ -500,6 +507,7 @@
       let activeGameRequestToken = 0;
       let autoGameLoadInitiated = false;
       let gamePickerReturnFocus = null;
+      const copyFenBtn = $('#copy-fen-btn');
       const saveArchiveBtn = $('#save-archive-btn');
       const archiveFeedback = $('#archive-feedback');
       const openArchiveButtons = $('.open-archive-btn');
@@ -3519,6 +3527,50 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         archiveFeedbackTimeout = setTimeout(() => {
           archiveFeedback.addClass('hidden');
         }, 4500);
+      }
+
+      function fallbackCopyText(text) {
+        try {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'absolute';
+          textarea.style.left = '-9999px';
+          document.body.appendChild(textarea);
+          textarea.select();
+          const copied = document.execCommand('copy');
+          document.body.removeChild(textarea);
+          return copied;
+        } catch (err) {
+          console.warn('Fallback copy failed:', err);
+          return false;
+        }
+      }
+
+      async function copyFenToClipboard() {
+        if (!game || typeof game.fen !== 'function') {
+          showArchiveFeedback('Board is not ready yet.', 'error');
+          return;
+        }
+        const fen = game.fen();
+        if (!fen) {
+          showArchiveFeedback('No FEN available to copy.', 'error');
+          return;
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try {
+            await navigator.clipboard.writeText(fen);
+            showArchiveFeedback('Current FEN copied to clipboard.', 'success');
+            return;
+          } catch (err) {
+            console.warn('Clipboard write failed, trying fallback copy:', err);
+          }
+        }
+        const success = fallbackCopyText(fen);
+        showArchiveFeedback(
+          success ? 'Current FEN copied to clipboard.' : 'Could not copy FEN. Please copy it manually.',
+          success ? 'success' : 'error'
+        );
       }
 
       function syncArchiveModalControls() {
@@ -6635,6 +6687,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             clearBestMoveHighlight();
           }
         });
+        if (copyFenBtn.length) {
+          copyFenBtn.on('click', function () {
+            copyFenToClipboard();
+          });
+        }
 
         if (startPuzzleBtn.length) {
           startPuzzleBtn.on('click', function(){ startPuzzleMode(); });
