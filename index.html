@@ -4383,6 +4383,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       function invalidateAnalysisState(opts) {
         opts = opts || {};
+        const refreshReviewUi = opts.refreshReviewUi !== false;
         const hadData = opts.force
           || !!(lastAnnotatedPgn
             || (lastEngineMoveRecords && lastEngineMoveRecords.length)
@@ -4413,7 +4414,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         clearExploration(true);
         clearPuzzleState();
         updateArchiveControls();
-        renderReviewUi(-1);
+        if (refreshReviewUi) {
+          renderReviewUi(-1);
+        }
       }
 
       $('#goto-step2-btn').on('click', function(){ switchStep(2); });
@@ -4512,7 +4515,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm,''));
           if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
         }
-        invalidateAnalysisState({ force: true });
+        invalidateAnalysisState({ force: true, refreshReviewUi: false });
         setLastKnownHeaders(game.header());
         const rawNameForAnalysis = getRawPlayerNameInput();
         if (rawNameForAnalysis) {
