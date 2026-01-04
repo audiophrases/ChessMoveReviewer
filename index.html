@@ -1727,6 +1727,37 @@ Narrative Summary: <one sentence>`;
       function getStyleForClassification(c) {
         return classificationStyles[normalizeClassificationKey(c)] || classificationStyles['default'];
       }
+      const CLASSIFICATION_MARKER_COLORS = {
+        brilliant: '#22d3ee',
+        great: '#22c55e',
+        blunder: '#ef4444',
+        misclick: '#d946ef',
+        mistake: '#f97316',
+        inaccuracy: '#f59e0b',
+        default: '#6b7280'
+      };
+      const CLASSIFICATION_MARKER_FILLS = {
+        brilliant: 'rgba(34, 211, 238, 0.12)',
+        great: 'rgba(34, 197, 94, 0.12)',
+        blunder: 'rgba(239, 68, 68, 0.12)',
+        misclick: 'rgba(217, 70, 239, 0.12)',
+        mistake: 'rgba(249, 115, 22, 0.12)',
+        inaccuracy: 'rgba(245, 158, 11, 0.12)',
+        default: 'rgba(107, 114, 128, 0.12)'
+      };
+      const CLASSIFICATION_MARKER_KEYS = ['brilliant', 'great', 'blunder', 'misclick', 'mistake', 'inaccuracy'];
+      function getClassificationMarkerStyle(key) {
+        const normalized = normalizeClassificationKey(key);
+        const stroke = CLASSIFICATION_MARKER_COLORS[normalized] || CLASSIFICATION_MARKER_COLORS.default;
+        return {
+          fill: CLASSIFICATION_MARKER_FILLS[normalized] || CLASSIFICATION_MARKER_FILLS.default,
+          stroke,
+          lineWidth: 1.6,
+          circleFill: stroke,
+          circleStroke: normalized === 'blunder' ? '#7f1d1d' : '#0b0e15',
+          circleRadius: 4
+        };
+      }
       const CLASSIFICATION_CANONICAL = {
         brilliant: 'Brilliant',
         great: 'Great',
@@ -5907,66 +5938,89 @@ Narrative Summary: <one sentence>`;
         evalCtx.strokeRect(0.7, 0.7, w - 1.4, h - 1.4);
         evalCtx.restore();
 
-        if (hasProbSeries) {
-          const maxIdx = Math.max(series.length - 1, 1);
-          const drawIndexHighlight = (index, opts = {}) => {
-            if (!Number.isFinite(index) || index < 0 || index >= series.length) return;
-            const x = Number.isFinite(xPoints[index]) ? xPoints[index] : (index / maxIdx) * w;
-            const highlightWidth = Math.max(6, w * 0.008);
-            const rectX = Math.max(0, x - (highlightWidth / 2));
-            evalCtx.save();
-            evalCtx.fillStyle = opts.fill || 'rgba(250, 204, 21, 0.18)';
-            evalCtx.fillRect(rectX, 0, highlightWidth, h);
-            evalCtx.restore();
+        const markerDomainLength = hasProbSeries ? series.length : Math.max(moves.length, 1);
+        const maxMarkerIdx = Math.max(markerDomainLength - 1, 1);
+        const resolveMarkerIndex = (index) => {
+          if (!Number.isFinite(index) || index < 0) return null;
+          if (!Number.isFinite(markerDomainLength) || markerDomainLength <= 0) return null;
+          return Math.max(0, Math.min(index, markerDomainLength - 1));
+        };
+        const drawIndexHighlight = (index, opts = {}) => {
+          const resolvedIndex = resolveMarkerIndex(index);
+          if (resolvedIndex == null) return;
+          const x = (hasProbSeries && Number.isFinite(xPoints[resolvedIndex]))
+            ? xPoints[resolvedIndex]
+            : (resolvedIndex / maxMarkerIdx) * w;
+          const highlightWidth = Math.max(6, w * 0.008);
+          const rectX = Math.max(0, x - (highlightWidth / 2));
+          evalCtx.save();
+          evalCtx.fillStyle = opts.fill || 'rgba(250, 204, 21, 0.18)';
+          evalCtx.fillRect(rectX, 0, highlightWidth, h);
+          evalCtx.restore();
 
+          evalCtx.save();
+          evalCtx.lineWidth = opts.lineWidth || 2.2;
+          evalCtx.strokeStyle = opts.stroke || '#fbbf24';
+          if (opts.shadowColor) {
+            evalCtx.shadowColor = opts.shadowColor;
+            evalCtx.shadowBlur = opts.shadowBlur || 10;
+          } else {
+            evalCtx.shadowColor = 'rgba(0, 0, 0, 0)';
+            evalCtx.shadowBlur = 0;
+          }
+          evalCtx.beginPath();
+          evalCtx.moveTo(x, 0);
+          evalCtx.lineTo(x, h);
+          evalCtx.stroke();
+          evalCtx.restore();
+
+          if (hasProbSeries && Number.isFinite(yPoints[resolvedIndex])) {
+            const y = yPoints[resolvedIndex];
             evalCtx.save();
-            evalCtx.lineWidth = opts.lineWidth || 2.2;
-            evalCtx.strokeStyle = opts.stroke || '#fbbf24';
-            if (opts.shadowColor) {
-              evalCtx.shadowColor = opts.shadowColor;
-              evalCtx.shadowBlur = opts.shadowBlur || 10;
-            } else {
-              evalCtx.shadowColor = 'rgba(0, 0, 0, 0)';
-              evalCtx.shadowBlur = 0;
-            }
+            evalCtx.fillStyle = opts.circleFill || '#facc15';
+            evalCtx.strokeStyle = opts.circleStroke || '#f59e0b';
+            evalCtx.lineWidth = opts.circleLineWidth || 2;
             evalCtx.beginPath();
-            evalCtx.moveTo(x, 0);
-            evalCtx.lineTo(x, h);
+            evalCtx.arc(x, y, opts.circleRadius || 6, 0, Math.PI * 2);
+            evalCtx.fill();
             evalCtx.stroke();
             evalCtx.restore();
-
-            if (Number.isFinite(yPoints[index])) {
-              const y = yPoints[index];
-              evalCtx.save();
-              evalCtx.fillStyle = opts.circleFill || '#facc15';
-              evalCtx.strokeStyle = opts.circleStroke || '#f59e0b';
-              evalCtx.lineWidth = opts.circleLineWidth || 2;
-              evalCtx.beginPath();
-              evalCtx.arc(x, y, opts.circleRadius || 6, 0, Math.PI * 2);
-              evalCtx.fill();
-              evalCtx.stroke();
-              evalCtx.restore();
-            }
-          };
-
-          const markers = [];
-          if (values.length > 0 && moves.length === xPoints.length) {
-            const dropIndices = getNavigationDropIndices();
-            const dropStyles = {
-              fill: 'rgba(239, 68, 68, 0.12)',
-              stroke: '#ef4444',
-              lineWidth: 1.4,
-              circleFill: '#ef4444',
-              circleStroke: '#991b1b',
-              circleRadius: 4
-            };
-            dropIndices.forEach(index => {
-              markers.push({ index, opts: dropStyles, override: false });
-            });
           }
-          if (safeIdx >= 0) {
+        };
+
+        const markers = [];
+        if (moves.length > 0) {
+          const dropIndices = getNavigationDropIndices();
+          const dropStyles = {
+            fill: 'rgba(239, 68, 68, 0.12)',
+            stroke: '#ef4444',
+            lineWidth: 1.4,
+            circleFill: '#ef4444',
+            circleStroke: '#991b1b',
+            circleRadius: 4
+          };
+          dropIndices.forEach(index => {
+            const resolvedIndex = resolveMarkerIndex(index);
+            if (resolvedIndex == null) return;
+            markers.push({ index: resolvedIndex, opts: dropStyles, override: false });
+          });
+
+          moves.forEach((mv, moveIndex) => {
+            if (!mv || !mv.analysis || !mv.analysis.classification) return;
+            const classificationKey = normalizeClassificationKey(mv.analysis.classification);
+            if (!classificationKey || !CLASSIFICATION_MARKER_KEYS.includes(classificationKey)) return;
+            const style = getClassificationMarkerStyle(classificationKey);
+            const resolvedIndex = resolveMarkerIndex(moveIndex);
+            if (resolvedIndex == null) return;
+            markers.push({ index: resolvedIndex, opts: style, override: true });
+          });
+        }
+
+        if (safeIdx >= 0) {
+          const resolvedIndex = resolveMarkerIndex(safeIdx);
+          if (resolvedIndex != null) {
             markers.push({
-              index: safeIdx,
+              index: resolvedIndex,
               opts: {
                 fill: 'rgba(250, 204, 21, 0.18)',
                 stroke: '#fbbf24',
@@ -5980,16 +6034,16 @@ Narrative Summary: <one sentence>`;
               override: true
             });
           }
-
-          const seen = new Set();
-          markers.forEach(marker => {
-            if (!marker || marker.index == null) return;
-            const alreadyMarked = seen.has(marker.index);
-            if (!marker.override && alreadyMarked) return;
-            if (!alreadyMarked) seen.add(marker.index);
-            drawIndexHighlight(marker.index, marker.opts || {});
-          });
         }
+
+        const seen = new Set();
+        markers.forEach(marker => {
+          if (!marker || marker.index == null) return;
+          const alreadyMarked = seen.has(marker.index);
+          if (!marker.override && alreadyMarked) return;
+          if (!alreadyMarked) seen.add(marker.index);
+          drawIndexHighlight(marker.index, marker.opts || {});
+        });
       }
 
       function scrollMoveList(idx, previousIndex, options) {
