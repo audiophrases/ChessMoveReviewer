@@ -1712,7 +1712,8 @@ Narrative Summary: <one sentence>`;
         great: 'text-teal-300',
         good: 'text-green-400',
         book: 'text-blue-400',
-        forced: 'text-gray-400',
+        forced: 'text-gray-300',
+        hopelessdefense: 'text-gray-400',
         inaccuracy: 'text-yellow-400',
         mistake: 'text-orange-400',
         blunder: 'text-red-500',
@@ -1764,6 +1765,7 @@ Narrative Summary: <one sentence>`;
         good: 'Good',
         book: 'Book',
         forced: 'Forced',
+        hopelessdefense: 'Hopeless defense',
         inaccuracy: 'Inaccuracy',
         mistake: 'Mistake',
         blunder: 'Blunder',
@@ -1775,6 +1777,7 @@ Narrative Summary: <one sentence>`;
         mistake: 3,
         inaccuracy: 2,
         forced: 1,
+        hopelessdefense: 1,
         good: 1,
         book: 1,
         great: 0,
@@ -1787,6 +1790,7 @@ Narrative Summary: <one sentence>`;
         normal: { inaccuracy: -5, mistake: -12, blunder: -26, misclick: -45 },
         winning: { inaccuracy: -3, mistake: -9, blunder: -20, misclick: -36 },
         mate: { inaccuracy: -2, mistake: -6, blunder: -15, misclick: -30 },
+        hopeless: { inaccuracy: -1, mistake: -3, blunder: -6, misclick: -10 },
         losing: { inaccuracy: -9, mistake: -20, blunder: -40, misclick: -60 }
       };
       const MATE_ESCAPE_EXTENSION_THRESHOLD = 2;
@@ -1907,9 +1911,16 @@ Narrative Summary: <one sentence>`;
         const droppedToLosing = winningBefore && Number.isFinite(moverProbAfter) && moverProbAfter < (0.5 - EVEN_PROB_BUFFER);
         const retainsMate = retainsMateForMover(moveRecord);
         const lostMate = hadMateForMoverBefore(moveRecord) && !retainsMate;
+        const opponentMateBefore = opponentHadForcedMateBefore(moveRecord);
+        const opponentMateAfter = opponentHasForcedMateAfter(moveRecord);
+        const mateBeforeDistance = mateDistance(moveRecord.mateBefore);
+        const mateAfterDistance = mateDistance(moveRecord.mateAfter);
+        const opponentMateLocked = opponentMateBefore && opponentMateAfter;
+        const opponentMateNonWorsened = opponentMateLocked
+          && (!Number.isFinite(mateBeforeDistance) || !Number.isFinite(mateAfterDistance) || mateAfterDistance >= mateBeforeDistance);
         const bandKey = lostMate
           ? 'mate'
-          : (winningBefore ? 'winning' : (losingBefore ? 'losing' : 'normal'));
+          : (opponentMateNonWorsened ? 'hopeless' : (winningBefore ? 'winning' : (losingBefore ? 'losing' : 'normal')));
         moveRecord._centipawnContext = {
           whiteProbBefore,
           whiteProbAfter,
@@ -1924,6 +1935,12 @@ Narrative Summary: <one sentence>`;
           droppedToLosing,
           retainsMate,
           lostMate,
+          opponentMateBefore,
+          opponentMateAfter,
+          mateBeforeDistance,
+          mateAfterDistance,
+          opponentMateLocked,
+          opponentMateNonWorsened,
           bandKey
         };
         return moveRecord._centipawnContext;
@@ -1936,7 +1953,11 @@ Narrative Summary: <one sentence>`;
         const bands = LOSS_BANDS_PROB[context.bandKey] || LOSS_BANDS_PROB.normal;
         const loss = context.effectiveLoss;
         let classification = fallback;
-        if (Number.isFinite(loss) && loss < 0) {
+        const hopelessDefense = context.opponentMateLocked && context.opponentMateNonWorsened;
+        if (hopelessDefense) {
+          classification = 'Hopeless defense';
+        }
+        if (Number.isFinite(loss) && loss < 0 && !hopelessDefense) {
           if (loss <= bands.misclick) classification = 'Misclick??';
           else if (loss <= bands.blunder || context.lostMate || context.droppedToLosing) classification = 'Blunder';
           else if (loss <= bands.mistake || context.droppedToEqual) classification = 'Mistake';
@@ -2074,10 +2095,11 @@ Narrative Summary: <one sentence>`;
         });
 
         moves.forEach((mv) => {
-          const opponentMateAfter = opponentHasForcedMateAfter(mv);
-          const opponentMateBefore = opponentHadForcedMateBefore(mv);
-          const mateAfterDistance = mateDistance(mv.mateAfter);
-          const mateBeforeDistance = mateDistance(mv.mateBefore);
+          const context = getCentipawnContext(mv) || {};
+          const opponentMateAfter = context.opponentMateAfter;
+          const opponentMateBefore = context.opponentMateBefore;
+          const mateAfterDistance = context.mateAfterDistance;
+          const mateBeforeDistance = context.mateBeforeDistance;
           const createdNewMate = opponentMateAfter && !opponentMateBefore;
           const worsenedExistingMate = opponentMateAfter && opponentMateBefore && mateAfterDistance < mateBeforeDistance;
           const maintainsOpponentMate = opponentMateAfter && opponentMateBefore && !worsenedExistingMate;
@@ -2092,12 +2114,18 @@ Narrative Summary: <one sentence>`;
 
           const lostMateForMover = hadMateForMoverBefore(mv) && !retainsMateForMover(mv);
           const needsSevere = createdNewMate || worsenedExistingMate || lostMateForMover;
+          const hopelessDefense = context.opponentMateLocked && context.opponentMateNonWorsened;
+          mv._hopelessDefense = !!hopelessDefense;
+          mv._forcedDefense = isForcedDefenseMove(mv);
+          if (hopelessDefense) {
+            mv._forcedDefense = true;
+          }
 
-          if (needsSevere) {
+          if (needsSevere && !hopelessDefense) {
             const severeTarget = Number.isFinite(mv.moverDelta) && mv.moverDelta <= -50 ? 'Misclick??' : 'Blunder';
             mv.classification = chooseMoreSevereClassification(mv.classification, severeTarget);
           }
-          if (mateShortenedOrKept) {
+          if (mateShortenedOrKept && !hopelessDefense) {
             const severeMateShorten = Number.isFinite(opponentMateDistanceDelta) && opponentMateDistanceDelta >= MATE_SHORTEN_SEVERE_THRESHOLD;
             const severeDrop = Number.isFinite(mv.moverDelta) && mv.moverDelta <= LOSS_BANDS_PROB.mate.blunder;
             const severeTarget = (severeMateShorten || severeDrop) ? 'Misclick??' : 'Blunder';
@@ -2131,16 +2159,13 @@ Narrative Summary: <one sentence>`;
         moves.forEach(mv => {
           if (mv._breaksOpponentMate) {
             mv.classification = 'Great';
-          } else if (mv._extendsOpponentMate || mv._maintainsOpponentMate || isForcedDefenseMove(mv)) {
+          } else if (mv._hopelessDefense) {
+            mv.classification = 'Hopeless defense';
+          } else if (mv._extendsOpponentMate || mv._maintainsOpponentMate || mv._forcedDefense) {
+            mv.classification = 'Forced';
+          } else if (mv._maintainsMoverMate) {
             mv.classification = 'Forced';
           }
-          if (mv._maintainsMoverMate) {
-            mv.classification = 'Forced';
-          }
-          delete mv._maintainsOpponentMate;
-          delete mv._extendsOpponentMate;
-          delete mv._breaksOpponentMate;
-          delete mv._maintainsMoverMate;
         });
 
         const normalizedColor = playerColor === 'w' || playerColor === 'b'
@@ -2160,7 +2185,7 @@ Narrative Summary: <one sentence>`;
         });
 
         const totalMoves = relevantMoves.length;
-        const totalGood = (summaryCounts['Brilliant'] || 0) + (summaryCounts['Great'] || 0) + (summaryCounts['Good'] || 0) + (summaryCounts['Book'] || 0) + (summaryCounts['Forced'] || 0);
+        const totalGood = (summaryCounts['Brilliant'] || 0) + (summaryCounts['Great'] || 0) + (summaryCounts['Good'] || 0) + (summaryCounts['Book'] || 0) + (summaryCounts['Forced'] || 0) + (summaryCounts['Hopeless defense'] || 0);
         const totalBad = (summaryCounts['Mistake'] || 0) + (summaryCounts['Blunder'] || 0) + (summaryCounts['Misclick??'] || 0);
         const accuracy = totalMoves ? (totalGood / totalMoves) * 100 : 0;
 
@@ -2309,8 +2334,20 @@ Narrative Summary: <one sentence>`;
           }
           return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} collapse detected by Stockfish.`;
         }
-        if (key === 'forced') {
-          return 'Auto insight: only defensive move available in an unavoidable mate.';
+        if (key === 'forced' || key === 'hopelessdefense') {
+          const keepsMate = !!(move._maintainsMoverMate || retainsMateForMover(move));
+          const forcedDefense = !!(move._forcedDefense || move._maintainsOpponentMate || isForcedDefenseMove(move) || move._hopelessDefense);
+          const prolongsMate = !!move._extendsOpponentMate;
+          if (keepsMate) {
+            return 'Auto insight: keeps the mate-in-N on track.';
+          }
+          if (forcedDefense) {
+            if (prolongsMate || move._hopelessDefense) {
+              return 'Auto insight: no escape—best try to prolong the inevitable mate.';
+            }
+            return 'Auto insight: only move that avoids immediate mate.';
+          }
+          return 'Auto insight: forced move to stay on course.';
         }
         return '';
       }
