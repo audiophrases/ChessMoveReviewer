@@ -29,7 +29,7 @@
     #move-analysis-scroll::-webkit-scrollbar-track { background: #1a1f2a; }
     #move-analysis-scroll::-webkit-scrollbar-thumb { background-color: #4b5563; border-radius: 10px; border: 2px solid #1a1f2a; }
     #move-analysis-shell { min-height: 0; display: flex; flex-direction: column; }
-    #move-analysis-scroll { min-height: 0; }
+    #move-analysis-scroll { min-height: 0; scroll-padding-top: 0.75rem; }
     .analysis-column { min-height: 0; }
     .btn-primary { background-color: #3b82f6; transition: background-color 0.2s; }
     .btn-primary:hover { background-color: #2563eb; }
@@ -6534,6 +6534,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       function adjustAnalysisHeight() {
         const scroll = document.getElementById('move-analysis-scroll');
         if (!scroll) return;
+
         const shell = document.getElementById('move-analysis-shell');
         const rectTarget = (shell || scroll).getBoundingClientRect();
         const viewportHeight = (window.visualViewport && window.visualViewport.height)
@@ -6544,7 +6545,41 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const paddingTop = parseFloat(scrollStyles.paddingTop || '0') || 0;
         const paddingBottom = parseFloat(scrollStyles.paddingBottom || '0') || 0;
         const margin = 8;
-        const available = viewportHeight ? (viewportHeight - Math.max(rectTarget.top, 0) - paddingTop - paddingBottom - margin) : 0;
+
+        const measureVisibleHeight = (el) => {
+          if (!el) return 0;
+          const rect = el.getBoundingClientRect();
+          if (!rect || rect.height <= 0) return 0;
+          const styles = window.getComputedStyle(el);
+          const marginTop = parseFloat(styles.marginTop || '0') || 0;
+          const marginBottom = parseFloat(styles.marginBottom || '0') || 0;
+          return rect.height + marginTop + marginBottom;
+        };
+
+        const controlStack = document.getElementById('controls');
+        const puzzlePanel = document.getElementById('puzzle-panel');
+        const visiblePuzzlePanel = puzzlePanel && !puzzlePanel.classList.contains('hidden') ? puzzlePanel : null;
+
+        const overlappingObstructionHeight = (() => {
+          const targetLeft = rectTarget.left;
+          const targetRight = rectTarget.right;
+          const targetTop = rectTarget.top;
+          const candidates = [visiblePuzzlePanel, controlStack].filter(Boolean);
+          let maxHeight = 0;
+          candidates.forEach(el => {
+            const rect = el.getBoundingClientRect();
+            const horizontallyAligned = rect && rect.width > 0 && rect.right > targetLeft && rect.left < targetRight;
+            const verticallyAbove = rect && rect.height > 0 && rect.top <= targetTop;
+            if (horizontallyAligned && verticallyAbove) {
+              maxHeight = Math.max(maxHeight, measureVisibleHeight(el));
+            }
+          });
+          return maxHeight;
+        })();
+
+        const available = viewportHeight
+          ? (viewportHeight - Math.max(rectTarget.top, 0) - paddingTop - paddingBottom - margin - overlappingObstructionHeight)
+          : 0;
         const finalHeight = Math.max(200, Math.round(available || 0));
         scroll.style.height = finalHeight + 'px';
         scroll.style.maxHeight = finalHeight + 'px';
