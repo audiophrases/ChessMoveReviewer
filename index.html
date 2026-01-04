@@ -6513,6 +6513,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return String(value).trim().toLowerCase();
       }
 
+      function isMobileViewport() {
+        const isPortrait = window.matchMedia ? window.matchMedia('(orientation: portrait)').matches : false;
+        const isNarrow = window.innerWidth < 1024;
+        return isPortrait || isNarrow;
+      }
+
       function buildUciFromMoveLike(move) {
         if (!move || !move.from || !move.to) return '';
         const from = String(move.from).toLowerCase();
@@ -6524,16 +6530,19 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       function adjustAnalysisHeight() {
         const scroll = document.getElementById('move-analysis-scroll');
         if (!scroll) return;
+        const isMobile = isMobileViewport();
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        if (isMobile) {
+          const rect = scroll.getBoundingClientRect();
+          const available = viewportHeight ? (viewportHeight - Math.max(rect.top, 0) - 8) : 0;
+          const finalHeight = Math.max(200, Math.round(available || 0));
+          scroll.style.height = finalHeight + 'px';
+          scroll.style.maxHeight = finalHeight + 'px';
+          return;
+        }
         const boardEl = document.getElementById('board');
         const controls = document.getElementById('controls');
         const graphEl = document.getElementById('eval-graph');
-        const isPortrait = window.matchMedia ? window.matchMedia('(orientation: portrait)').matches : false;
-        const isNarrow = window.innerWidth < 1024;
-        if (isPortrait || isNarrow) {
-          scroll.style.height = '';
-          scroll.style.maxHeight = '';
-          return;
-        }
         let boardHeight = 0;
         if (boardEl) {
           const boardRect = boardEl.getBoundingClientRect();
@@ -6783,10 +6792,29 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const opts = options || {};
         const mode = opts.scrollMode || 'none';
         const behavior = typeof opts.behavior === 'string' ? opts.behavior : 'smooth';
+        const preferTopAlignment = isMobileViewport();
         const item = Number.isFinite(idx)
           ? document.querySelector('.move-item[data-move-index="' + idx + '"]')
           : null;
+        const scrollItemToTop = () => {
+          if (!item) return;
+          const hasScrollableContainer = container.scrollHeight > (container.clientHeight + 1);
+          if (hasScrollableContainer) {
+            const paddingTop = parseFloat(window.getComputedStyle(container).paddingTop || '0') || 0;
+            const target = Math.max((item.offsetTop || 0) - paddingTop, 0);
+            container.scrollTo({ top: target, behavior });
+          } else {
+            const itemRect = item.getBoundingClientRect();
+            const currentScroll = window.scrollY || window.pageYOffset || 0;
+            const target = Math.max(currentScroll + itemRect.top - 8, 0);
+            window.scrollTo({ top: target, behavior });
+          }
+        };
         if (mode === 'center') {
+          if (preferTopAlignment) {
+            scrollItemToTop();
+            return;
+          }
           if (!item) return;
           const hasScrollableContainer = container.scrollHeight > (container.clientHeight + 1);
           if (hasScrollableContainer) {
@@ -6802,6 +6830,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             window.scrollTo({ top: target, behavior });
           }
         } else if (mode === 'step') {
+          if (preferTopAlignment) {
+            scrollItemToTop();
+            return;
+          }
           if (!Number.isFinite(idx) || !Number.isFinite(previousIndex)) return;
           if (previousIndex < 0) return;
           if (!item) return;
