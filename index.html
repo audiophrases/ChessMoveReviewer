@@ -4539,10 +4539,15 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         if (!depthInfoForAnalysis.valid) {
           showError('Please change the engine depth to somewhere between 4 and 30 before running the analysis.');
           $('#depth-input').focus();
+          renderDeferredReviewUi(-1);
           return;
         }
         await waitForEngineReady();
-        if (!engineReady) { handleEngineLoadFailure('Stockfish failed to initialize.'); return; }
+        if (!engineReady) {
+          handleEngineLoadFailure('Stockfish failed to initialize.');
+          renderDeferredReviewUi(-1);
+          return;
+        }
         switchStep(2);
         await runStockfishAnalysis();
       });
@@ -4833,6 +4838,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           await waitForEngineReady();
           if (!engineReady) {
             handleEngineLoadFailure('Stockfish failed to initialize.');
+            renderDeferredReviewUi(-1);
             return;
           }
           if (engineWorker) engineWorker.postMessage('stop');
@@ -4849,7 +4855,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const deepDepth = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
           const quickDepth = getQuickAnalysisDepth();
           const quickResult = await runSingleDepthAnalysis({ stage: 'quick', depth: quickDepth, token });
-          if (!quickResult || token !== activeAnalysisToken) return;
+          if (!quickResult) {
+            if (token === activeAnalysisToken) renderDeferredReviewUi(-1);
+            return;
+          }
+          if (token !== activeAnalysisToken) return;
           applyAnalysisResult(quickResult);
           lastQuickAnalysisDepth = quickDepth;
           resetManualDeepAnalysisUI({ depth: getManualDeepDepth(), resetPending: true });
@@ -4859,6 +4869,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           if (token === activeAnalysisToken) {
             console.error('Stockfish analysis failed', err);
             handleEngineLoadFailure('Stockfish analysis failed. Please retry.');
+            renderDeferredReviewUi(-1);
           }
         } finally {
           if (token === activeAnalysisToken) setCopyButtonAnalyzing(false);
