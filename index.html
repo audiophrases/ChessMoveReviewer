@@ -4387,6 +4387,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         automatedReviewText = '';
         lastAnnotatedPgn = '';
+        movesWithAnalysis = [];
+        currentMoveIndex = -1;
+        featuredMoveData = null;
+        featuredMoveIndex = -1;
         probSeries = [];
         resetDeepAnalysisUpgrade();
         $('#stockfish-output').val('');
@@ -4397,6 +4401,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           copyStockfishBtn.text(defaultCopyLabel).prop('disabled', true);
         }
         clearPuzzleState();
+        renderReviewUi(-1);
       }
 
       $('#goto-step2-btn').on('click', function(){ switchStep(2); });
