@@ -4271,6 +4271,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         opts = opts || {};
         const normalized = normalizeStep(step);
         const previous = currentStep;
+        if (normalized === 1 && previous && previous !== 1) {
+          invalidateAnalysisState({ force: true });
+        }
         currentStep = normalized;
 
         const sections = ['#step1-section', '#step2-section', '#step3-section', '#review-section'];
@@ -4387,6 +4390,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             || (automatedReviewText && String(automatedReviewText).trim()));
         if (!hadData) return;
         clearReviewSessionPersistence();
+        lastFinalAnalysisText = '';
+        currentReviewMetadata = null;
         lastEngineMoveRecords = null;
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         automatedReviewText = '';
@@ -4401,6 +4406,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           copyStockfishBtn.text(defaultCopyLabel).prop('disabled', true);
         }
         clearPuzzleState();
+        updateArchiveControls();
       }
 
       $('#goto-step2-btn').on('click', function(){ switchStep(2); });
@@ -4499,6 +4505,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm,''));
           if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
         }
+        invalidateAnalysisState({ force: true });
         setLastKnownHeaders(game.header());
         const rawNameForAnalysis = getRawPlayerNameInput();
         if (rawNameForAnalysis) {
@@ -5995,7 +6002,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           showArchiveFeedback(`Loaded saved review "${pendingArchiveLoadNotice}".`, 'success');
           pendingArchiveLoadNotice = null;
         }
-        persistCurrentReviewSession(currentStep);
+        persistCurrentReviewSession(4);
       });
 
       // Build PGN from SAN list
