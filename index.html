@@ -411,6 +411,8 @@
       const STEP_HASHES = { 1: '', 2: '#step-2', 3: '#step-3', 4: '#step-4' };
       const RUN_NEW_ANALYSIS_STORAGE_KEY = 'cmr.runNewPayload.v1';
       const RUN_NEW_ANALYSIS_SESSION_KEY = 'cmr.runNewPayload.session.v1';
+      const REVIEW_SESSION_STORAGE_KEY = 'cmr.reviewSession.v1';
+      const REVIEW_SESSION_SESSION_KEY = 'cmr.reviewSession.session.v1';
       const DEFAULT_PLAYER_NAME = 'eugenime';
       let formState = loadFormState();
       let currentStep = 1;
@@ -522,12 +524,14 @@
       const ARCHIVE_MAX_ENTRIES = 25;
       let archiveEntries = [];
       let storageAvailable = isLocalStorageAvailable();
+      let sessionStorageAvailable = isSessionStorageAvailable();
       if (storageAvailable) {
         archiveEntries = loadArchiveEntriesFromStorage();
       }
       let lastFinalAnalysisText = '';
       let currentReviewMetadata = null;
       let pendingArchiveLoadNotice = null;
+      let pendingReviewSessionPayload = loadPersistedReviewSession();
 
       applySavedFormState();
       applyRunNewAnalysisPayloadFromUrl();
@@ -3398,6 +3402,107 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
       }
 
+      function isSessionStorageAvailable() {
+        try {
+          if (typeof window === 'undefined' || !window.sessionStorage) return false;
+          const testKey = '__cmr_session_storage_test__';
+          window.sessionStorage.setItem(testKey, '1');
+          window.sessionStorage.removeItem(testKey);
+          return true;
+        } catch (err) {
+          return false;
+        }
+      }
+
+      function loadPersistedReviewSession() {
+        if (typeof window === 'undefined') return null;
+        const sources = [
+          storageAvailable ? { storage: window.localStorage, key: REVIEW_SESSION_STORAGE_KEY } : null,
+          sessionStorageAvailable ? { storage: window.sessionStorage, key: REVIEW_SESSION_SESSION_KEY } : null
+        ].filter(Boolean);
+        for (const source of sources) {
+          try {
+            const raw = source.storage.getItem(source.key);
+            if (!raw) continue;
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.pgn && Array.isArray(parsed.movesWithAnalysis) && parsed.movesWithAnalysis.length) {
+              return parsed;
+            }
+          } catch (err) {
+            console.warn('Unable to load persisted review session:', err);
+          }
+        }
+        return null;
+      }
+
+      function clearReviewSessionPersistence() {
+        if (typeof window === 'undefined') return;
+        if (storageAvailable && window.localStorage) {
+          try { window.localStorage.removeItem(REVIEW_SESSION_STORAGE_KEY); } catch (err) { /* ignore */ }
+        }
+        if (sessionStorageAvailable && window.sessionStorage) {
+          try { window.sessionStorage.removeItem(REVIEW_SESSION_SESSION_KEY); } catch (err) { /* ignore */ }
+        }
+      }
+
+      function buildReviewSessionPayload(stepOverride) {
+        if (!lastFinalAnalysisText || !Array.isArray(movesWithAnalysis) || !movesWithAnalysis.length) return null;
+        const pgnSnapshot = currentReviewMetadata && currentReviewMetadata.pgn
+          ? currentReviewMetadata.pgn
+          : (game && typeof game.pgn === 'function' ? game.pgn({ max_width: 0, newline_char: '\n' }) : '');
+        if (!pgnSnapshot) return null;
+        const headersSnapshot = currentReviewMetadata && currentReviewMetadata.headers
+          ? currentReviewMetadata.headers
+          : lastKnownHeaders;
+        return {
+          version: 1,
+          step: normalizeStep(Number.isFinite(stepOverride) ? stepOverride : currentStep || 4),
+          pgn: pgnSnapshot,
+          annotatedPgn: lastAnnotatedPgn || '',
+          stockfishOutput: $('#stockfish-output').val() || '',
+          finalAnalysis: lastFinalAnalysisText,
+          movesWithAnalysis,
+          probSeries,
+          featuredMoveData,
+          featuredMoveIndex,
+          reviewPlayerColor,
+          playerGameOutcome,
+          lastKnownHeaders: headersSnapshot || {},
+          currentReviewMetadata,
+          playerName: getPlayerName(),
+          currentMoveIndex,
+          summary: currentReviewMetadata ? currentReviewMetadata.summary : ''
+        };
+      }
+
+      function persistCurrentReviewSession(stepOverride) {
+        if (typeof window === 'undefined') return false;
+        const payload = buildReviewSessionPayload(stepOverride);
+        if (!payload) {
+          clearReviewSessionPersistence();
+          return false;
+        }
+        const serialized = JSON.stringify(payload);
+        let stored = false;
+        if (storageAvailable && window.localStorage) {
+          try {
+            window.localStorage.setItem(REVIEW_SESSION_STORAGE_KEY, serialized);
+            stored = true;
+          } catch (err) {
+            console.warn('Unable to persist review session in localStorage:', err);
+          }
+        }
+        if (!stored && sessionStorageAvailable && window.sessionStorage) {
+          try {
+            window.sessionStorage.setItem(REVIEW_SESSION_SESSION_KEY, serialized);
+            stored = true;
+          } catch (err) {
+            console.warn('Unable to persist review session in sessionStorage:', err);
+          }
+        }
+        return stored;
+      }
+
       function loadArchiveEntriesFromStorage() {
         if (typeof window === 'undefined' || !window.localStorage) return [];
         try {
@@ -3969,6 +4074,85 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return true;
       }
 
+      function applyReviewSessionPayload(payload) {
+        if (!payload || !payload.pgn || !Array.isArray(payload.movesWithAnalysis) || !payload.movesWithAnalysis.length) {
+          return false;
+        }
+        const pgnText = String(payload.pgn || '').trim();
+        if (!pgnText) return false;
+        const restoredGame = new Chess();
+        if (!restoredGame.load_pgn(pgnText)) return false;
+        game = restoredGame;
+        const headersFromPayload = payload.lastKnownHeaders
+          || (payload.currentReviewMetadata && payload.currentReviewMetadata.headers)
+          || parsePgnHeaders(pgnText);
+        setLastKnownHeaders(headersFromPayload);
+        applyHeadersToGame(game, headersFromPayload);
+        const playerNameValue = payload.playerName != null ? payload.playerName : getRawPlayerNameInput();
+        if ($('#player-name-input').length && playerNameValue != null) {
+          $('#player-name-input').val(playerNameValue);
+          updateFormState('playerName', playerNameValue);
+        }
+        $('#pgn-input').val(pgnText);
+        updateFormState('pgnInput', pgnText);
+        lastAnnotatedPgn = payload.annotatedPgn || '';
+        updateFormState('annotatedPgn', lastAnnotatedPgn);
+        lastFinalAnalysisText = payload.finalAnalysis || '';
+        $('#final-analysis-input').val(lastFinalAnalysisText);
+        $('#stockfish-output').val(payload.stockfishOutput || '');
+        updateFormState('stockfishOutput', payload.stockfishOutput || '');
+        lastEngineMoveRecords = null;
+        automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
+        automatedReviewText = '';
+        movesWithAnalysis = Array.isArray(payload.movesWithAnalysis)
+          ? payload.movesWithAnalysis.map(mv => ({ ...mv }))
+          : [];
+        probSeries = Array.isArray(payload.probSeries) && payload.probSeries.length === movesWithAnalysis.length
+          ? payload.probSeries
+          : movesWithAnalysis.map(mv => mv.prob);
+        featuredMoveData = payload.featuredMoveData || null;
+        featuredMoveIndex = Number.isInteger(payload.featuredMoveIndex)
+          ? payload.featuredMoveIndex
+          : findFeaturedMoveIndex(movesWithAnalysis, featuredMoveData);
+        if (featuredMoveData && featuredMoveIndex >= 0 && movesWithAnalysis[featuredMoveIndex]) {
+          movesWithAnalysis[featuredMoveIndex].isFeatured = true;
+          movesWithAnalysis[featuredMoveIndex].featuredMeta = featuredMoveData;
+        }
+        const summaryText = payload.summary || (payload.currentReviewMetadata && payload.currentReviewMetadata.summary) || '';
+        if (summaryText) {
+          $('#game-summary').removeClass('hidden').html(formatSummaryLine(summaryText));
+        } else {
+          $('#game-summary').addClass('hidden').html('');
+        }
+        const assignedColor = payload.reviewPlayerColor ? setReviewPlayerColor(payload.reviewPlayerColor) : null;
+        if (!assignedColor && playerNameValue) {
+          updateReviewPlayerColorFromHeaders(headersFromPayload, playerNameValue, { clearOnMiss: false });
+        }
+        playerGameOutcome = payload.playerGameOutcome != null
+          ? payload.playerGameOutcome
+          : derivePlayerOutcome(headersFromPayload.Result || '', reviewPlayerColor);
+        const metadataFromPayload = payload.currentReviewMetadata ? { ...payload.currentReviewMetadata } : {};
+        currentReviewMetadata = {
+          headers: headersFromPayload,
+          summary: summaryText,
+          playerColor: reviewPlayerColor,
+          playerName: playerNameValue || metadataFromPayload.playerName || '',
+          opponent: metadataFromPayload.opponent || deriveOpponentFromHeaders(headersFromPayload, reviewPlayerColor, playerNameValue || ''),
+          annotatedPgn: lastAnnotatedPgn,
+          stockfishOutput: payload.stockfishOutput || metadataFromPayload.stockfishOutput || '',
+          pgn: pgnText,
+          resultCode: metadataFromPayload.resultCode || headersFromPayload.Result || '',
+          resultLabel: metadataFromPayload.resultLabel || describeResult(headersFromPayload.Result || ''),
+          movesCount: metadataFromPayload.movesCount || movesWithAnalysis.length,
+          featuredMove: featuredMoveData ? { ...featuredMoveData } : (metadataFromPayload.featuredMove || null)
+        };
+        currentMoveIndex = Number.isInteger(payload.currentMoveIndex) ? payload.currentMoveIndex : -1;
+        renderFeaturedMoveSummary();
+        renderReviewUi(currentMoveIndex >= 0 ? currentMoveIndex : -1);
+        updateArchiveControls();
+        return true;
+      }
+
       const TRANSIENT_FORM_KEYS = new Set(['pgnInput', 'finalAnalysisInput', 'stockfishOutput']);
 
       function updateFormState(key, value) {
@@ -4153,10 +4337,22 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         });
       });
 
-      const initialStep = (window.history && window.history.state && typeof window.history.state.step === 'number')
+      const navigationStep = (window.history && window.history.state && typeof window.history.state.step === 'number')
         ? normalizeStep(window.history.state.step)
         : getStepFromHash(window.location.hash);
+      const initialStep = pendingReviewSessionPayload && pendingReviewSessionPayload.step
+        ? normalizeStep(pendingReviewSessionPayload.step)
+        : navigationStep;
       switchStep(initialStep, { skipHistory: true });
+      if (pendingReviewSessionPayload && initialStep === 4) {
+        const restored = applyReviewSessionPayload(pendingReviewSessionPayload);
+        if (restored) {
+          persistCurrentReviewSession(initialStep);
+        } else {
+          clearReviewSessionPersistence();
+        }
+        pendingReviewSessionPayload = null;
+      }
       if (window.history && window.history.replaceState) {
         const initialHash = STEP_HASHES[initialStep] != null ? STEP_HASHES[initialStep] : STEP_HASHES[1];
         const basePath = window.location.pathname + window.location.search;
@@ -4181,6 +4377,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             || (automatedMoveInsights && Array.isArray(automatedMoveInsights.moves) && automatedMoveInsights.moves.length)
             || (automatedReviewText && String(automatedReviewText).trim()));
         if (!hadData) return;
+        clearReviewSessionPersistence();
         lastEngineMoveRecords = null;
         automatedMoveInsights = { moves: [], summary: null, moveOfGame: null };
         automatedReviewText = '';
@@ -4202,6 +4399,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       $('#back-to-step2-btn').on('click', function(){ switchStep(2); });
       $('#back-to-step3-btn').on('click', function(){ switchStep(3); });
       $('#run-new-analysis-btn').on('click', function(){
+        clearReviewSessionPersistence();
         const payload = prepareRunNewAnalysisPayload();
         const target = new URL(window.location.href);
         target.hash = '';
@@ -4281,6 +4479,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         updateFormState('finalAnalysisInput', '');
         lastFinalAnalysisText = '';
         currentReviewMetadata = null;
+        clearReviewSessionPersistence();
         updateArchiveControls();
       });
 
@@ -5765,35 +5964,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         }
         renderFeaturedMoveSummary();
 
-        if (!board) {
-          board = Chessboard('board', {
-            position: 'start',
-            draggable: false,
-            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
-          });
-          $('#board').on('click', '.square-55d63', function(){ handleSquareClick($(this).data('square')); });
-          $(window).on('resize', function(){
-            board.resize();
-            adjustAnalysisHeight();
-            resizeEvalGraph();
-            if (showBestMove && (lastBestMove || lastSecondBestMove)) {
-              reapplyStoredBestMoveVisuals();
-            }
-          });
-          initEvalGraph();
-        }
-
-        board.position('start');
-        game.reset();
-        currentMoveIndex = -1;
-        clearExploration(true);
-        renderMoveList();
-        adjustAnalysisHeight();
-        board.resize();
-        resizeEvalGraph();
-        renderEvalGraph(-1);
-        updateMaterialDisplay();
-        rebuildPuzzleQueue();
+        renderReviewUi(-1);
 
         const opponentLabel = deriveOpponentFromHeaders(headersSnapshot, reviewPlayerColor, playerNameValue);
         currentReviewMetadata = {
@@ -5815,6 +5986,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           showArchiveFeedback(`Loaded saved review "${pendingArchiveLoadNotice}".`, 'success');
           pendingArchiveLoadNotice = null;
         }
+        persistCurrentReviewSession(currentStep);
       });
 
       // Build PGN from SAN list
@@ -6294,6 +6466,46 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           clearExploration();
           goToMove(idx, { scrollMode: 'none' });
         });
+      }
+
+      function ensureBoardInitialized() {
+        if (board) return;
+        board = Chessboard('board', {
+          position: 'start',
+          draggable: false,
+          pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        });
+        $('#board').on('click', '.square-55d63', function(){ handleSquareClick($(this).data('square')); });
+        $(window).on('resize', function(){
+          board.resize();
+          adjustAnalysisHeight();
+          resizeEvalGraph();
+          if (showBestMove && (lastBestMove || lastSecondBestMove)) {
+            reapplyStoredBestMoveVisuals();
+          }
+        });
+        initEvalGraph();
+      }
+
+      function renderReviewUi(targetMoveIndex = -1) {
+        ensureBoardInitialized();
+        board.position('start');
+        game.reset();
+        clearExploration(true);
+        clearPuzzleState();
+        currentMoveIndex = -1;
+        renderMoveList();
+        adjustAnalysisHeight();
+        board.resize();
+        resizeEvalGraph();
+        renderEvalGraph(targetMoveIndex);
+        updateMaterialDisplay();
+        rebuildPuzzleQueue();
+        if (Number.isInteger(targetMoveIndex) && targetMoveIndex >= 0) {
+          goToMove(targetMoveIndex, { scrollMode: 'none' });
+        } else {
+          syncNavigationControls();
+        }
       }
 
       function normalizeUciMove(value) {
