@@ -5563,8 +5563,8 @@ Narrative Summary: <one sentence>`;
       }
 
       function deriveNavigationLoss(move) {
-        if (!move) return null;
-        const source = move.automated || move;
+        if (!move || typeof move !== 'object') return null;
+        const source = (move.automated && typeof move.automated === 'object') ? move.automated : move;
         const context = source ? getCentipawnContext(source) : null;
         if (context && Number.isFinite(context.effectiveLoss)) return context.effectiveLoss;
         if (Number.isFinite(source.moverDelta)) return Number(source.moverDelta);
@@ -5595,9 +5595,10 @@ Narrative Summary: <one sentence>`;
       function getNavigationDropIndices() {
         const targetColor = reviewPlayerColor;
         if (targetColor !== 'w' && targetColor !== 'b') return [];
+        const moves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis : [];
         const indices = [];
-        if (!Array.isArray(movesWithAnalysis) || !movesWithAnalysis.length) return indices;
-        movesWithAnalysis.forEach((mv, idx) => {
+        if (!moves.length) return indices;
+        moves.forEach((mv, idx) => {
           if (shouldMarkNavigationDrop(mv, targetColor)) {
             indices.push(idx);
           }
@@ -5645,7 +5646,9 @@ Narrative Summary: <one sentence>`;
 
       function renderMoveList() {
         const c = $('#move-analysis-container').empty();
-        movesWithAnalysis.forEach((mv, i) => {
+        const moves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis : [];
+        movesWithAnalysis = moves;
+        moves.forEach((mv, i) => {
           const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
           const evalSegments = buildEvaluationSegments(mv);
           const evalHtml = evalSegments.length ? '<div class="flex items-center gap-2 ml-2">' + evalSegments.join('') + '</div>' : '';
@@ -5702,6 +5705,9 @@ Narrative Summary: <one sentence>`;
         game.reset();
         clearExploration(true);
         currentMoveIndex = -1;
+        if (!Array.isArray(movesWithAnalysis)) {
+          movesWithAnalysis = [];
+        }
         renderMoveList();
         adjustAnalysisHeight();
         board.resize();
@@ -5832,6 +5838,9 @@ Narrative Summary: <one sentence>`;
 
       function renderEvalGraph(idx) {
         if (!evalCanvas || !evalCtx) return;
+        const series = Array.isArray(probSeries) ? probSeries : [];
+        const moves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis : [];
+        const safeIdx = Number.isFinite(idx) ? idx : -1;
         const w = evalCanvas.width;
         const h = evalCanvas.height;
         evalCtx.clearRect(0, 0, w, h);
@@ -5839,13 +5848,13 @@ Narrative Summary: <one sentence>`;
         evalCtx.fillStyle = '#f9fafb';
         evalCtx.fillRect(0, 0, w, h);
 
-        const hasProbSeries = probSeries.length > 0;
+        const hasProbSeries = series.length > 0;
         let xPoints = [];
         let yPoints = [];
 
         if (hasProbSeries) {
-          const maxIdx = Math.max(probSeries.length - 1, 1);
-          const values = probSeries.map(p => {
+          const maxIdx = Math.max(series.length - 1, 1);
+          const values = series.map(p => {
             if (p == null) return null;
             const clamped = clampProb(p);
             if (clamped == null) return null;
@@ -5899,9 +5908,9 @@ Narrative Summary: <one sentence>`;
         evalCtx.restore();
 
         if (hasProbSeries) {
-          const maxIdx = Math.max(probSeries.length - 1, 1);
+          const maxIdx = Math.max(series.length - 1, 1);
           const drawIndexHighlight = (index, opts = {}) => {
-            if (!Number.isFinite(index) || index < 0 || index >= probSeries.length) return;
+            if (!Number.isFinite(index) || index < 0 || index >= series.length) return;
             const x = Number.isFinite(xPoints[index]) ? xPoints[index] : (index / maxIdx) * w;
             const highlightWidth = Math.max(6, w * 0.008);
             const rectX = Math.max(0, x - (highlightWidth / 2));
@@ -5941,7 +5950,7 @@ Narrative Summary: <one sentence>`;
           };
 
           const markers = [];
-          if (values.length > 0 && Array.isArray(movesWithAnalysis) && movesWithAnalysis.length === xPoints.length) {
+          if (values.length > 0 && moves.length === xPoints.length) {
             const dropIndices = getNavigationDropIndices();
             const dropStyles = {
               fill: 'rgba(239, 68, 68, 0.12)',
@@ -5955,9 +5964,9 @@ Narrative Summary: <one sentence>`;
               markers.push({ index, opts: dropStyles, override: false });
             });
           }
-          if (idx >= 0) {
+          if (safeIdx >= 0) {
             markers.push({
-              index: idx,
+              index: safeIdx,
               opts: {
                 fill: 'rgba(250, 204, 21, 0.18)',
                 stroke: '#fbbf24',
@@ -6072,19 +6081,21 @@ Narrative Summary: <one sentence>`;
           prevBtn.prop('disabled', cursor <= 0);
           nextBtn.prop('disabled', cursor >= total);
         } else {
+          const moveCount = Array.isArray(movesWithAnalysis) ? movesWithAnalysis.length : 0;
           prevBtn.prop('disabled', currentMoveIndex < 0);
-          nextBtn.prop('disabled', currentMoveIndex >= movesWithAnalysis.length - 1);
+          nextBtn.prop('disabled', currentMoveIndex >= moveCount - 1);
         }
       }
 
         function goToMove(idx, options) {
-          if (idx < -1 || idx >= movesWithAnalysis.length) return;
+          const moves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis : [];
+          if (idx < -1 || idx >= moves.length) return;
           const previousIndex = currentMoveIndex;
           currentMoveIndex = idx;
           game.reset();
           let lastAppliedMove = null;
           for (let i = 0; i <= idx; i++) {
-            const moveRecord = movesWithAnalysis[i];
+            const moveRecord = moves[i];
             if (!moveRecord || !moveRecord.san) continue;
             const applied = game.move(moveRecord.san);
             if (applied) lastAppliedMove = applied;
