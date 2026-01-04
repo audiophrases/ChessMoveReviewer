@@ -466,6 +466,7 @@
       let activeAnalysisToken = 0;
       let manualDeepState = null;
       let lastQuickAnalysisDepth = null;
+      let reviewUiRenderDeferred = false;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
       const engineStatusDetail = $('#engine-status-detail');
@@ -4381,6 +4382,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         switchStep(stateStep, { skipHistory: true });
       });
 
+      function renderDeferredReviewUi(targetMoveIndex = -1) {
+        if (!reviewUiRenderDeferred) return;
+        renderReviewUi(targetMoveIndex);
+        reviewUiRenderDeferred = false;
+      }
+
       function invalidateAnalysisState(opts) {
         opts = opts || {};
         const refreshReviewUi = opts.refreshReviewUi !== false;
@@ -4389,7 +4396,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             || (lastEngineMoveRecords && lastEngineMoveRecords.length)
             || (automatedMoveInsights && Array.isArray(automatedMoveInsights.moves) && automatedMoveInsights.moves.length)
             || (automatedReviewText && String(automatedReviewText).trim()));
-        if (!hadData) return;
+        if (!hadData) {
+          reviewUiRenderDeferred = false;
+          return;
+        }
         clearReviewSessionPersistence();
         lastFinalAnalysisText = '';
         currentReviewMetadata = null;
@@ -4416,6 +4426,9 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         updateArchiveControls();
         if (refreshReviewUi) {
           renderReviewUi(-1);
+          reviewUiRenderDeferred = false;
+        } else {
+          reviewUiRenderDeferred = true;
         }
       }
 
@@ -4701,6 +4714,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         $('#goto-step3-btn').prop('disabled', false);
         autoCopyStockfishOutputToClipboard();
         autoCompleteReviewFlow();
+        renderDeferredReviewUi(-1);
       }
 
       async function runSingleDepthAnalysis(opts) {
@@ -5991,6 +6005,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         renderFeaturedMoveSummary();
 
         renderReviewUi(-1);
+        reviewUiRenderDeferred = false;
 
         const opponentLabel = deriveOpponentFromHeaders(headersSnapshot, reviewPlayerColor, playerNameValue);
         currentReviewMetadata = {
