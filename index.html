@@ -1719,13 +1719,6 @@ Narrative Summary: <one sentence>`;
         misclick: 'text-fuchsia-500',
         default: ''
       };
-      const classificationMarkerColors = {
-        brilliant: '#67e8f9',
-        great: '#5eead4',
-        blunder: '#ef4444',
-        misclick: '#d946ef'
-      };
-      const highlightedGraphClassifications = new Set(['brilliant', 'great', 'blunder', 'misclick']);
       function normalizeClassificationKey(c) {
         return (c || '')
           .toLowerCase()
@@ -1756,6 +1749,8 @@ Narrative Summary: <one sentence>`;
         great: 0,
         brilliant: 0
       };
+      const NAVIGATION_DROP_THRESHOLD = 14;
+      const MIN_NAVIGATION_SEVERITY = CLASSIFICATION_SEVERITY.mistake || 3;
       const SACRIFICE_PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
       const LOSS_BANDS_PROB = {
         normal: { inaccuracy: -5, mistake: -12, blunder: -26, misclick: -45 },
@@ -5556,6 +5551,60 @@ Narrative Summary: <one sentence>`;
       }
 
       // ====== Rendering ======
+      function getMoveClassificationKeyForNavigation(move) {
+        if (!move) return '';
+        const sources = [
+          move.analysis && move.analysis.classification,
+          move.automated && move.automated.classification,
+          move.classification
+        ];
+        const raw = sources.find(v => v);
+        return normalizeClassificationKey(raw);
+      }
+
+      function deriveNavigationLoss(move) {
+        if (!move) return null;
+        const source = move.automated || move;
+        const context = source ? getCentipawnContext(source) : null;
+        if (context && Number.isFinite(context.effectiveLoss)) return context.effectiveLoss;
+        if (Number.isFinite(source.moverDelta)) return Number(source.moverDelta);
+        if (move.analysis && Number.isFinite(move.analysis.delta)) return Number(move.analysis.delta);
+        if (Number.isFinite(move.delta)) return Number(move.delta);
+        if (Number.isFinite(source.whiteProbBefore) && Number.isFinite(source.whiteProbAfter) && source.color) {
+          const moverBefore = resolveMoverProb(source.whiteProbBefore, source.color);
+          const moverAfter = resolveMoverProb(source.whiteProbAfter, source.color);
+          const percent = computeMoverDeltaPercent(moverBefore, moverAfter);
+          if (Number.isFinite(percent)) return percent;
+        }
+        return null;
+      }
+
+      function shouldMarkNavigationDrop(move, playerColor) {
+        if (!move || playerColor !== 'w' && playerColor !== 'b') return false;
+        if (move.color !== playerColor) return false;
+        const loss = deriveNavigationLoss(move);
+        if (!Number.isFinite(loss) || loss > -NAVIGATION_DROP_THRESHOLD) return false;
+        const classificationKey = getMoveClassificationKeyForNavigation(move);
+        if (classificationKey) {
+          const severity = CLASSIFICATION_SEVERITY[classificationKey];
+          if (severity != null && severity < MIN_NAVIGATION_SEVERITY) return false;
+        }
+        return true;
+      }
+
+      function getNavigationDropIndices() {
+        const targetColor = reviewPlayerColor;
+        if (targetColor !== 'w' && targetColor !== 'b') return [];
+        const indices = [];
+        if (!Array.isArray(movesWithAnalysis) || !movesWithAnalysis.length) return indices;
+        movesWithAnalysis.forEach((mv, idx) => {
+          if (shouldMarkNavigationDrop(mv, targetColor)) {
+            indices.push(idx);
+          }
+        });
+        return indices;
+      }
+
       function buildEvaluationSegments(mv) {
         const segments = [];
         if (!mv) return segments;
@@ -5829,27 +5878,6 @@ Narrative Summary: <one sentence>`;
             evalCtx.closePath();
             evalCtx.fill();
           }
-
-          if (values.length > 0 && Array.isArray(movesWithAnalysis) && movesWithAnalysis.length === xPoints.length) {
-            for (let i = 0; i < movesWithAnalysis.length; i++) {
-              const move = movesWithAnalysis[i];
-              const classificationKey = move && move.analysis
-                ? normalizeClassificationKey(move.analysis.classification)
-                : '';
-              if (!highlightedGraphClassifications.has(classificationKey)) continue;
-              const color = classificationMarkerColors[classificationKey] || '#fbbf24';
-              const x = xPoints[i];
-              evalCtx.save();
-              evalCtx.strokeStyle = color;
-              evalCtx.lineWidth = 1.5;
-              evalCtx.globalAlpha = 0.9;
-              evalCtx.beginPath();
-              evalCtx.moveTo(x, 0);
-              evalCtx.lineTo(x, h);
-              evalCtx.stroke();
-              evalCtx.restore();
-            }
-          }
         } else {
           evalCtx.fillStyle = '#0b0e15';
           evalCtx.fillRect(0, 0, w, baselineY);
@@ -5913,6 +5941,20 @@ Narrative Summary: <one sentence>`;
           };
 
           const markers = [];
+          if (values.length > 0 && Array.isArray(movesWithAnalysis) && movesWithAnalysis.length === xPoints.length) {
+            const dropIndices = getNavigationDropIndices();
+            const dropStyles = {
+              fill: 'rgba(239, 68, 68, 0.12)',
+              stroke: '#ef4444',
+              lineWidth: 1.4,
+              circleFill: '#ef4444',
+              circleStroke: '#991b1b',
+              circleRadius: 4
+            };
+            dropIndices.forEach(index => {
+              markers.push({ index, opts: dropStyles, override: false });
+            });
+          }
           if (idx >= 0) {
             markers.push({
               index: idx,
@@ -5925,15 +5967,17 @@ Narrative Summary: <one sentence>`;
                 circleFill: '#facc15',
                 circleStroke: '#f59e0b',
                 circleRadius: 6
-              }
+              },
+              override: true
             });
           }
 
           const seen = new Set();
           markers.forEach(marker => {
             if (!marker || marker.index == null) return;
-            if (seen.has(marker.index)) return;
-            seen.add(marker.index);
+            const alreadyMarked = seen.has(marker.index);
+            if (!marker.override && alreadyMarked) return;
+            if (!alreadyMarked) seen.add(marker.index);
             drawIndexHighlight(marker.index, marker.opts || {});
           });
         }
