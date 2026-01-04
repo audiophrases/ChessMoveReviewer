@@ -405,12 +405,9 @@
       const RUN_NEW_ANALYSIS_STORAGE_KEY = 'cmr.runNewPayload.v1';
       const RUN_NEW_ANALYSIS_SESSION_KEY = 'cmr.runNewPayload.session.v1';
       const DEFAULT_PLAYER_NAME = 'eugenime';
-      const AUTO_ENGINE_READY_TIMEOUT_MS = 15000;
       let formState = loadFormState();
       let currentStep = 1;
       let pendingEngineGoDepth = null;
-      let autoLoadAttemptToken = 0;
-      let autoLoadTriggered = false;
 
       // ====== App state ======
       let board = null;
@@ -523,29 +520,8 @@
       let currentReviewMetadata = null;
       let pendingArchiveLoadNotice = null;
 
-      function isFormPristineForAutoFlow() {
-        const pgnVal = ($('#pgn-input').val() || '').trim();
-        const annotatedVal = (lastAnnotatedPgn || '').trim();
-        const stockfishVal = ($('#stockfish-output').val() || '').trim();
-        const finalVal = ($('#final-analysis-input').val() || '').trim();
-        return !pgnVal && !annotatedVal && !stockfishVal && !finalVal && !currentReviewMetadata && !pendingArchiveLoadNotice;
-      }
-
-      function applyDefaultPlayerAndDepth() {
-        if (!getRawPlayerNameInput()) {
-          $('#player-name-input').val(DEFAULT_PLAYER_NAME);
-          updateFormState('playerName', DEFAULT_PLAYER_NAME);
-        }
-        if (!isFormPristineForAutoFlow()) return;
-        const defaultDepth = sanitizeEngineSetting('depth', 12);
-        $('#depth-input').val(defaultDepth);
-        pendingEngineGoDepth = defaultDepth;
-        updateFormState('depthInput', defaultDepth);
-      }
-
       applySavedFormState();
       applyRunNewAnalysisPayloadFromUrl();
-      applyDefaultPlayerAndDepth();
       bindPersistentInput('#player-name-input', 'playerName');
       bindPersistentInput('#pgn-input', 'pgnInput');
       $('#pgn-input').on('input', function () {
@@ -1268,7 +1244,6 @@
       }
       lastQuickAnalysisDepth = getQuickAnalysisDepth();
       const ENGINE_AUTO_RETRY_LIMIT = 2;
-      let engineInitDeferred = null;
       let engineInitInFlight = null;
       let engineWorker = null;
       let engineReady = false;
@@ -1395,49 +1370,9 @@
         }, 12000);
       }
 
-      function resolveEngineInitDeferred() {
-        if (engineInitDeferred && typeof engineInitDeferred.resolve === 'function') {
-          engineInitDeferred.resolve(true);
-          engineInitDeferred = null;
-        }
-      }
-
-      function rejectEngineInitDeferred(reason) {
-        if (engineInitDeferred && typeof engineInitDeferred.reject === 'function') {
-          const error = reason instanceof Error ? reason : new Error(reason || 'Engine initialization failed.');
-          engineInitDeferred.reject(error);
-          engineInitDeferred = null;
-        }
-      }
-
-      function beginEngineInitPromise() {
-        rejectEngineInitDeferred('Engine initialization superseded.');
-        let resolveInit;
-        let rejectInit;
-        const readinessPromise = new Promise((resolve, reject) => {
-          resolveInit = resolve;
-          rejectInit = reject;
-        });
-        engineInitDeferred = { resolve: resolveInit, reject: rejectInit };
-        const trackedPromise = readinessPromise
-          .catch(err => {
-            // Preserve rejection for awaiters while marking it handled.
-            throw err;
-          })
-          .finally(() => {
-            if (engineInitInFlight === trackedPromise) {
-              engineInitInFlight = null;
-              engineInitDeferred = null;
-            }
-          });
-        engineInitInFlight = trackedPromise;
-        // Avoid unhandled rejections when callers don't await.
-        engineInitInFlight.catch(() => {});
-      }
-
       function handleEngineLoadFailure(detailMessage) {
         engineReady = false;
-        rejectEngineInitDeferred(detailMessage || 'Stockfish engine failed to load.');
+        engineInitInFlight = null;
         clearEngineRetryTimer();
         engineInitAttempts = 0;
         $('#analyze-pgn-btn').prop('disabled', true).text('Engine Load Error');
@@ -1473,7 +1408,6 @@
         if (engineInitInFlight) {
           // Allow the newest attempt to replace any previous one.
         }
-        beginEngineInitPromise();
         const initPromise = (async () => {
           const isAutoRetry = opts && opts.isAutoRetry === true;
           const allowAutoRetry = !opts || opts.allowAutoRetry !== false;
@@ -1523,7 +1457,6 @@
               engineInitAttempts = 0;
               $('#analyze-pgn-btn').prop('disabled', false).text('Analyze');
               hideEngineStatus();
-              resolveEngineInitDeferred();
             } else if (msg.startsWith('info')) {
               handleEngineInfoMessage(rawMsg);
             } else if (msg.startsWith('bestmove')) {
@@ -1552,11 +1485,8 @@
           }, 20000);
           scheduleEngineRetry({ allowAutoRetry });
         })();
-        initPromise.catch(err => {
-          const detail = err && err.message ? err.message : 'Engine initialization failed.';
-          handleEngineLoadFailure(detail);
-        });
-        return engineInitInFlight;
+        engineInitInFlight = initPromise.finally(() => { engineInitInFlight = null; });
+        return initPromise;
       }
 
       if (retryEngineBtn.length) {
@@ -1758,45 +1688,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             }
           }, 50);
         });
-      }
-
-      async function waitForEngineReadyWithTimeout(timeoutMs = AUTO_ENGINE_READY_TIMEOUT_MS, options = {}) {
-        const allowRetry = options && options.allowRetry === true;
-        const startIfIdle = options && options.startIfIdle === true;
-        const shouldAbort = typeof options.shouldAbort === 'function' ? options.shouldAbort : null;
-        let retryAttempted = false;
-
-        const startEngineIfNeeded = () => {
-          if (engineReady) return;
-          if (!engineInitInFlight && startIfIdle) {
-            const initResult = initEngine(true);
-            if (initResult && typeof initResult.catch === 'function') {
-              initResult.catch(() => {});
-            }
-          }
-        };
-
-        while (true) {
-          if (shouldAbort && shouldAbort()) return !!engineReady;
-          startEngineIfNeeded();
-          if (engineReady) return true;
-          const result = await Promise.race([
-            waitForEngineReady().then(() => 'ready'),
-            new Promise(resolve => setTimeout(() => resolve('timeout'), timeoutMs))
-          ]);
-          if (result === 'ready' || engineReady) return true;
-          if (shouldAbort && shouldAbort()) return !!engineReady;
-          const initPending = !!engineInitInFlight;
-          if (result === 'timeout' && initPending && allowRetry && !retryAttempted) {
-            retryAttempted = true;
-            const retryResult = initEngine(true, { allowAutoRetry: false });
-            if (retryResult && typeof retryResult.catch === 'function') {
-              retryResult.catch(() => {});
-            }
-            continue;
-          }
-          return false;
-        }
       }
 
       const classificationStyles = {
@@ -3316,14 +3207,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         return lines.join('\n');
       }
 
-      function tryLoadPgnIntoGame(pgnSource) {
-        if (!pgnSource) return false;
-        const normalized = normalizePgn(pgnSource);
-        if (game.load_pgn(normalized)) return true;
-        const movesOnly = normalizePgn(String(pgnSource).replace(/^(\s*\[.*\]\s*$)+/gm, ''));
-        return game.load_pgn(movesOnly);
-      }
-
       function normalizeStep(step) {
         const n = parseInt(step, 10);
         if (!Number.isFinite(n) || Number.isNaN(n)) return 1;
@@ -4293,7 +4176,11 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
 
       $('#analyze-pgn-btn').on('click', async function () {
         const pgnRaw = $('#pgn-input').val().trim(); if (!pgnRaw) { showError('Please paste a PGN.'); return; }
-        if (!tryLoadPgnIntoGame(pgnRaw)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
+        const pgn = normalizePgn(pgnRaw);
+        if (!game.load_pgn(pgn)) {
+          const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm,''));
+          if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
+        }
         setLastKnownHeaders(game.header());
         const rawNameForAnalysis = getRawPlayerNameInput();
         if (rawNameForAnalysis) {
@@ -4797,58 +4684,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           updateFormState('finalAnalysisInput', sourceText);
         }
         $('#generate-review-btn').trigger('click');
-      }
-
-      async function autoLoadLatestChessComGame() {
-        if (autoLoadTriggered) return;
-        if (!isFormPristineForAutoFlow()) return;
-        autoLoadTriggered = true;
-        const token = ++autoLoadAttemptToken;
-        const playerName = getPlayerName();
-        showGameLoaderFeedback(`Loading latest Chess.com game for ${playerName}…`, 'info');
-        try {
-          const engineReadyWithTimeout = await waitForEngineReadyWithTimeout(AUTO_ENGINE_READY_TIMEOUT_MS, {
-            allowRetry: true,
-            startIfIdle: true,
-            shouldAbort: () => token !== autoLoadAttemptToken || !isFormPristineForAutoFlow()
-          });
-          if (token !== autoLoadAttemptToken) return;
-          if (!isFormPristineForAutoFlow()) return;
-          if (!engineReadyWithTimeout) {
-            showEngineStatus({
-              tone: 'error',
-              message: 'Stockfish engine is not ready yet.',
-              detail: 'Please retry or load a game manually.',
-              showRetry: true
-            });
-            showGameLoaderFeedback('Stockfish engine is not ready for automatic analysis.', 'error');
-            return;
-          }
-          if (!isFormPristineForAutoFlow()) return;
-          const games = await fetchChessComGames(playerName);
-          if (token !== autoLoadAttemptToken || !games) return;
-          if (!games.length) {
-            showGameLoaderFeedback(`No recent Chess.com games found for ${playerName}.`, 'info');
-            return;
-          }
-          if (!isFormPristineForAutoFlow()) return;
-          const selectedGame = games[0];
-          handleGameSelection(selectedGame);
-          if (!tryLoadPgnIntoGame(selectedGame.pgn)) {
-            showGameLoaderFeedback('Automatically loaded PGN could not be parsed.', 'error');
-            return;
-          }
-          setLastKnownHeaders(game.header());
-          updateReviewPlayerColorFromGame(game, getRawPlayerNameInput(), { clearOnMiss: false });
-          updatePlayerOutcomeFromGame(game);
-          switchStep(2);
-          await runStockfishAnalysis();
-        } catch (err) {
-          if (token !== autoLoadAttemptToken) return;
-          console.error('Automatic game bootstrap failed', err);
-          const detail = err && err.message ? err.message : 'Automatic game load failed.';
-          showGameLoaderFeedback(detail, 'error');
-        }
       }
 
         function getScore(fen, opts) {
@@ -6788,8 +6623,6 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             }
           }
         });
-
-        autoLoadLatestChessComGame();
       });
     </script>
 </body>
