@@ -28,6 +28,9 @@
     #move-analysis-scroll::-webkit-scrollbar { width: 8px; }
     #move-analysis-scroll::-webkit-scrollbar-track { background: #1a1f2a; }
     #move-analysis-scroll::-webkit-scrollbar-thumb { background-color: #4b5563; border-radius: 10px; border: 2px solid #1a1f2a; }
+    #move-analysis-shell { min-height: 0; display: flex; flex-direction: column; }
+    #move-analysis-scroll { min-height: 0; }
+    .analysis-column { min-height: 0; }
     .btn-primary { background-color: #3b82f6; transition: background-color 0.2s; }
     .btn-primary:hover { background-color: #2563eb; }
     .btn-primary:disabled { background-color: #374151; cursor: not-allowed; }
@@ -285,7 +288,7 @@
       </div>
 
       <!-- Column B: Independently scrollable analysis (no titles) -->
-      <div class="lg:col-span-1 flex flex-col gap-3">
+      <div class="lg:col-span-1 flex flex-col gap-3 analysis-column">
         <div id="move-analysis-shell" class="bg-[#101522] p-3 rounded-lg portrait-panel comment-panel">
           <div id="move-analysis-scroll" class="overflow-y-auto">
             <!-- One-line summary appears here (from "Summary:") -->
@@ -2721,6 +2724,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const atEnd = activePuzzleIndex >= puzzleQueue.length - 1 || activePuzzleIndex === -1;
           nextPuzzleBtn.prop('disabled', !puzzleActive || atEnd || puzzleLoading);
         }
+        adjustAnalysisHeight();
       }
 
       function rebuildPuzzleQueue() {
@@ -6530,41 +6534,18 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       function adjustAnalysisHeight() {
         const scroll = document.getElementById('move-analysis-scroll');
         if (!scroll) return;
-        const isMobile = isMobileViewport();
-        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-        if (isMobile) {
-          const rect = scroll.getBoundingClientRect();
-          const available = viewportHeight ? (viewportHeight - Math.max(rect.top, 0) - 8) : 0;
-          const finalHeight = Math.max(200, Math.round(available || 0));
-          scroll.style.height = finalHeight + 'px';
-          scroll.style.maxHeight = finalHeight + 'px';
-          return;
-        }
-        const boardEl = document.getElementById('board');
-        const controls = document.getElementById('controls');
-        const graphEl = document.getElementById('eval-graph');
-        let boardHeight = 0;
-        if (boardEl) {
-          const boardRect = boardEl.getBoundingClientRect();
-          boardHeight = boardRect.height || boardRect.width || boardEl.clientHeight || boardEl.clientWidth || 0;
-        }
-        let graphHeight = 0;
-        if (graphEl) {
-          const graphRect = graphEl.getBoundingClientRect();
-          graphHeight = graphRect.height || graphEl.offsetHeight || 0;
-        }
-        let controlsHeight = 0;
-        if (controls) {
-          const controlsRect = controls.getBoundingClientRect();
-          controlsHeight = controlsRect.height || controls.offsetHeight || 0;
-        }
-        let total = boardHeight + graphHeight + controlsHeight;
-        if (!Number.isFinite(total) || total <= 0) {
-          total = boardEl && boardEl.clientWidth ? boardEl.clientWidth + (graphEl ? graphEl.offsetHeight || 0 : 0) : 0;
-        }
-        const paddedTotal = total + 24;
-        const scaledTotal = paddedTotal * 0.8;
-        const finalHeight = Math.max(200, Math.round(scaledTotal));
+        const shell = document.getElementById('move-analysis-shell');
+        const rectTarget = (shell || scroll).getBoundingClientRect();
+        const viewportHeight = (window.visualViewport && window.visualViewport.height)
+          || window.innerHeight
+          || document.documentElement.clientHeight
+          || 0;
+        const scrollStyles = window.getComputedStyle(scroll);
+        const paddingTop = parseFloat(scrollStyles.paddingTop || '0') || 0;
+        const paddingBottom = parseFloat(scrollStyles.paddingBottom || '0') || 0;
+        const margin = 8;
+        const available = viewportHeight ? (viewportHeight - Math.max(rectTarget.top, 0) - paddingTop - paddingBottom - margin) : 0;
+        const finalHeight = Math.max(200, Math.round(available || 0));
         scroll.style.height = finalHeight + 'px';
         scroll.style.maxHeight = finalHeight + 'px';
       }
