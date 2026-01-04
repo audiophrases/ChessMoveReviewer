@@ -29,7 +29,7 @@
     #move-analysis-scroll::-webkit-scrollbar-track { background: #1a1f2a; }
     #move-analysis-scroll::-webkit-scrollbar-thumb { background-color: #4b5563; border-radius: 10px; border: 2px solid #1a1f2a; }
     #move-analysis-shell { min-height: 0; display: flex; flex-direction: column; }
-    #move-analysis-scroll { min-height: 0; scroll-padding-top: 0.75rem; }
+    #move-analysis-scroll { min-height: 0; scroll-padding-top: 1.25rem; }
     .analysis-column { min-height: 0; }
     .btn-primary { background-color: #3b82f6; transition: background-color 0.2s; }
     .btn-primary:hover { background-color: #2563eb; }
@@ -104,12 +104,12 @@
 <body class="min-h-screen flex flex-col p-3 sm:p-4">
 
   <!-- Header (hidden on final screen) -->
-  <header id="app-header" class="text-center mb-6">
+  <header id="app-header" class="text-center mb-4">
     <h1 class="text-2xl sm:text-3xl font-bold text-white">AI Chess Reviewer</h1>
   </header>
 
   <!-- Step Indicators -->
-  <div id="step-indicators" class="flex justify-center items-center space-x-3 mb-6">
+  <div id="step-indicators" class="flex justify-center items-center space-x-3 mb-4">
     <div id="indicator-1" class="step-indicator active w-8 h-2 rounded-full" data-step="1" role="button" tabindex="0" aria-label="Go to Step 1"></div>
     <div id="indicator-2" class="step-indicator w-8 h-2 rounded-full" data-step="2" role="button" tabindex="0" aria-label="Go to Step 2"></div>
     <div id="indicator-3" class="step-indicator w-8 h-2 rounded-full" data-step="3" role="button" tabindex="0" aria-label="Go to Step 3"></div>
@@ -243,7 +243,7 @@
 
   <!-- Final Review Section (mobile-optimized) -->
   <main id="review-section" class="hidden flex-1 max-w-5xl w-full mx-auto">
-    <div class="w-full grid grid-cols-1 lg:grid-cols-2 gap-3">
+    <div class="w-full grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-3">
       <!-- Column A: Board + evaluation graph (sticky) -->
       <div class="lg:col-span-1 sticky top-2 board-sticky-wrapper">
         <!-- Evaluation graph -->
@@ -417,6 +417,7 @@
       const REVIEW_SESSION_STORAGE_KEY = 'cmr.reviewSession.v1';
       const REVIEW_SESSION_SESSION_KEY = 'cmr.reviewSession.session.v1';
       const DEFAULT_PLAYER_NAME = 'eugenime';
+      const FOCUSED_MOVE_SCROLL_OFFSET = 12;
       let formState = loadFormState();
       let currentStep = 1;
       let pendingEngineGoDepth = null;
@@ -6819,6 +6820,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
         const mode = opts.scrollMode || 'none';
         const behavior = typeof opts.behavior === 'string' ? opts.behavior : 'smooth';
         const preferTopAlignment = isMobileViewport();
+        const focusOffset = Number.isFinite(opts.focusOffset) ? opts.focusOffset : FOCUSED_MOVE_SCROLL_OFFSET;
         const item = Number.isFinite(idx)
           ? document.querySelector('.move-item[data-move-index="' + idx + '"]')
           : null;
@@ -6830,7 +6832,7 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const containerRect = container.getBoundingClientRect();
           const itemRect = item.getBoundingClientRect();
           const offsetWithinContainer = (itemRect.top - containerRect.top) + container.scrollTop;
-          const target = Math.max(offsetWithinContainer - paddingTop, 0);
+          const target = Math.max(offsetWithinContainer - paddingTop - focusOffset, 0);
           if (hasScrollableContainer) {
             if (container.classList.contains('overflow-y-auto') && typeof item.scrollIntoView === 'function') {
               item.scrollIntoView({ block: 'start', behavior, inline: 'nearest' });
@@ -6860,12 +6862,12 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
             const containerRect = container.getBoundingClientRect();
             const itemRect = item.getBoundingClientRect();
             const offsetWithinContainer = (itemRect.top - containerRect.top) + container.scrollTop;
-            const target = Math.max(offsetWithinContainer - (container.clientHeight / 2) + (itemRect.height / 2), 0);
+            const target = Math.max(offsetWithinContainer - (container.clientHeight / 2) + (itemRect.height / 2) - focusOffset, 0);
             container.scrollTo({ top: target, behavior });
           } else {
             const itemRect = item.getBoundingClientRect();
             const currentScroll = window.scrollY || window.pageYOffset || 0;
-            const target = Math.max(currentScroll + itemRect.top - (window.innerHeight / 2) + (itemRect.height / 2), 0);
+            const target = Math.max(currentScroll + itemRect.top - (window.innerHeight / 2) + (itemRect.height / 2) - focusOffset, 0);
             window.scrollTo({ top: target, behavior });
           }
         } else if (mode === 'step') {
