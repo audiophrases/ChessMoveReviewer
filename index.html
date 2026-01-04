@@ -120,12 +120,12 @@
       <div class="flex items-center justify-between gap-2 mb-2">
         <label for="player-name-input" class="font-semibold text-gray-300">Who should the AI coach?</label>
       </div>
-      <input id="player-name-input" type="text" class="w-full p-3 rounded-lg form-input" placeholder="Username"/>
+      <input id="player-name-input" type="text" class="w-full p-3 rounded-lg form-input" placeholder="Username" value="eugenime"/>
       <p class="mt-1 text-xs text-gray-400">Your username should appear in the PGN.</p>
     </div>
     <div class="bg-[#101522] border border-[#1f2937] rounded-lg p-4">
       <h3 class="text-sm font-semibold text-gray-200">Need a PGN?</h3>
-      <p class="mt-1 text-xs text-gray-400">Load a recent game from Chess.com or Lichess, or paste one manually below.</p>
+      <p class="mt-1 text-xs text-gray-400">Recent games for the current username (default: eugenime) load automatically. You can still refresh from Chess.com or Lichess or paste one manually below.</p>
       <div class="flex flex-wrap items-center gap-2 mt-3">
         <button id="load-chesscom-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">
           Browse Chess.com games
@@ -149,7 +149,7 @@
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
         <label for="depth-input" class="text-gray-300">Depth</label>
-        <input id="depth-input" type="number" value="24" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="depth-input" type="number" value="12" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
         <label for="threads-input" class="text-gray-300">Threads</label>
@@ -359,7 +359,7 @@
       }
 
       const ENGINE_SETTING_LIMITS = {
-        depth: { min: 4, max: 30, fallback: sanitizeIntegerSetting($('#depth-input').val(), { fallback: 24 }) },
+        depth: { min: 4, max: 30, fallback: sanitizeIntegerSetting($('#depth-input').val(), { fallback: 12 }) },
         threads: { min: 1, max: hardwareThreadCap, fallback: sanitizeIntegerSetting($('#threads-input').val(), { fallback: 4 }) },
         hash: { min: 32, max: 512, fallback: sanitizeIntegerSetting($('#hash-input').val(), { fallback: 384 }) }
       };
@@ -498,6 +498,7 @@
       const gamePickerList = $('#game-picker-list');
       const closeGamePickerBtn = $('#close-game-picker-btn');
       let activeGameRequestToken = 0;
+      let autoGameLoadInitiated = false;
       let gamePickerReturnFocus = null;
       const saveArchiveBtn = $('#save-archive-btn');
       const archiveFeedback = $('#archive-feedback');
@@ -576,6 +577,8 @@
         }
       });
 
+      triggerAutoGameLoadIfNeeded();
+
       if (saveArchiveBtn.length) {
         saveArchiveBtn.on('click', function () {
           handleSaveArchiveEntry();
@@ -647,6 +650,61 @@
         lastFinalAnalysisText = '';
         currentReviewMetadata = null;
         updateArchiveControls();
+      }
+
+      async function autoLoadGamesForUsername(username) {
+        const targetUser = username || DEFAULT_PLAYER_NAME;
+        if (!targetUser) return;
+        hideGameLoaderFeedback();
+        const requestToken = ++activeGameRequestToken;
+        const sourceLabel = 'Chess.com or Lichess';
+        openGamePickerModal(sourceLabel, targetUser);
+        setGamePickerStatus(`Fetching recent games for ${targetUser} from Chess.com and Lichess…`, 'info');
+        clearGamePickerList();
+        try {
+          const [chessComResult, lichessResult] = await Promise.allSettled([
+            fetchChessComGames(targetUser),
+            fetchLichessGames(targetUser)
+          ]);
+          if (requestToken !== activeGameRequestToken) return;
+          const combined = [];
+          const statusParts = [];
+          if (chessComResult.status === 'fulfilled') {
+            combined.push(...chessComResult.value);
+            statusParts.push(`Chess.com: ${chessComResult.value.length} games`);
+          } else {
+            statusParts.push('Chess.com unavailable');
+          }
+          if (lichessResult.status === 'fulfilled') {
+            combined.push(...lichessResult.value);
+            statusParts.push(`Lichess: ${lichessResult.value.length} games`);
+          } else {
+            statusParts.push('Lichess unavailable');
+          }
+          combined.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          if (!combined.length) {
+            setGamePickerStatus(`No recent games found for ${targetUser} on Chess.com or Lichess.`, 'info');
+            showGameLoaderFeedback(`No recent games found for ${targetUser}.`, 'info');
+            return;
+          }
+          renderGamePickerList(combined);
+          setGamePickerStatus(`Choose a game to load. ${statusParts.join(' · ')}`, 'info');
+          showGameLoaderFeedback(`Loaded ${combined.length} games for ${targetUser} from Chess.com and Lichess.`, 'success');
+        } catch (err) {
+          if (requestToken !== activeGameRequestToken) return;
+          console.error('Automatic game load failed', err);
+          setGamePickerStatus('Unable to load games automatically. Try again or paste a PGN.', 'error');
+          showGameLoaderFeedback('Automatic game load failed. Try again or paste a PGN.', 'error');
+        }
+      }
+
+      function triggerAutoGameLoadIfNeeded() {
+        if (autoGameLoadInitiated) return;
+        const existingPgn = ($('#pgn-input').val() || '').trim();
+        const username = getRawPlayerNameInput() || DEFAULT_PLAYER_NAME;
+        if (!username || existingPgn) return;
+        autoGameLoadInitiated = true;
+        autoLoadGamesForUsername(username);
       }
 
       async function handleGameLoad(source) {
@@ -1231,10 +1289,10 @@
       const ENGINE_GO_OPTIONS = { depth: initialEngineDepth };
       pendingEngineGoDepth = null;
       const QUICK_ANALYSIS_DEPTH = 10;
-      const DEFAULT_DEEP_ANALYSIS_DEPTH = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : 24;
+      const DEFAULT_DEEP_ANALYSIS_DEPTH = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : 12;
       const defaultManualDeepDepth = Number.isFinite(DEFAULT_DEEP_ANALYSIS_DEPTH)
         ? DEFAULT_DEEP_ANALYSIS_DEPTH
-        : (Number.isFinite(ENGINE_GO_OPTIONS.depth) ? ENGINE_GO_OPTIONS.depth : 24);
+        : (Number.isFinite(ENGINE_GO_OPTIONS.depth) ? ENGINE_GO_OPTIONS.depth : 12);
       manualDeepState = { status: 'idle', depth: defaultManualDeepDepth, token: 0 };
       function getQuickAnalysisDepth() {
         const depthInfo = getDepthSettingInfo();
