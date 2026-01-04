@@ -16,7 +16,7 @@
   <style>
     :root { --panel-max-width: 47.52rem; }
     body { font-family: 'Inter', sans-serif; background-color: #0f1115; color: #e5e7eb; }
-    .chessboard-container { width: 100%; margin: 0 auto; aspect-ratio: 1 / 1; }
+    .chessboard-container { width: 100%; margin: 0; aspect-ratio: 1 / 1; }
     .move-item { transition: background-color 0.2s ease-in-out; border-radius: 0.5rem; }
     .move-item.highlight { background-color: #243249; }
     .move-item:hover { background-color: #1c273a; }
@@ -255,7 +255,7 @@
             <p id="material-top-label" class="text-center text-xs text-gray-300 leading-tight mb-1">White: 0</p>
             <div id="board" class="chessboard-container rounded-lg overflow-hidden"></div>
             <p id="material-bottom-label" class="text-center text-xs text-gray-300 leading-tight mt-1">Black: 0</p>
-            <div id="controls" class="mt-3 flex flex-col gap-1 w-full">
+            <div id="controls" class="flex flex-col gap-1 w-full">
               <div class="flex flex-wrap items-center gap-2">
                 <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
                 <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
@@ -293,8 +293,8 @@
           <div id="move-analysis-scroll" class="overflow-y-auto">
             <!-- One-line summary appears here (from "Summary:") -->
             <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
-            <div id="featured-move" class="hidden mb-3"></div>
             <div id="move-analysis-container" class="space-y-1"></div>
+            <div id="featured-move" class="hidden"></div>
           </div>
         </div>
       </div>
@@ -6434,6 +6434,8 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
       }
 
       function renderMoveList() {
+        const featuredCard = $('#featured-move');
+        const preservedFeaturedCard = featuredCard.length ? featuredCard.detach() : null;
         const c = $('#move-analysis-container').empty();
         movesWithAnalysis.forEach((mv, i) => {
           const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
@@ -6470,6 +6472,14 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           clearExploration();
           goToMove(idx, { scrollMode: 'center' });
         });
+        if (preservedFeaturedCard && preservedFeaturedCard.length) {
+          const firstMove = c.children('.move-item').first();
+          if (firstMove.length) {
+            preservedFeaturedCard.insertAfter(firstMove);
+          } else {
+            c.prepend(preservedFeaturedCard);
+          }
+        }
       }
 
       function ensureBoardInitialized() {
@@ -6817,24 +6827,10 @@ Move of the game: <move> - {<eval>} <classification>: <one sentence why>`;
           const hasScrollableContainer = container.scrollHeight > (container.clientHeight + 1);
           const containerStyles = window.getComputedStyle(container);
           const paddingTop = parseFloat(containerStyles.paddingTop || '0') || 0;
-          const visibleBlockHeight = (el) => {
-            if (!el || el.classList.contains('hidden')) return 0;
-            const rect = el.getBoundingClientRect();
-            const styles = window.getComputedStyle(el);
-            const marginTop = parseFloat(styles.marginTop || '0') || 0;
-            const marginBottom = parseFloat(styles.marginBottom || '0') || 0;
-            return rect.height + marginTop + marginBottom;
-          };
-          const summaryHeight = visibleBlockHeight(document.getElementById('game-summary'));
-          const featuredHeight = visibleBlockHeight(document.getElementById('featured-move'));
-          const moveList = document.getElementById('move-analysis-container');
-          const itemOffsetWithinList = (() => {
-            if (!moveList) return item.offsetTop || 0;
-            const listRect = moveList.getBoundingClientRect();
-            const itemRect = item.getBoundingClientRect();
-            return (itemRect.top - listRect.top) + (moveList.scrollTop || 0);
-          })();
-          const target = Math.max(paddingTop + summaryHeight + featuredHeight + itemOffsetWithinList, 0);
+          const containerRect = container.getBoundingClientRect();
+          const itemRect = item.getBoundingClientRect();
+          const offsetWithinContainer = (itemRect.top - containerRect.top) + container.scrollTop;
+          const target = Math.max(offsetWithinContainer - paddingTop, 0);
           if (hasScrollableContainer) {
             if (container.classList.contains('overflow-y-auto') && typeof item.scrollIntoView === 'function') {
               item.scrollIntoView({ block: 'start', behavior, inline: 'nearest' });
