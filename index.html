@@ -251,37 +251,41 @@
 
         <!-- Board -->
         <div class="w-full mx-auto board-panel">
-          <div class="board-shell bg-[#0b0e15] rounded-xl p-3 shadow-xl shadow-black/40">
-            <p id="material-top-label" class="text-center text-xs text-gray-300 leading-tight mb-1">White: 0</p>
-            <div id="board" class="chessboard-container rounded-lg overflow-hidden"></div>
-            <p id="material-bottom-label" class="text-center text-xs text-gray-300 leading-tight mt-1">Black: 0</p>
-            <div id="controls" class="flex flex-col gap-1 w-full">
-              <div class="flex flex-wrap items-center gap-2">
-                <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
-                <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
-                <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
-                <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
-                <button id="copy-fen-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">FEN</button>
-                <button id="save-archive-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary whitespace-nowrap" disabled>
-                  Save
-                </button>
-                <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
-                <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
-              </div>
-              <p id="archive-feedback" class="hidden text-xs text-gray-300"></p>
+          <div class="board-shell bg-[#0b0e15] rounded-xl shadow-xl shadow-black/40 overflow-hidden">
+            <div class="px-3 pt-3 pb-1">
+              <p id="material-top-label" class="text-center text-xs text-gray-300 leading-tight">White: 0</p>
             </div>
-            <div id="puzzle-panel" class="mt-3 p-3 rounded-lg bg-[#101522] border border-[#1f2937] hidden">
-              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p class="text-sm font-semibold text-gray-200">Puzzle mode</p>
-                  <p id="puzzle-info" class="text-xs text-gray-400">Generate a review to unlock puzzles from your worst moves.</p>
+            <div id="board" class="chessboard-container"></div>
+            <div class="px-3 pb-3 pt-1 space-y-2">
+              <p id="material-bottom-label" class="text-center text-xs text-gray-300 leading-tight">Black: 0</p>
+              <div id="controls" class="flex flex-col gap-1 w-full">
+                <div class="flex flex-wrap items-center gap-2">
+                  <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
+                  <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
+                  <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
+                  <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
+                  <button id="copy-fen-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">FEN</button>
+                  <button id="save-archive-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary whitespace-nowrap" disabled>
+                    Save
+                  </button>
+                  <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
+                  <button id="exit-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap hidden">Exit</button>
                 </div>
-                <div class="flex flex-wrap gap-2">
-                  <button id="retry-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>Retry</button>
-                  <button id="next-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>Next</button>
-                </div>
+                <p id="archive-feedback" class="hidden text-xs text-gray-300"></p>
               </div>
-              <p id="puzzle-status-text" class="mt-2 text-xs text-gray-300"></p>
+              <div id="puzzle-panel" class="p-3 rounded-lg bg-[#101522] border border-[#1f2937] hidden">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p class="text-sm font-semibold text-gray-200">Puzzle mode</p>
+                    <p id="puzzle-info" class="text-xs text-gray-400">Generate a review to unlock puzzles from your worst moves.</p>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <button id="retry-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>Retry</button>
+                    <button id="next-puzzle-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" disabled>Next</button>
+                  </div>
+                </div>
+                <p id="puzzle-status-text" class="mt-2 text-xs text-gray-300"></p>
+              </div>
             </div>
           </div>
         </div>
@@ -417,7 +421,7 @@
       const REVIEW_SESSION_STORAGE_KEY = 'cmr.reviewSession.v1';
       const REVIEW_SESSION_SESSION_KEY = 'cmr.reviewSession.session.v1';
       const DEFAULT_PLAYER_NAME = 'eugenime';
-      const FOCUSED_MOVE_SCROLL_OFFSET = 12;
+      const FOCUSED_MOVE_SCROLL_OFFSET = 18;
       let formState = loadFormState();
       let currentStep = 1;
       let pendingEngineGoDepth = null;
