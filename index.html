@@ -1791,6 +1791,7 @@ Narrative Summary: <one sentence>`;
       };
       const MATE_ESCAPE_EXTENSION_THRESHOLD = 2;
       const MATE_SHORTEN_SEVERE_THRESHOLD = 2;
+      const MATE_TIGHTEN_PRAISE_THRESHOLD = 2;
       const WINNING_PROB_THRESHOLD = 0.7;
       const EVEN_PROB_BUFFER = 0.07;
       const PRAISE_GAIN_THRESHOLD = 18;
@@ -1975,16 +1976,28 @@ Narrative Summary: <one sentence>`;
         return classification;
       }
 
-      function classifyHighPraise(moveRecord) {
+      function classifyHighPraise(moveRecord, opts = {}) {
         const context = getCentipawnContext(moveRecord);
+        if (!context) return null;
+        const previousMoveError = !!opts.previousMoveError;
         const keepsMate = retainsMateForMover(moveRecord);
+        const hadMate = hadMateForMoverBefore(moveRecord);
         const gain = context ? context.moverDelta : null;
         const positiveGain = Number.isFinite(gain) && gain >= PRAISE_GAIN_THRESHOLD;
-        if (!positiveGain && !keepsMate) return null;
+        const mateBeforeDistance = context.mateBeforeDistance;
+        const mateAfterDistance = context.mateAfterDistance;
+        const mateDelta = (Number.isFinite(mateBeforeDistance) && Number.isFinite(mateAfterDistance))
+          ? mateBeforeDistance - mateAfterDistance
+          : 0;
+        const tightenedMate = hadMate && keepsMate && mateDelta >= MATE_TIGHTEN_PRAISE_THRESHOLD;
+        const sacrifice = isLikelySacrificeMove(moveRecord);
+        const qualifies = positiveGain || sacrifice || tightenedMate || (previousMoveError && keepsMate && hadMate);
+        if (!qualifies) return null;
         const winningAfter = keepsMate || (context && Number.isFinite(context.moverAfter) && context.moverAfter > WINNING_PROB_THRESHOLD);
         if (!winningAfter) return null;
-        if (isLikelySacrificeMove(moveRecord) && (positiveGain || keepsMate)) return 'Brilliant';
-        return 'Great';
+        if (sacrifice && (positiveGain || keepsMate || tightenedMate)) return 'Brilliant';
+        if (positiveGain || tightenedMate || previousMoveError) return 'Great';
+        return null;
       }
 
       function isLikelySacrificeMove(moveRecord) {
@@ -2123,7 +2136,7 @@ Narrative Summary: <one sentence>`;
 
           const lostMateForMover = hadMateForMoverBefore(mv) && !retainsMateForMover(mv);
           const needsSevere = createdNewMate || (!lockedOpponentMate && worsenedExistingMate) || lostMateForMover;
-          mv._forcedDefense = isForcedDefenseMove(mv) || lockedOpponentMate;
+          mv._forcedDefense = isForcedDefenseMove(mv);
 
           if (needsSevere) {
             const severeTarget = Number.isFinite(mv.moverDelta) && mv.moverDelta <= -50 ? 'Misclick??' : 'Blunder';
@@ -2154,12 +2167,12 @@ Narrative Summary: <one sentence>`;
         });
 
         moves.forEach((mv, idx) => {
-          const praiseClass = classifyHighPraise(mv);
-          if (!praiseClass) return;
           const prev = moves[idx - 1];
           if (!prev) return;
           const prevKey = normalizeClassificationKey(prev.classification);
           if (!PREVIOUS_ERROR_KEYS.has(prevKey)) return;
+          const praiseClass = classifyHighPraise(mv, { previousMoveError: true });
+          if (!praiseClass) return;
           mv.classification = praiseClass;
         });
 
@@ -2173,13 +2186,13 @@ Narrative Summary: <one sentence>`;
 
         moves.forEach(mv => {
           const classificationKey = normalizeClassificationKey(mv.classification);
+          const defensiveForced = mv._extendsOpponentMate || mv._maintainsOpponentMate || mv._forcedDefense;
+          if (defensiveForced && classificationKey !== 'mistake' && classificationKey !== 'inaccuracy') {
+            mv._forcedByDefense = true;
+          }
           if (mv._breaksOpponentMate) {
             mv.classification = 'Great';
-          } else if (mv._extendsOpponentMate || mv._maintainsOpponentMate || mv._forcedDefense) {
-            if (classificationKey !== 'mistake' && classificationKey !== 'inaccuracy') {
-              mv.classification = 'Forced';
-            }
-          } else if (mv._maintainsMoverMate) {
+          } else if (defensiveForced) {
             if (classificationKey !== 'mistake' && classificationKey !== 'inaccuracy') {
               mv.classification = 'Forced';
             }
@@ -2355,23 +2368,14 @@ Narrative Summary: <one sentence>`;
           return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} collapse detected by Stockfish.`;
         }
         if (key === 'forced') {
-          const keepsMate = !!(move._maintainsMoverMate || retainsMateForMover(move));
-          const forcedDefense = !!(move._forcedDefense || move._maintainsOpponentMate || isForcedDefenseMove(move));
-          const prolongsMate = !!move._extendsOpponentMate;
+          const keepsMate = hadMateForMoverBefore(move) && retainsMateForMover(move);
+          const defensiveMate = hadOpponentMate && hasOpponentMate;
+          const forcedDefense = !!(move._forcedByDefense || move._forcedDefense || move._maintainsOpponentMate || defensiveMate);
           if (keepsMate) {
             return 'Auto insight: keeps the mate-in-N on track.';
           }
           if (forcedDefense) {
-            if (hadOpponentMate && hasOpponentMate && (prolongsMate || move._maintainsOpponentMate)) {
-              return 'Auto insight: no escape—best try to prolong the inevitable mate.';
-            }
-            if (hadOpponentMate && !hasOpponentMate) {
-              return 'Auto insight: finds the only move that avoids immediate mate.';
-            }
-            if (hasOpponentMate) {
-              return 'Auto insight: only move that avoids immediate mate.';
-            }
-            return 'Auto insight: forced move to stay on course.';
+            return 'Auto insight: only move that avoids immediate mate.';
           }
           return 'Auto insight: forced move to stay on course.';
         }
