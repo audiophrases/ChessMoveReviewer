@@ -1792,6 +1792,8 @@ Narrative Summary: <one sentence>`;
       const MATE_ESCAPE_EXTENSION_THRESHOLD = 2;
       const MATE_SHORTEN_SEVERE_THRESHOLD = 2;
       const MATE_TIGHTEN_PRAISE_THRESHOLD = 2;
+      const MATE_SLOWDOWN_INACCURACY_THRESHOLD = 1;
+      const MATE_SLOWDOWN_MISTAKE_THRESHOLD = 3;
       const WINNING_PROB_THRESHOLD = 0.7;
       const EVEN_PROB_BUFFER = 0.07;
       const PRAISE_GAIN_THRESHOLD = 18;
@@ -1906,12 +1908,15 @@ Narrative Summary: <one sentence>`;
         const losingBefore = Number.isFinite(moverProbBefore) && moverProbBefore < (1 - WINNING_PROB_THRESHOLD);
         const droppedToEqual = winningBefore && Number.isFinite(moverProbAfter) && moverProbAfter <= (0.5 + EVEN_PROB_BUFFER);
         const droppedToLosing = winningBefore && Number.isFinite(moverProbAfter) && moverProbAfter < (0.5 - EVEN_PROB_BUFFER);
-        const retainsMate = retainsMateForMover(moveRecord);
-        const lostMate = hadMateForMoverBefore(moveRecord) && !retainsMate;
         const opponentMateBefore = opponentHadForcedMateBefore(moveRecord);
         const opponentMateAfter = opponentHasForcedMateAfter(moveRecord);
         const mateBeforeDistance = mateDistance(moveRecord.mateBefore);
         const mateAfterDistance = mateDistance(moveRecord.mateAfter);
+        const retainsMate = retainsMateForMover(moveRecord);
+        const hadMateBefore = hadMateForMoverBefore(moveRecord);
+        const lostMate = hadMateBefore && !retainsMate;
+        const moverMateSlowdown = hadMateBefore && retainsMate && Number.isFinite(mateBeforeDistance) && Number.isFinite(mateAfterDistance) && mateAfterDistance > mateBeforeDistance;
+        const mateSlowdownDelta = moverMateSlowdown ? (mateAfterDistance - mateBeforeDistance) : 0;
         const opponentMateLocked = opponentMateBefore && opponentMateAfter;
         const opponentMateNonWorsened = opponentMateLocked
           && (!Number.isFinite(mateBeforeDistance) || !Number.isFinite(mateAfterDistance) || mateAfterDistance >= mateBeforeDistance);
@@ -1936,6 +1941,8 @@ Narrative Summary: <one sentence>`;
           opponentMateAfter,
           mateBeforeDistance,
           mateAfterDistance,
+          moverMateSlowdown,
+          mateSlowdownDelta,
           opponentMateLocked,
           opponentMateNonWorsened,
           bandKey
@@ -1973,12 +1980,18 @@ Narrative Summary: <one sentence>`;
           const praise = classifyHighPraise(moveRecord);
           if (praise) classification = praise;
         }
+
+        if (context.moverMateSlowdown) {
+          const slowdownTarget = context.mateSlowdownDelta >= MATE_SLOWDOWN_MISTAKE_THRESHOLD ? 'Mistake' : 'Inaccuracy';
+          classification = chooseMoreSevereClassification(classification, slowdownTarget);
+        }
         return classification;
       }
 
       function classifyHighPraise(moveRecord, opts = {}) {
         const context = getCentipawnContext(moveRecord);
         if (!context) return null;
+        if (context.moverMateSlowdown) return null;
         const previousMoveError = !!opts.previousMoveError;
         const keepsMate = retainsMateForMover(moveRecord);
         const hadMate = hadMateForMoverBefore(moveRecord);
@@ -2337,6 +2350,13 @@ Narrative Summary: <one sentence>`;
         const key = normalizeClassificationKey(move.classification);
         const hadOpponentMate = opponentHadForcedMateBefore(move);
         const hasOpponentMate = opponentHasForcedMateAfter(move);
+        const context = getCentipawnContext(move) || {};
+        const mateSlowdown = context.moverMateSlowdown;
+        if (mateSlowdown) {
+          const slowdownDelta = context.mateSlowdownDelta || 0;
+          const slowdownDescriptor = slowdownDelta >= MATE_SLOWDOWN_MISTAKE_THRESHOLD ? 'significantly slows down' : 'slows down';
+          return `Auto insight: ${slowdownDescriptor} the forced mate; faster was available.`;
+        }
         if (key === 'brilliant') {
           if (retainsMateForMover(move)) {
             return 'Auto insight: keeps the forced mate alive.';
