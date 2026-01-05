@@ -2183,6 +2183,18 @@ Narrative Summary: <one sentence>`;
           const prev = moves[idx - 1];
           if (!prev) return;
           const prevKey = normalizeClassificationKey(prev.classification);
+          const currentKey = normalizeClassificationKey(mv.classification);
+          const defensiveOrForced = currentKey === 'forced' || mv._forcedDefense || mv._maintainsOpponentMate || mv._extendsOpponentMate;
+          const delta = Number(mv.moverDelta);
+          const followsSevereMateState = mv._maintainsOpponentMate || mv._extendsOpponentMate;
+          if (prevKey === 'blunder' || prevKey === 'misclick') {
+            // Reward stable follow-ups to severe opponent mistakes when there is no meaningful drop (delta >= -1).
+            const noMeaningfulDrop = Number.isFinite(delta) && delta >= -1;
+            if (noMeaningfulDrop && !defensiveOrForced && !followsSevereMateState && currentKey !== 'misclick' && currentKey !== 'blunder') {
+              mv.classification = 'Great';
+              return;
+            }
+          }
           if (!PREVIOUS_ERROR_KEYS.has(prevKey)) return;
           const praiseClass = classifyHighPraise(mv, { previousMoveError: true });
           if (!praiseClass) return;
