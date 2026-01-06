@@ -3654,22 +3654,14 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       }
 
       function buildCombinedStockfishOutput(playerName, annotatedPgn, automatedText) {
-        const prompt = buildAnalysisPrompt(playerName);
-        let combined = prompt;
-        if (annotatedPgn) {
-          combined += '\n\n' + annotatedPgn;
-        }
-        if (automatedText) {
-          combined += '\n\n=== Automated Stockfish Insights ===\n' + automatedText;
-        }
-        return combined;
+        return buildAnalysisPrompt(playerName);
       }
 
       function refreshStockfishOutput() {
         if (!lastAnnotatedPgn) return;
-        const combined = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
-        $('#stockfish-output').val(combined);
-        updateFormState('stockfishOutput', combined);
+        const promptOnly = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
+        $('#stockfish-output').val(promptOnly);
+        updateFormState('stockfishOutput', promptOnly);
       }
 
       function syncStep2View(opts) {
@@ -3685,12 +3677,12 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           return;
         }
         const hasAnalysis = !!(lastAnnotatedPgn || automatedReviewText);
-        const combined = hasAnalysis
+        const promptOnly = hasAnalysis
           ? buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText)
           : buildAnalysisPrompt(getPlayerName());
-        outputEl.val(combined);
+        outputEl.val(promptOnly);
         if (copyStockfishBtn.length) {
-          copyStockfishBtn.text(defaultCopyLabel).prop('disabled', !combined);
+          copyStockfishBtn.text(defaultCopyLabel).prop('disabled', !promptOnly);
         }
         if (hasAnalysis) {
           if (pendingDeepAnalysis && pendingDeepAnalysis.result) {
@@ -4191,9 +4183,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         automatedReviewText = result.automatedReviewText || '';
         lastAnnotatedPgn = (result.annotatedPgn || '').trim();
         probSeries = Array.isArray(result.probSeries) ? result.probSeries.slice() : [];
-        const combined = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
-        $('#stockfish-output').val(combined);
-        updateFormState('stockfishOutput', combined);
+        const promptOnly = buildCombinedStockfishOutput(getPlayerName(), lastAnnotatedPgn, automatedReviewText);
+        $('#stockfish-output').val(promptOnly);
+        updateFormState('stockfishOutput', promptOnly);
         updateFormState('annotatedPgn', lastAnnotatedPgn);
         $('#goto-step3-btn').prop('disabled', false);
         autoCopyStockfishOutputToClipboard();
