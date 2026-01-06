@@ -2817,12 +2817,32 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         return headerBlock ? (headerBlock+'\n\n'+movePart) : movePart;
       }
 
-      function buildHeaderTagBlock(chess) {
-        const hdr = chess.header();
-        const order = ['Event','Site','Date','Round','White','Black','Result','TimeControl','WhiteElo','BlackElo','Termination','ECO','EndTime','Link','UTCDate','UTCTime','GameId','Variant','Opening','Annotator'];
-        const seen = new Set(); const lines = [];
-        order.forEach(k => { if (hdr[k]) { lines.push(`[${k} "${hdr[k]}"]`); seen.add(k); } });
-        Object.keys(hdr).sort().forEach(k => { if (!seen.has(k)) lines.push(`[${k} "${hdr[k]}"]`); });
+      const HEADER_TAG_ORDER = ['Event','Site','Date','Round','White','Black','Result','TimeControl','WhiteElo','BlackElo','Termination','ECO','EndTime','Link','UTCDate','UTCTime','GameId','Variant','Opening','Annotator'];
+
+      function buildHeaderLines(headers) {
+        if (!headers || typeof headers !== 'object') return [];
+        const seen = new Set();
+        const lines = [];
+        const normalized = {};
+        Object.entries(headers).forEach(([key, value]) => {
+          if (value == null) return;
+          const trimmed = String(value).trim();
+          if (!trimmed) return;
+          normalized[key] = trimmed;
+        });
+        HEADER_TAG_ORDER.forEach(k => { if (normalized[k]) { lines.push(`[${k} "${normalized[k]}"]`); seen.add(k); } });
+        Object.keys(normalized).sort().forEach(k => { if (!seen.has(k)) lines.push(`[${k} "${normalized[k]}"]`); });
+        return lines;
+      }
+
+      function buildHeaderTagBlock(chessOrHeaders) {
+        let hdr = null;
+        if (chessOrHeaders && typeof chessOrHeaders.header === 'function') {
+          hdr = chessOrHeaders.header();
+        } else if (chessOrHeaders && typeof chessOrHeaders === 'object') {
+          hdr = chessOrHeaders;
+        }
+        const lines = buildHeaderLines(hdr);
         return lines.join('\n');
       }
 
@@ -3653,11 +3673,22 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         persistFormState();
       }
 
-      function buildCombinedStockfishOutput(playerName, _annotatedPgn, automatedText) {
+      function resolveHeadersForPrompt(annotatedPgn) {
+        const headersFromGame = game && typeof game.header === 'function' ? game.header() : {};
+        const headersFromAnnotated = parsePgnHeaders(annotatedPgn);
+        const mergedFallback = mergeHeadersWithFallback(lastKnownHeaders, headersFromAnnotated);
+        return mergeHeadersWithFallback(headersFromGame, mergedFallback);
+      }
+
+      function buildCombinedStockfishOutput(playerName, annotatedPgn, automatedText) {
         const prompt = buildAnalysisPrompt(playerName);
+        const headers = resolveHeadersForPrompt(annotatedPgn);
+        const headerBlock = buildHeaderTagBlock(headers);
         const insights = (automatedText || '').trim();
-        if (!insights) return prompt;
-        return `${prompt}\n\n${insights}`;
+        const sections = [prompt];
+        if (headerBlock) sections.push(headerBlock);
+        if (insights) sections.push(insights);
+        return sections.join('\n\n');
       }
 
       function refreshStockfishOutput() {
