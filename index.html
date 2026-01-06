@@ -1537,7 +1537,7 @@ Re-label as Brilliant: If the move involves a material sacrifice that leads to a
 
 Keep as Great: If it is a very strong move that does not meet the specific criteria for Brilliant or Good.
 
-Update Summary Counts: If you change a Great move to Good or Brilliant, you must adjust the final Summary count for Great, Brilliant, and Good accordingly.
+Update Summary Counts: If you change a Great move to Good or Brilliant, you MUST adjust the final Summary count for Brilliant, Great, and the implied Good count accordingly.
 
 STRICT DATA INTEGRITY: Do NOT change any other classification (Book, Forced, Inaccuracy, Mistake, Blunder, Misclick??). Do NOT change the Accuracy percentage.
 
@@ -1545,9 +1545,9 @@ COMMENTING AND FORMATTING RULES:
 
 Output exactly ONE line per half-move: <move> - {<eval>} <classification>: <comment>
 
-Address eugenime directly. Comments must be 1-2 sentences max, focusing on SAN and immediate consequences (captures, checks, positional changes).
+Address eugenime directly. Comments must be 1-2 sentences max, focusing on SAN and immediate consequences.
 
-Do not include numeric evals in the comments or mention hidden engine lines.
+Do not include numeric evals or hidden engine lines in comments.
 
 For Mistake/Blunder/Misclick??, explain the immediate loss (e.g., drops a piece, weakens king).
 
@@ -1557,13 +1557,13 @@ OUTPUT STRUCTURE:
 
 The list of formatted moves (one per line).
 
-Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V (Ensure X and Y reflect your reclassifications).
+Updated Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
 
 Accuracy: <Accuracy percentage>
 
 Narrative Summary: A one-sentence overview of eugenime's performance.
 
-DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra prose or conversational filler.`;
+DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra prose before or after the required sections.`;
 
       function getPlayerName() {
         const raw = $('#player-name-input').val();
