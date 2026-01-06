@@ -2182,7 +2182,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           const followsSevereMateState = mv._maintainsOpponentMate || mv._extendsOpponentMate;
           if (prevKey === 'blunder' || prevKey === 'misclick') {
             // Reward stable follow-ups to severe opponent mistakes when there is no meaningful drop (delta >= -1).
-            const noMeaningfulDrop = Number.isFinite(delta) && delta >= -1;
+            const noMeaningfulDrop = Number.isFinite(delta) && delta >= -2;
             if (noMeaningfulDrop && !defensiveOrForced && !followsSevereMateState && currentKey !== 'misclick' && currentKey !== 'blunder') {
               mv.classification = 'Great';
               return;
