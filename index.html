@@ -1543,9 +1543,15 @@ STRICT DATA INTEGRITY: Do NOT change any other classification (Book, Forced, Ina
 
 COMMENTING AND FORMATTING RULES:
 
-Output exactly ONE line per half-move: <move> - {<eval>} <classification>: <comment>
+Output exactly ONE line per half-move using this template: <move> - {<eval>} <classification>: <comment>
 
-Address eugenime directly. Comments must be 1-2 sentences max, focusing on SAN and immediate consequences.
+STRICT: Do not use bullet points, dashes, or numbered lists.
+
+STRICT: Do not use Markdown list syntax (e.g., 1., *, or - at the start of lines).
+
+Start each line immediately with the Move SAN (e.g., 1. b3 or 1... e5).
+
+Address eugenime directly. Comments must be 1–2 sentences max, focusing on SAN and immediate consequences.
 
 Do not include numeric evals or hidden engine lines in comments.
 
@@ -1563,7 +1569,7 @@ Accuracy: <Accuracy percentage>
 
 Narrative Summary: A one-sentence overview of eugenime's performance.
 
-DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra prose before or after the required sections.`;
+DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra prose before or after the required sections. Use a single hard line break between each line.`;
 
       function getPlayerName() {
         const raw = $('#player-name-input').val();
