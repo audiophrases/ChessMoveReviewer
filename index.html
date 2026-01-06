@@ -3653,8 +3653,11 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         persistFormState();
       }
 
-      function buildCombinedStockfishOutput(playerName, annotatedPgn, automatedText) {
-        return buildAnalysisPrompt(playerName);
+      function buildCombinedStockfishOutput(playerName, _annotatedPgn, automatedText) {
+        const prompt = buildAnalysisPrompt(playerName);
+        const insights = (automatedText || '').trim();
+        if (!insights) return prompt;
+        return `${prompt}\n\n${insights}`;
       }
 
       function refreshStockfishOutput() {
