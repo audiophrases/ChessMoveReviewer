@@ -1525,52 +1525,45 @@
       resetManualDeepAnalysisUI({ depth: getManualDeepDepth(), resetPending: true });
 
       // Prompt (adds one-line Summary at the end)
-      const ANALYSIS_PROMPT_TEMPLATE = `You are given:
-1) A PGN with SAN moves and mover-centric deltas {…}.
-2) An “Automated Insights” block listing each half-move with its FINAL classification (Book, Good, Forced, Inaccuracy, Mistake, Blunder, Misclick??, Great, Brilliant).
-3) Precomputed Summary counts and Accuracy.
-4) The name of the player being coached: eugenime.
-Do NOT change any classification or counts.
+      const ANALYSIS_PROMPT_TEMPLATE = `You are an expert chess coach and data processor. You will be provided with a PGN with SAN moves and mover-centric deltas, an Automated Insights block, and precomputed summary statistics for the player eugenime.
 
-TASK
-- Output exactly ONE line per half-move in this format:
-  <move> - {<eval>} <classification>: <comment>
-- Show ALL moves with their provided classification.
-- At the end, output:
-  Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
-  Accuracy: <Accuracy percentage>
-  Narrative Summary: One-sentence overview of the game of the player being coached.
+Your primary task is to process these moves into a specific format while applying one specific logical filter: you must re-evaluate every move originally labeled Great.
 
-COMMENTING RULES
-- You are addressing the player being coached.
-- Comment every move.
-- Keep comments SHORT (1–2 sentences), purely from SAN and obvious consequences:
-  • checks (+/#), captures (what piece is taken if SAN makes it clear), promotions (=Q/R/B/N), castling.
-  • immediate positional effects: “opens the e-file,” “weakens king safety,” “creates/advances a passed pawn,” “wins a rook/queen,” “keeps the attack,” “drives the king,” “loses coordination,” “concedes dark squares.”
-- Do NOT include numeric evaluations or hidden engine lines.
-- Do NOT re-evaluate or contradict any mate token in the eval:
-  • {#N} = White has mate in N; {#-N} = Black has mate in N. You may say “starts/continues a forced mate” when such tokens appear or are flagged by the input’s insights.
-- Do NOT change the provided classification. If the input marks a move as Great/Brilliant, explain why in positional terms (e.g., wins a rook/queen; keeps the mating attack; visible sacrifice that maintains the attack). If marked Mistake/Blunder/Misclick??, explain how it worsens the position (e.g., walks into checks; drops a piece; opens king; loses a passer).
+RECLASSIFICATION LOGIC FOR GREAT MOVES:
 
-DISCIPLINE
-- Toggle movers correctly and use SAN exactly as given.
-- Use the provided {eval} token exactly as given.
-- No extra prose before or after the required sections.
-- Be consistent and terse to minimize compute.
+Re-label as Good: If the move is a routine recapture of equal material, a forced move to escape check, or a standard piece trade.
 
-INPUT FORMAT (example)
-<PGN headers and moves with deltas>
-=== Automated Insights ===
-<one line per half-move with FINAL classification>
-Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
+Re-label as Brilliant: If the move involves a material sacrifice that leads to an advantage, a difficult-to-find tactical resource, or a move that significantly increases the evaluation compared to the next best engine line.
+
+Keep as Great: If it is a very strong move that does not meet the specific criteria for Brilliant or Good.
+
+Update Summary Counts: If you change a Great move to Good or Brilliant, you must adjust the final Summary count for Great, Brilliant, and Good accordingly.
+
+STRICT DATA INTEGRITY: Do NOT change any other classification (Book, Forced, Inaccuracy, Mistake, Blunder, Misclick??). Do NOT change the Accuracy percentage.
+
+COMMENTING AND FORMATTING RULES:
+
+Output exactly ONE line per half-move: <move> - {<eval>} <classification>: <comment>
+
+Address eugenime directly. Comments must be 1-2 sentences max, focusing on SAN and immediate consequences (captures, checks, positional changes).
+
+Do not include numeric evals in the comments or mention hidden engine lines.
+
+For Mistake/Blunder/Misclick??, explain the immediate loss (e.g., drops a piece, weakens king).
+
+For Great/Brilliant, explain the positional or tactical win (e.g., initiates a sacrifice, maintains a mating attack).
+
+OUTPUT STRUCTURE:
+
+The list of formatted moves (one per line).
+
+Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V (Ensure X and Y reflect your reclassifications).
+
 Accuracy: <Accuracy percentage>
 
-OUTPUT FORMAT (strict)
-<move> - {<eval>} <classification>: <comment>
-...
-Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
-Accuracy: <Accuracy percentage>
-Narrative Summary: <one sentence>`;
+Narrative Summary: A one-sentence overview of eugenime's performance.
+
+DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra prose or conversational filler.`;
 
       function getPlayerName() {
         const raw = $('#player-name-input').val();
