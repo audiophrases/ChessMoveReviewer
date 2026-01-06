@@ -178,7 +178,7 @@
 
   <!-- Step 2: Stockfish Output & AI Instructions -->
   <section id="step2-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
-    <h2 class="text-xl sm:text-2xl font-bold text-center">Chess Reviewer</h2>
+    <h2 class="text-xl sm:text-2xl font-bold text-center">Prepare Stockfish Output</h2>
     <div id="stockfish-progress" class="text-center p-4 bg-[#101522] rounded-lg">
        <p id="progress-text" class="text-sm text-gray-300"></p>
        <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
@@ -5479,6 +5479,22 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         }
 
         const moveNumberSplitRegex = /\d+\.{1,3}\s*/g;
+        const looseMoveBoundaryRegex = /(?:^|\s)(O-O-O|O-O|0-0-0|0-0|[KQRNB]?[a-h][1-8](?:=[QRNB])?)[+#?!]*\s*[-–—]?\s*(\{[^}]+\}|#?-?\s*[+–-]?\d+(?:\.\d+)?%?)/gi;
+        function splitLooseMoveLine(rawLine) {
+          if (!rawLine) return null;
+          const matches = [...rawLine.matchAll(looseMoveBoundaryRegex)];
+          if (matches.length <= 1) return null;
+          const segments = [];
+          matches.forEach((match, idx) => {
+            const start = match.index != null ? match.index : -1;
+            if (start < 0) return;
+            const end = idx + 1 < matches.length ? matches[idx + 1].index : rawLine.length;
+            const piece = rawLine.slice(start, end).trim();
+            if (piece) segments.push(piece);
+          });
+          return segments.length > 1 ? segments : null;
+        }
+
         function splitCompositeLine(rawLine) {
           if (summaryLineRegex.test(rawLine) || summaryHeaderRegex.test(rawLine) || metadataLineRegex.test(rawLine)) {
             return [rawLine];
@@ -5532,6 +5548,20 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             if (m) {
               parsedMoves.push(m);
               lastSan = m.san; currentSummary = null; return;
+            }
+            const looseSegments = splitLooseMoveLine(trimmed);
+            if (Array.isArray(looseSegments) && looseSegments.length) {
+              let parsedAny = false;
+              looseSegments.forEach(loose => {
+                const parsedMove = parseMoveSegment(loose);
+                if (parsedMove) {
+                  parsedMoves.push(parsedMove);
+                  lastSan = parsedMove.san;
+                  currentSummary = null;
+                  parsedAny = true;
+                }
+              });
+              if (parsedAny) return;
             }
             const cm = segment.match(criticalMomentRegex); if (cm && lastSan) { criticalMoments[lastSan] = cm[1]; return; }
             if (trimmed && trimmed !== '---' && currentSummary) summaries[currentSummary].push(trimmed);
