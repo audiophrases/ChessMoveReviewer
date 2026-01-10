@@ -39,6 +39,14 @@
     #next-btn { background-color: #22c55e; }
     #next-btn:hover { background-color: #16a34a; }
     #next-btn:disabled { background-color: #14532d; cursor: not-allowed; }
+    #back-to-step1-btn,
+    #back-to-step2-btn,
+    #back-to-step3-btn {
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
     #toggle-eval-btn { border: 1px solid transparent; transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
     #toggle-eval-btn.best-active { background-color: #0b0e15; border-color: rgba(250, 204, 21, 0.4); color: #facc15; font-family: 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace; }
     #toggle-eval-btn.best-active:hover { background-color: #131a2c; }
