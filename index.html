@@ -3937,10 +3937,75 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         }
       }
 
+      function resetReviewFlowToStep1() {
+        const pgnInput = $('#pgn-input');
+        const playerNameInput = $('#player-name-input');
+        const finalAnalysisInput = $('#final-analysis-input');
+
+        pgnInput.val('');
+        playerNameInput.val('');
+        finalAnalysisInput.val('');
+
+        updateFormState('pgnInput', '');
+        updateFormState('playerName', '');
+        updateFormState('finalAnalysisInput', '');
+        updateFormState('stockfishOutput', '');
+        updateFormState('annotatedPgn', '');
+
+        invalidateAnalysisState({ force: true });
+        setReviewPlayerColor(null);
+        playerGameOutcome = null;
+        lastFinalAnalysisText = '';
+        setLastKnownHeaders({});
+        currentReviewMetadata = null;
+        clearReviewSessionPersistence();
+        updateArchiveControls();
+        switchStep(1, { replace: true });
+      }
+
+      const LONG_PRESS_RESET_MS = 650;
+      function bindLongPressReset($button) {
+        let timer = null;
+        const clearTimer = () => {
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+        };
+
+        const startPress = (event) => {
+          if (event.type === 'mousedown' && event.button !== 0) return;
+          clearTimer();
+          timer = setTimeout(() => {
+            timer = null;
+            $button.data('longPressReset', true);
+            resetReviewFlowToStep1();
+          }, LONG_PRESS_RESET_MS);
+        };
+
+        $button.on('mousedown touchstart', startPress);
+        $button.on('mouseup mouseleave touchend touchcancel', clearTimer);
+      }
+
+      function handleBackClick(step) {
+        return function (event) {
+          if ($(this).data('longPressReset')) {
+            $(this).data('longPressReset', false);
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            return;
+          }
+          switchStep(step);
+        };
+      }
+
       $('#goto-step2-btn').on('click', function(){ switchStep(2); });
-      $('#back-to-step1-btn').on('click', function(){ switchStep(1); });
-      $('#back-to-step2-btn').on('click', function(){ switchStep(2); });
-      $('#back-to-step3-btn').on('click', function(){ switchStep(3); });
+      $('#back-to-step1-btn').on('click', handleBackClick(1));
+      $('#back-to-step2-btn').on('click', handleBackClick(2));
+      $('#back-to-step3-btn').on('click', handleBackClick(3));
+      bindLongPressReset($('#back-to-step1-btn'));
+      bindLongPressReset($('#back-to-step2-btn'));
+      bindLongPressReset($('#back-to-step3-btn'));
       $('#run-new-analysis-btn').on('click', function(){
         clearReviewSessionPersistence();
         const payload = prepareRunNewAnalysisPayload();
