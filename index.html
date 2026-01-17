@@ -3971,6 +3971,31 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         switchStep(1, { replace: true });
       }
 
+      function clearAllAppData() {
+        if (typeof window === 'undefined') return;
+        const localKeys = [RUN_NEW_ANALYSIS_STORAGE_KEY, REVIEW_SESSION_STORAGE_KEY, ARCHIVE_STORAGE_KEY];
+        const sessionKeys = [RUN_NEW_ANALYSIS_SESSION_KEY, REVIEW_SESSION_SESSION_KEY];
+
+        if (window.localStorage) {
+          localKeys.forEach((key) => {
+            try { window.localStorage.removeItem(key); } catch (err) { /* ignore */ }
+          });
+        }
+        if (window.sessionStorage) {
+          sessionKeys.forEach((key) => {
+            try { window.sessionStorage.removeItem(key); } catch (err) { /* ignore */ }
+          });
+        }
+      }
+
+      function clearAllDataAndReload() {
+        clearAllAppData();
+        const target = new URL(window.location.href);
+        target.search = '';
+        target.hash = '';
+        window.location.replace(target.toString());
+      }
+
       const LONG_PRESS_RESET_MS = 650;
       function bindLongPressReset($button) {
         let timer = null;
@@ -3987,7 +4012,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           timer = setTimeout(() => {
             timer = null;
             $button.data('longPressReset', true);
-            resetReviewFlowToStep1();
+            clearAllDataAndReload();
           }, LONG_PRESS_RESET_MS);
         };
 
