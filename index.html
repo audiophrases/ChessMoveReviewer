@@ -74,7 +74,45 @@
     }
     #board .square-55d63.selected { background-color: rgba(251, 191, 36, 0.5); }
     #board { background-color: #0b0e15; border-radius: 0.75rem; }
-    .board-shell { box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); }
+    .board-shell { box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); position: relative; }
+    #promotion-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 17, 21, 0.88);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 5;
+    }
+    #promotion-overlay.hidden { display: none; }
+    .promotion-dialog {
+      background: #141926;
+      border: 1px solid #1f2937;
+      border-radius: 0.75rem;
+      padding: 1rem;
+      width: min(260px, 85%);
+      text-align: center;
+    }
+    .promotion-options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .promotion-option {
+      background: #0b0e15;
+      border: 1px solid #1f2937;
+      border-radius: 0.5rem;
+      padding: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.2s ease-in-out, transform 0.2s ease-in-out;
+    }
+    .promotion-option:hover { border-color: #3b82f6; transform: translateY(-1px); }
+    .promotion-option:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+    .promotion-piece { width: 48px; height: 48px; }
     #prev-btn, #next-btn { font-size: 1rem; }
     .status-banner { display: none; border-radius: 0.75rem; padding: 0.75rem 1rem; border: 1px solid transparent; }
     .status-banner.status-visible { display: flex; align-items: flex-start; gap: 0.75rem; }
@@ -261,6 +299,26 @@
               <p id="material-top-label" class="text-center text-xs text-gray-300 leading-tight">White: 0</p>
             </div>
             <div id="board" class="chessboard-container"></div>
+            <div id="promotion-overlay" class="promotion-overlay hidden" aria-hidden="true">
+              <div class="promotion-dialog" role="dialog" aria-modal="true" aria-label="Choose a promotion piece">
+                <p class="text-sm font-semibold text-gray-200">Promote pawn to</p>
+                <div class="promotion-options" role="listbox">
+                  <button type="button" class="promotion-option" data-promotion-piece="q" aria-label="Promote to queen">
+                    <img class="promotion-piece piece-417db" alt="Queen promotion piece" />
+                  </button>
+                  <button type="button" class="promotion-option" data-promotion-piece="r" aria-label="Promote to rook">
+                    <img class="promotion-piece piece-417db" alt="Rook promotion piece" />
+                  </button>
+                  <button type="button" class="promotion-option" data-promotion-piece="b" aria-label="Promote to bishop">
+                    <img class="promotion-piece piece-417db" alt="Bishop promotion piece" />
+                  </button>
+                  <button type="button" class="promotion-option" data-promotion-piece="n" aria-label="Promote to knight">
+                    <img class="promotion-piece piece-417db" alt="Knight promotion piece" />
+                  </button>
+                </div>
+                <button id="promotion-cancel-btn" type="button" class="w-full py-2 text-sm font-semibold text-white rounded-md btn-secondary">Cancel</button>
+              </div>
+            </div>
             <div class="px-3 pb-3 pt-1 space-y-2">
               <p id="material-bottom-label" class="text-center text-xs text-gray-300 leading-tight">Black: 0</p>
               <div id="controls" class="flex flex-col gap-1 w-full">
@@ -455,6 +513,11 @@
       const materialTopLabel = $('#material-top-label');
       const materialBottomLabel = $('#material-bottom-label');
       const PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+      const PROMOTION_PIECE_THEME = 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png';
+      const promotionOverlay = $('#promotion-overlay');
+      const promotionOptions = promotionOverlay.find('[data-promotion-piece]');
+      const promotionCancelBtn = $('#promotion-cancel-btn');
+      let pendingPromotionResolver = null;
       const STARTING_PIECE_COUNTS = {
         w: { p: 8, n: 2, b: 2, r: 2, q: 1 },
         b: { p: 8, n: 2, b: 2, r: 2, q: 1 }
@@ -2634,7 +2697,57 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         materialBottomLabel.text(formatLabel(bottomColor));
       }
 
-      function handleSquareClick(square) {
+      function updatePromotionOverlayPieces(color) {
+        const pieceColor = color === 'b' ? 'b' : 'w';
+        promotionOptions.each(function() {
+          const piece = String($(this).data('promotion-piece') || '').toLowerCase();
+          const pieceCode = piece ? pieceColor + piece.toUpperCase() : '';
+          const img = $(this).find('img');
+          const src = pieceCode ? PROMOTION_PIECE_THEME.replace('{piece}', pieceCode) : '';
+          img.attr('src', src);
+          img.attr('alt', piece ? `${pieceColor === 'w' ? 'White' : 'Black'} ${piece.toUpperCase()}` : 'Promotion piece');
+        });
+      }
+
+      function resolvePromotionChoice(choice) {
+        if (!pendingPromotionResolver) return;
+        const resolver = pendingPromotionResolver;
+        pendingPromotionResolver = null;
+        promotionOverlay.addClass('hidden').attr('aria-hidden', 'true');
+        resolver(choice);
+      }
+
+      function requestPromotionChoice(color) {
+        if (!promotionOverlay.length) return Promise.resolve(null);
+        updatePromotionOverlayPieces(color);
+        promotionOverlay.removeClass('hidden').attr('aria-hidden', 'false');
+        return new Promise(resolve => {
+          pendingPromotionResolver = resolve;
+        });
+      }
+
+      promotionOptions.on('click', function() {
+        const choice = $(this).data('promotion-piece');
+        resolvePromotionChoice(choice ? String(choice).toLowerCase() : null);
+      });
+
+      promotionCancelBtn.on('click', function() {
+        resolvePromotionChoice(null);
+      });
+
+      promotionOverlay.on('click', function(event) {
+        if (event.target === promotionOverlay.get(0)) {
+          resolvePromotionChoice(null);
+        }
+      });
+
+      $(document).on('keydown', function(event) {
+        if (event.key === 'Escape' && pendingPromotionResolver) {
+          resolvePromotionChoice(null);
+        }
+      });
+
+      async function handleSquareClick(square) {
         if (selectedSquare) {
           if (selectedSquare === square) {
             clearSelected();
@@ -2646,26 +2759,10 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           if (movingPiece && movingPiece.type === 'p') {
             const targetRank = square[1];
             if (targetRank === '1' || targetRank === '8') {
-              const promotionInput = window.prompt('Promote pawn to (q, r, b, n):', 'q');
-              if (promotionInput === null) {
+              promotion = await requestPromotionChoice(movingPiece.color);
+              if (!promotion) {
                 return;
               }
-              const normalizedPromotion = String(promotionInput).trim().toLowerCase();
-              const promotionMap = {
-                q: 'q',
-                queen: 'q',
-                r: 'r',
-                rook: 'r',
-                b: 'b',
-                bishop: 'b',
-                n: 'n',
-                knight: 'n'
-              };
-              const promotionChoice = promotionMap[normalizedPromotion];
-              if (!promotionChoice) {
-                return;
-              }
-              promotion = promotionChoice;
             }
           }
           const moveSpec = { from: selectedSquare, to: square };
