@@ -2641,7 +2641,36 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             return;
           }
           const fenBeforeMove = game.fen();
-            const move = game.move({ from: selectedSquare, to: square, promotion: 'q' });
+          const movingPiece = game.get(selectedSquare);
+          let promotion = null;
+          if (movingPiece && movingPiece.type === 'p') {
+            const targetRank = square[1];
+            if (targetRank === '1' || targetRank === '8') {
+              const promotionInput = window.prompt('Promote pawn to (q, r, b, n):', 'q');
+              if (promotionInput === null) {
+                return;
+              }
+              const normalizedPromotion = String(promotionInput).trim().toLowerCase();
+              const promotionMap = {
+                q: 'q',
+                queen: 'q',
+                r: 'r',
+                rook: 'r',
+                b: 'b',
+                bishop: 'b',
+                n: 'n',
+                knight: 'n'
+              };
+              const promotionChoice = promotionMap[normalizedPromotion];
+              if (!promotionChoice) {
+                return;
+              }
+              promotion = promotionChoice;
+            }
+          }
+          const moveSpec = { from: selectedSquare, to: square };
+          if (promotion) moveSpec.promotion = promotion;
+          const move = game.move(moveSpec);
           if (move) {
             if (!isExploring()) {
               startExploration(fenBeforeMove, currentMoveIndex);
