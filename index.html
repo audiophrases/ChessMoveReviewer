@@ -16,6 +16,14 @@
   <style>
     :root { --panel-max-width: 47.52rem; }
     body { font-family: 'Inter', sans-serif; background-color: #0f1115; color: #e5e7eb; }
+    body.night-mode { background-color: #07080b; color: #d1d5db; }
+    body.night-mode .night-panel { background-color: #0b0e15; border-color: #1f2937; }
+    body.night-mode .night-muted { color: #9ca3af; }
+    body.night-mode .btn-secondary { background-color: #1f2937; }
+    body.night-mode .btn-primary { background-color: #2563eb; }
+    body.night-mode #board { background-color: #070a11; }
+    body.night-mode .move-item.highlight { background-color: #1f2a40; }
+    body.night-mode .move-item:hover { background-color: #1a2334; }
     .chessboard-container { width: 100%; margin: 0; aspect-ratio: 1 / 1; }
     .move-item { transition: background-color 0.2s ease-in-out; border-radius: 0.5rem; }
     .move-item.highlight { background-color: #243249; }
@@ -127,12 +135,23 @@
     @media (max-width: 1023px) {
       .board-sticky-wrapper { top: 0; }
     }
+    .review-grid { display: grid; }
     .portrait-panel { width: 100%; }
     @media (orientation: portrait) {
       .portrait-panel {
         max-width: var(--panel-max-width);
         margin-left: auto;
         margin-right: auto;
+      }
+    }
+    @media (orientation: landscape) and (max-width: 1023px) {
+      .review-grid {
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr);
+        align-items: start;
+      }
+      .review-grid .board-panel,
+      .review-grid .graph-panel {
+        width: 100%;
       }
     }
     @media (min-width: 1024px) {
@@ -150,6 +169,12 @@
   <header id="app-header" class="text-center mb-4">
     <h1 class="text-2xl sm:text-3xl font-bold text-white">Chess Reviewer</h1>
   </header>
+
+  <div id="night-mode-control" class="fixed top-3 right-3 z-50">
+    <button id="night-mode-toggle" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap" aria-pressed="false">
+      Night mode
+    </button>
+  </div>
 
   <!-- Step Indicators -->
   <div id="step-indicators" class="flex justify-center items-center space-x-3 mb-4">
@@ -225,13 +250,13 @@
   <!-- Step 2: Stockfish Output & AI Instructions -->
   <section id="step2-section" class="hidden max-w-2xl w-full mx-auto flex flex-col gap-4">
     <h2 class="text-xl sm:text-2xl font-bold text-center">Prepare Stockfish Output</h2>
-    <div id="stockfish-progress" class="text-center p-4 bg-[#101522] rounded-lg">
+    <div id="stockfish-progress" class="night-panel text-center p-4 bg-[#101522] rounded-lg">
        <p id="progress-text" class="text-sm text-gray-300"></p>
        <div class="w-full bg-gray-700 rounded-full h-2 mt-2">
         <div id="progress-bar" class="bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
       </div>
     </div>
-    <div id="deep-analysis-banner" class="hidden p-3 bg-[#0d1220] border border-[#1f2937] rounded-lg">
+    <div id="deep-analysis-banner" class="night-panel hidden p-3 bg-[#0d1220] border border-[#1f2937] rounded-lg">
       <div class="flex items-start gap-3">
         <div class="flex-1">
           <p id="deep-analysis-title" class="text-sm font-semibold text-gray-100"></p>
@@ -286,7 +311,7 @@
 
   <!-- Final Review Section (mobile-optimized) -->
   <main id="review-section" class="hidden flex-1 max-w-5xl w-full mx-auto">
-    <div class="w-full grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-3">
+    <div class="review-grid w-full grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-3">
       <!-- Column A: Board + evaluation graph (sticky) -->
       <div class="lg:col-span-1 sticky top-2 board-sticky-wrapper">
         <!-- Evaluation graph -->
@@ -294,7 +319,7 @@
 
         <!-- Board -->
         <div class="w-full mx-auto board-panel">
-          <div class="board-shell bg-[#0b0e15] rounded-xl shadow-xl shadow-black/40 overflow-hidden">
+          <div class="board-shell night-panel bg-[#0b0e15] rounded-xl shadow-xl shadow-black/40 overflow-hidden">
             <div class="px-3 pt-3 pb-1">
               <p id="material-top-label" class="text-center text-xs text-gray-300 leading-tight">White: 0</p>
             </div>
@@ -331,7 +356,7 @@
                   <button id="save-archive-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary whitespace-nowrap" disabled>
                     Save
                   </button>
-                  <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
+                  <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Hint</button>
                 </div>
                 <p id="archive-feedback" class="hidden text-xs text-gray-300"></p>
               </div>
@@ -345,7 +370,17 @@
         <div id="move-analysis-shell" class="portrait-panel comment-panel">
           <div id="move-analysis-scroll" class="overflow-y-auto">
             <!-- One-line summary appears here (from "Summary:") -->
-            <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
+            <div id="coach-hint-panel" class="night-panel mb-3 p-3 rounded bg-[#0b0e15] border border-[#1f2937]">
+              <div class="flex items-center justify-between gap-2">
+                <p id="coach-hint-title" class="text-sm font-semibold text-gray-200">Coach comment</p>
+              </div>
+              <p id="coach-hint-body" class="mt-2 text-sm text-gray-300">Select a move to see the coach comment.</p>
+            </div>
+            <div id="spaced-learning-panel" class="night-panel mb-3 p-2 rounded bg-[#0b0e15] border border-[#1f2937] text-xs text-gray-300 flex items-center justify-between gap-2">
+              <span class="font-semibold text-gray-200">Spaced learning</span>
+              <span id="spaced-learning-stats">Completed: 0 • Perfect: 0 • Reps: 0 • Ease: 2.50</span>
+            </div>
+            <div id="game-summary" class="night-panel hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
             <div id="move-analysis-container" class="space-y-1"></div>
           </div>
         </div>
@@ -412,6 +447,60 @@
         return numeric;
       }
 
+      function resolveNightModePreference() {
+        if (!window.localStorage) return false;
+        const stored = window.localStorage.getItem(NIGHT_MODE_STORAGE_KEY);
+        if (stored === null) return false;
+        return stored === 'true';
+      }
+
+      function applyNightMode(isNightMode) {
+        document.body.classList.toggle('night-mode', !!isNightMode);
+        if (nightModeToggle.length) {
+          nightModeToggle.attr('aria-pressed', isNightMode ? 'true' : 'false');
+          nightModeToggle.text(isNightMode ? 'Day mode' : 'Night mode');
+        }
+        if (window.localStorage) {
+          window.localStorage.setItem(NIGHT_MODE_STORAGE_KEY, isNightMode ? 'true' : 'false');
+        }
+      }
+
+      function loadSpacedLearningState() {
+        if (!window.localStorage) {
+          return { completed: 0, perfect: 0, reps: 0, ease: 2.5, seenMoves: [], totalMoves: 0 };
+        }
+        const raw = window.localStorage.getItem(SPACED_LEARNING_STORAGE_KEY);
+        if (!raw) {
+          return { completed: 0, perfect: 0, reps: 0, ease: 2.5, seenMoves: [], totalMoves: 0 };
+        }
+        try {
+          const parsed = JSON.parse(raw);
+          return {
+            completed: Number.isFinite(parsed.completed) ? parsed.completed : 0,
+            perfect: Number.isFinite(parsed.perfect) ? parsed.perfect : 0,
+            reps: Number.isFinite(parsed.reps) ? parsed.reps : 0,
+            ease: Number.isFinite(parsed.ease) ? parsed.ease : 2.5,
+            seenMoves: Array.isArray(parsed.seenMoves) ? parsed.seenMoves : [],
+            totalMoves: Number.isFinite(parsed.totalMoves) ? parsed.totalMoves : 0
+          };
+        } catch (err) {
+          return { completed: 0, perfect: 0, reps: 0, ease: 2.5, seenMoves: [], totalMoves: 0 };
+        }
+      }
+
+      function persistSpacedLearningState() {
+        if (!window.localStorage) return;
+        const payload = {
+          completed: spacedLearningState.completed,
+          perfect: spacedLearningState.perfect,
+          reps: spacedLearningState.reps,
+          ease: spacedLearningState.ease,
+          seenMoves: Array.from(spacedLearningSeenMoves),
+          totalMoves: spacedLearningState.totalMoves
+        };
+        window.localStorage.setItem(SPACED_LEARNING_STORAGE_KEY, JSON.stringify(payload));
+      }
+
       const ENGINE_SETTING_LIMITS = {
         depth: { min: 4, max: 30, fallback: sanitizeIntegerSetting($('#depth-input').val(), { fallback: 12 }) },
         threads: { min: 1, max: hardwareThreadCap, fallback: sanitizeIntegerSetting($('#threads-input').val(), { fallback: 4 }) },
@@ -460,6 +549,8 @@
       const RUN_NEW_ANALYSIS_SESSION_KEY = 'cmr.runNewPayload.session.v1';
       const REVIEW_SESSION_STORAGE_KEY = 'cmr.reviewSession.v1';
       const REVIEW_SESSION_SESSION_KEY = 'cmr.reviewSession.session.v1';
+      const SPACED_LEARNING_STORAGE_KEY = 'cmr.spacedLearningStats.v1';
+      const NIGHT_MODE_STORAGE_KEY = 'cmr.nightMode.v1';
       const DEFAULT_PLAYER_NAME = 'eugenime';
       const FOCUSED_MOVE_SCROLL_OFFSET = 28;
       let formState = loadFormState();
@@ -534,6 +625,10 @@
       let autoGameLoadInitiated = false;
       let gamePickerReturnFocus = null;
       const copyFenBtn = $('#copy-fen-btn');
+      const nightModeToggle = $('#night-mode-toggle');
+      const coachHintTitle = $('#coach-hint-title');
+      const coachHintBody = $('#coach-hint-body');
+      const spacedLearningStatsEl = $('#spaced-learning-stats');
       const saveArchiveBtn = $('#save-archive-btn');
       const archiveFeedback = $('#archive-feedback');
       const openArchiveButtons = $('.open-archive-btn');
@@ -556,8 +651,20 @@
       let currentReviewMetadata = null;
       let pendingArchiveLoadNotice = null;
       let pendingReviewSessionPayload = loadPersistedReviewSession();
+      let lastBestMoveSan = null;
+      let spacedLearningState = loadSpacedLearningState();
+      let spacedLearningSeenMoves = new Set(spacedLearningState.seenMoves || []);
 
       applySavedFormState();
+
+      applyNightMode(resolveNightModePreference());
+
+      if (nightModeToggle.length) {
+        nightModeToggle.on('click', function () {
+          const isNight = document.body.classList.contains('night-mode');
+          applyNightMode(!isNight);
+        });
+      }
       applyRunNewAnalysisPayloadFromUrl();
       bindPersistentInput('#player-name-input', 'playerName');
       bindPersistentInput('#pgn-input', 'pgnInput');
@@ -4053,6 +4160,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         currentMoveIndex = -1;
         reviewPlayerColor = null;
         probSeries = [];
+        resetSpacedLearningState(0);
         resetDeepAnalysisUpgrade();
         $('#stockfish-output').val('');
         updateFormState('annotatedPgn', '');
@@ -5011,10 +5119,12 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
 
         function showBestMoveAnalyzingDisplay() {
           setBestButtonState('Analyzing…', true);
+          updateCoachHintDisplay();
         }
 
         function hideBestMoveEvalDisplay() {
           setBestButtonState(defaultBestButtonLabel, false);
+          updateCoachHintDisplay();
         }
 
         function cancelBestMoveVisualRetryTimer() {
@@ -5069,6 +5179,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           if (!primaryParsed) return;
           const primarySan = uciToSan(primaryParsed.move, bestMoveFen);
           if (!primarySan) return;
+          lastBestMoveSan = primarySan;
           const primaryForDisplay = { ...info.primary, san: primarySan };
 
           let secondaryParsed = null;
@@ -5085,6 +5196,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           }
 
           updateBestEvalDisplay(primaryForDisplay, secondaryForDisplay);
+          updateCoachHintDisplay();
           cancelBestMoveVisualRetryTimer();
           pendingBestMoveVisualData = {
             primary: primaryParsed,
@@ -5214,8 +5326,10 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           clearArrowCanvas();
           lastBestMove = null;
           lastSecondBestMove = null;
+          lastBestMoveSan = null;
           bestMovePvMap = {};
           hideBestMoveEvalDisplay();
+          updateCoachHintDisplay();
         }
 
         function ensureArrowCanvas() {
@@ -6131,12 +6245,102 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         return String(value).replace(/[{}\s]/g, '').toLowerCase();
       }
 
+      function resetSpacedLearningState(totalMoves) {
+        spacedLearningSeenMoves = new Set();
+        spacedLearningState = {
+          completed: 0,
+          perfect: 0,
+          reps: 0,
+          ease: 2.5,
+          seenMoves: [],
+          totalMoves: Number.isFinite(totalMoves) ? totalMoves : 0
+        };
+        persistSpacedLearningState();
+      }
+
+      function ensureSpacedLearningState() {
+        const totalMoves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis.length : 0;
+        if (spacedLearningState.totalMoves !== totalMoves) {
+          resetSpacedLearningState(totalMoves);
+        }
+      }
+
+      function isPerfectMove(move) {
+        if (!move || !move.analysis || !move.analysis.classification) return false;
+        const classification = String(move.analysis.classification).toLowerCase();
+        return classification === 'brilliant'
+          || classification === 'great'
+          || classification === 'best'
+          || classification === 'excellent';
+      }
+
+      function updateSpacedLearningStats(moveIndex) {
+        if (!Number.isFinite(moveIndex) || moveIndex < 0) {
+          renderSpacedLearningStats();
+          return;
+        }
+        ensureSpacedLearningState();
+        spacedLearningState.reps += 1;
+        if (!spacedLearningSeenMoves.has(moveIndex)) {
+          spacedLearningSeenMoves.add(moveIndex);
+        }
+        spacedLearningState.completed = spacedLearningSeenMoves.size;
+        spacedLearningState.perfect = Array.from(spacedLearningSeenMoves).reduce((count, idx) => {
+          const move = movesWithAnalysis[idx];
+          return count + (isPerfectMove(move) ? 1 : 0);
+        }, 0);
+        if (spacedLearningState.completed > 0) {
+          const ratio = spacedLearningState.perfect / spacedLearningState.completed;
+          spacedLearningState.ease = Number((1.8 + ratio * 1.4).toFixed(2));
+        } else {
+          spacedLearningState.ease = 2.5;
+        }
+        persistSpacedLearningState();
+        renderSpacedLearningStats();
+      }
+
+      function renderSpacedLearningStats() {
+        if (!spacedLearningStatsEl.length) return;
+        ensureSpacedLearningState();
+        const stats = `Completed: ${spacedLearningState.completed} • Perfect: ${spacedLearningState.perfect} • Reps: ${spacedLearningState.reps} • Ease: ${spacedLearningState.ease.toFixed(2)}`;
+        spacedLearningStatsEl.text(stats);
+      }
+
+      function getCoachCommentText(move) {
+        if (!move) return '';
+        if (move.analysis && move.analysis.text) return move.analysis.text;
+        if (move.criticalMoment) return `Critical Moment: ${move.criticalMoment}`;
+        return '';
+      }
+
+      function updateCoachHintDisplay() {
+        if (!coachHintBody.length || !coachHintTitle.length) return;
+        const activeMove = Number.isInteger(currentMoveIndex) && currentMoveIndex >= 0
+          ? movesWithAnalysis[currentMoveIndex]
+          : null;
+        if (showBestMove) {
+          coachHintTitle.text('Hint');
+          if (lastBestMoveSan) {
+            coachHintBody.text(`Try ${lastBestMoveSan}.`);
+          } else {
+            coachHintBody.text('Hint: analyzing the best move...');
+          }
+        } else {
+          coachHintTitle.text('Coach comment');
+          const comment = getCoachCommentText(activeMove);
+          if (comment) {
+            coachHintBody.html(formatText(comment));
+          } else {
+            coachHintBody.text('Select a move to see the coach comment.');
+          }
+        }
+      }
+
       function renderMoveList() {
         const c = $('#move-analysis-container').empty();
         const moves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis : [];
         movesWithAnalysis = moves;
         moves.forEach((mv, i) => {
-          const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
           const evalSegments = buildEvaluationSegments(mv);
           const evalHtml = evalSegments.length ? '<div class="flex items-center gap-2 ml-2">' + evalSegments.join('') + '</div>' : '';
           const moveClasses = ['move-item', 'p-2', 'cursor-pointer'];
@@ -6144,18 +6348,17 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             ? '<span class="font-semibold text-sm ml-2 ' + getStyleForClassification(mv.analysis.classification) + '">' + mv.analysis.classification + '</span>'
             : '';
           const commentHtml = (mv.analysis && mv.analysis.text)
-            ? '<p class="pl-12 text-gray-300 text-sm">' + formatText(mv.analysis.text) + '</p>'
+            ? '<p class="pl-2 text-gray-300 text-sm">' + formatText(mv.analysis.text) + '</p>'
             : '';
           const html =
             '<div class="' + moveClasses.join(' ') + '" data-move-index="' + i + '">' +
               '<div class="flex items-baseline gap-3">' +
-                '<span class="text-gray-500 font-mono w-8 text-right">' + n + '</span>' +
                 '<span class="font-bold text-lg text-white">' + mv.san + '</span>' +
                 evalHtml +
                 classificationHtml +
               '</div>' +
               commentHtml +
-              (mv.criticalMoment ? '<p class="pl-12 mt-1 text-xs text-yellow-300 bg-yellow-900/40 p-2 rounded">' + formatText('Critical Moment: ' + mv.criticalMoment) + '</p>' : '') +
+              (mv.criticalMoment ? '<p class="pl-2 mt-1 text-xs text-yellow-300 bg-yellow-900/40 p-2 rounded">' + formatText('Critical Moment: ' + mv.criticalMoment) + '</p>' : '') +
             '</div>';
           c.append(html);
         });
@@ -6195,6 +6398,8 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (!Array.isArray(movesWithAnalysis)) {
           movesWithAnalysis = [];
         }
+        ensureSpacedLearningState();
+        renderSpacedLearningStats();
         renderMoveList();
         adjustAnalysisHeight();
         board.resize();
@@ -6205,6 +6410,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           goToMove(targetMoveIndex, { scrollMode: 'center' });
         } else {
           syncNavigationControls();
+          updateCoachHintDisplay();
         }
       }
 
@@ -6626,6 +6832,8 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             showBestMoveForCurrentPosition();
           }
           syncNavigationControls();
+          updateSpacedLearningStats(idx);
+          updateCoachHintDisplay();
         }
 
         $('#next-btn').on('click', function(){
@@ -6659,6 +6867,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           } else {
             clearBestMoveHighlight();
           }
+          updateCoachHintDisplay();
         });
         if (copyFenBtn.length) {
           copyFenBtn.on('click', function () {
