@@ -197,6 +197,7 @@
         <button id="clear-pgn-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary whitespace-nowrap">Clear</button>
       </div>
       <textarea id="pgn-input" rows="6" class="w-full p-3 rounded-lg form-input" placeholder="[Event &quot;...&quot;]..."></textarea>
+      <p class="mt-2 text-xs text-gray-400">You can also paste a plain UCI move list (e.g., e2e4 e7e5 g1f3).</p>
     </div>
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
@@ -2951,6 +2952,26 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         return headerBlock ? (headerBlock+'\n\n'+movePart) : movePart;
       }
 
+      function parseUciMoveList(raw) {
+        const trimmed = String(raw || '').replace(/\r\n?/g, '\n').trim();
+        if (!trimmed) return null;
+        const tokens = trimmed.split(/\s+/).map(token => token.trim()).filter(Boolean);
+        if (!tokens.length) return null;
+        const chess = new Chess();
+        const moves = [];
+        for (const token of tokens) {
+          const parsed = parseUciMove(token);
+          if (!parsed) return null;
+          const moveObj = { from: parsed.from, to: parsed.to };
+          if (parsed.move.length > 4) moveObj.promotion = parsed.move[4].toLowerCase();
+          const result = chess.move(moveObj);
+          if (!result) return { loaded: false, invalidMove: parsed.move };
+          moves.push(parsed.move.toLowerCase());
+        }
+        const pgn = chess.pgn({ max_width: 0, newline_char: '\n' });
+        return { loaded: true, chess, pgn, moves };
+      }
+
       const HEADER_TAG_ORDER = ['Event','Site','Date','Round','White','Black','Result','TimeControl','WhiteElo','BlackElo','Termination','ECO','EndTime','Link','UTCDate','UTCTime','GameId','Variant','Opening','Annotator'];
 
       function buildHeaderLines(headers) {
@@ -4255,7 +4276,23 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const pgn = normalizePgn(pgnRaw);
         if (!game.load_pgn(pgn)) {
           const justMoves = normalizePgn(pgnRaw.replace(/^(\s*\[.*\]\s*$)+/gm,''));
-          if (!game.load_pgn(justMoves)) { showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.'); return; }
+          if (!game.load_pgn(justMoves)) {
+            const uciResult = parseUciMoveList(pgnRaw);
+            if (uciResult && uciResult.loaded) {
+              game = uciResult.chess;
+              if (uciResult.pgn) {
+                $('#pgn-input').val(uciResult.pgn);
+                updateFormState('pgnInput', uciResult.pgn);
+              }
+            } else if (uciResult) {
+              const badMove = uciResult.invalidMove ? ` near "${uciResult.invalidMove}".` : '.';
+              showError(`Invalid UCI move list${badMove} Please check the moves and try again.`);
+              return;
+            } else {
+              showError('Invalid PGN format. Try removing engine/clock comments or share the PGN example with me.');
+              return;
+            }
+          }
         }
         invalidateAnalysisState({ force: true, refreshReviewUi: false });
         setLastKnownHeaders(game.header());
