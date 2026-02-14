@@ -748,10 +748,10 @@
         const targetUser = username || DEFAULT_PLAYER_NAME;
         if (!targetUser) return;
 
-        // Force depth=10 for the auto-run path.
+        // Force depth=12 for the auto-run path.
         if ($('#depth-input').length) {
-          $('#depth-input').val(10).trigger('input');
-          updateFormState('depthInput', '10');
+          $('#depth-input').val(12).trigger('input');
+          updateFormState('depthInput', '12');
         }
 
         hideGameLoaderFeedback();
@@ -792,7 +792,7 @@
           setTimeout(() => {
             runAnalysisFromPgnInput()
               .then(() => {
-                showGameLoaderFeedback(`Loaded latest parseable Chess.com game for ${targetUser} and started analysis (depth 10).`, 'success');
+                showGameLoaderFeedback(`Loaded latest parseable Chess.com game for ${targetUser} and started analysis (depth 12).`, 'success');
               })
               .catch(err => {
                 console.warn('Auto analyze failed:', err);
