@@ -202,7 +202,7 @@
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
         <label for="depth-input" class="text-gray-300">Depth</label>
-        <input id="depth-input" type="number" value="8" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="depth-input" type="number" value="10" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
         <label for="threads-input" class="text-gray-300">Threads</label>
@@ -329,6 +329,7 @@
                   <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
                   <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
                   <button id="copy-fen-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">FEN</button>
+                  <button id="lichess-analyze-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" title="Analyze this position on Lichess">Lich</button>
                   <button id="save-archive-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary whitespace-nowrap" disabled>
                     Save
                   </button>
@@ -535,6 +536,7 @@
       let autoGameLoadInitiated = false;
       let gamePickerReturnFocus = null;
       const copyFenBtn = $('#copy-fen-btn');
+      const lichessAnalyzeBtn = $('#lichess-analyze-btn');
       const saveArchiveBtn = $('#save-archive-btn');
       const archiveFeedback = $('#archive-feedback');
       const openArchiveButtons = $('.open-archive-btn');
@@ -735,13 +737,63 @@
         }
       }
 
+      async function autoLoadLatestChessComGameAndAnalyze(username) {
+        const targetUser = username || DEFAULT_PLAYER_NAME;
+        if (!targetUser) return;
+
+        // Force depth=10 for the auto-run path.
+        if ($('#depth-input').length) {
+          $('#depth-input').val(10).trigger('input');
+          updateFormState('depthInput', '10');
+        }
+
+        hideGameLoaderFeedback();
+
+        try {
+          const games = await fetchChessComGames(targetUser);
+          if (!Array.isArray(games) || !games.length) {
+            showGameLoaderFeedback(`No Chess.com games found for ${targetUser}.`, 'info');
+            return;
+          }
+
+          // Latest game first (fetchChessComGames already sorts desc).
+          handleGameSelection(games[0]);
+
+          // Auto-run analysis when the button becomes enabled.
+          const start = Date.now();
+          const maxWaitMs = 30000;
+          const intervalMs = 250;
+          const timer = setInterval(() => {
+            const elapsed = Date.now() - start;
+            if (elapsed > maxWaitMs) {
+              clearInterval(timer);
+              showGameLoaderFeedback('Engine is still loading; press Analyze when ready.', 'info');
+              return;
+            }
+            const btn = $('#analyze-pgn-btn');
+            if (!btn.length) return;
+            if (btn.prop('disabled')) return;
+            clearInterval(timer);
+            try {
+              btn.trigger('click');
+              showGameLoaderFeedback(`Loaded latest Chess.com game for ${targetUser} and started analysis (depth 10).`, 'success');
+            } catch (err) {
+              console.warn('Auto analyze click failed:', err);
+            }
+          }, intervalMs);
+        } catch (err) {
+          console.error('Auto-load latest Chess.com game failed:', err);
+          showGameLoaderFeedback('Unable to auto-load your latest Chess.com game. Try again or paste a PGN.', 'error');
+        }
+      }
+
       function triggerAutoGameLoadIfNeeded() {
         if (autoGameLoadInitiated) return;
         const existingPgn = ($('#pgn-input').val() || '').trim();
         const username = getRawPlayerNameInput() || DEFAULT_PLAYER_NAME;
         if (!username || existingPgn) return;
         autoGameLoadInitiated = true;
-        autoLoadGamesForUsername(username);
+        autoLoadLatestChessComGameAndAnalyze(username);
       }
 
       async function handleGameLoad(source) {
@@ -6700,6 +6752,26 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (copyFenBtn.length) {
           copyFenBtn.on('click', function () {
             copyFenToClipboard();
+          });
+        }
+
+        if (lichessAnalyzeBtn && lichessAnalyzeBtn.length) {
+          lichessAnalyzeBtn.on('click', function () {
+            try {
+              const fen = game && typeof game.fen === 'function' ? game.fen() : '';
+              const trimmed = (fen || '').trim();
+              if (!trimmed) {
+                showError('No position available to send to Lichess yet.');
+                return;
+              }
+              // Lichess analysis URLs use underscores instead of spaces.
+              const lichessFen = trimmed.replace(/\s+/g, '_');
+              const url = `https://lichess.org/analysis/${lichessFen}`;
+              window.open(url, '_blank', 'noopener');
+            } catch (err) {
+              console.warn('Lichess open failed:', err);
+              showError('Unable to open Lichess analysis for this position.');
+            }
           });
         }
 
