@@ -759,28 +759,17 @@
           // Latest game first (fetchChessComGames already sorts desc).
           handleGameSelection(games[0]);
 
-          // Auto-run analysis when the button becomes enabled.
-          const start = Date.now();
-          const maxWaitMs = 30000;
-          const intervalMs = 250;
-          const timer = setInterval(() => {
-            const elapsed = Date.now() - start;
-            if (elapsed > maxWaitMs) {
-              clearInterval(timer);
-              showGameLoaderFeedback('Engine is still loading; press Analyze when ready.', 'info');
-              return;
-            }
-            const btn = $('#analyze-pgn-btn');
-            if (!btn.length) return;
-            if (btn.prop('disabled')) return;
-            clearInterval(timer);
-            try {
-              btn.trigger('click');
-              showGameLoaderFeedback(`Loaded latest Chess.com game for ${targetUser} and started analysis (depth 10).`, 'success');
-            } catch (err) {
-              console.warn('Auto analyze click failed:', err);
-            }
-          }, intervalMs);
+          // Auto-run analysis directly after PGN is loaded.
+          setTimeout(() => {
+            runAnalysisFromPgnInput()
+              .then(() => {
+                showGameLoaderFeedback(`Loaded latest Chess.com game for ${targetUser} and started analysis (depth 10).`, 'success');
+              })
+              .catch(err => {
+                console.warn('Auto analyze failed:', err);
+                showGameLoaderFeedback('Auto analysis failed. Try again or paste a PGN.', 'error');
+              });
+          }, 200);
         } catch (err) {
           console.error('Auto-load latest Chess.com game failed:', err);
           showGameLoaderFeedback('Unable to auto-load your latest Chess.com game. Try again or paste a PGN.', 'error');
@@ -4323,7 +4312,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         updateArchiveControls();
       });
 
-      $('#analyze-pgn-btn').on('click', async function () {
+      async function runAnalysisFromPgnInput() {
         const pgnRaw = $('#pgn-input').val().trim(); if (!pgnRaw) { showError('Please paste a PGN.'); return; }
         const pgn = normalizePgn(pgnRaw);
         if (!game.load_pgn(pgn)) {
@@ -4368,6 +4357,10 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         }
         switchStep(2);
         await runStockfishAnalysis();
+      }
+
+      $('#analyze-pgn-btn').on('click', async function () {
+        await runAnalysisFromPgnInput();
       });
 
       function setCopyButtonAnalyzing(active) {
