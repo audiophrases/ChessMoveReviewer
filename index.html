@@ -778,9 +778,8 @@
 
       function triggerAutoGameLoadIfNeeded() {
         if (autoGameLoadInitiated) return;
-        const existingPgn = ($('#pgn-input').val() || '').trim();
         const username = getRawPlayerNameInput() || DEFAULT_PLAYER_NAME;
-        if (!username || existingPgn) return;
+        if (!username) return;
         autoGameLoadInitiated = true;
         autoLoadLatestChessComGameAndAnalyze(username);
       }
@@ -927,43 +926,34 @@
         const normalized = String(username || '').trim();
         if (!normalized) return [];
         const lower = normalized.toLowerCase();
-        const archivesUrl = `https://api.chess.com/pub/player/${encodeURIComponent(normalized)}/games/archives`;
-        let archiveResponse;
+
+        async function fetchMonth(year, month) {
+          const mm = String(month).padStart(2, '0');
+          const url = `https://api.chess.com/pub/player/${encodeURIComponent(normalized)}/games/${year}/${mm}`;
+          const resp = await fetch(url, { mode: 'cors' });
+          if (!resp.ok) {
+            if (resp.status === 404) return [];
+            throw new Error(`Chess.com request failed (status ${resp.status}).`);
+          }
+          const data = await resp.json();
+          const games = Array.isArray(data && data.games) ? data.games : [];
+          return games;
+        }
+
+        let collected = [];
         try {
-          archiveResponse = await fetch(archivesUrl, { mode: 'cors' });
+          const now = new Date();
+          collected = await fetchMonth(now.getFullYear(), now.getMonth() + 1);
+
+          // Fallback to previous month if current month has no games.
+          if (!collected.length) {
+            const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            collected = await fetchMonth(prev.getFullYear(), prev.getMonth() + 1);
+          }
         } catch (err) {
           throw new Error('Unable to reach Chess.com. Check your connection and try again.');
         }
-        if (!archiveResponse.ok) {
-          if (archiveResponse.status === 404) {
-            throw new Error(`Chess.com user "${normalized}" was not found.`);
-          }
-          throw new Error(`Chess.com request failed (status ${archiveResponse.status}).`);
-        }
-        let archiveJson;
-        try {
-          archiveJson = await archiveResponse.json();
-        } catch (err) {
-          throw new Error('Received an unexpected response from Chess.com.');
-        }
-        const archiveList = Array.isArray(archiveJson.archives) ? archiveJson.archives : [];
-        if (!archiveList.length) return [];
-        const archiveUrls = archiveList.slice(-3).reverse();
-        const collected = [];
-        for (const url of archiveUrls) {
-          if (!url) continue;
-          try {
-            const resp = await fetch(url, { mode: 'cors' });
-            if (!resp.ok) continue;
-            const data = await resp.json();
-            if (data && Array.isArray(data.games)) {
-              data.games.forEach(game => collected.push(game));
-            }
-          } catch (err) {
-            console.warn('Failed to load Chess.com archive', url, err);
-          }
-          if (collected.length >= 40) break;
-        }
+
         const mapped = collected
           .map(game => mapChessComGame(game, normalized, lower))
           .filter(Boolean);
