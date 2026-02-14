@@ -1750,17 +1750,21 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       function setReviewPlayerColor(color) {
         if (color === 'w' || color === 'b') {
           reviewPlayerColor = color;
+          applyBoardOrientationForPlayer();
           return reviewPlayerColor;
         }
         if (color === 'white') {
           reviewPlayerColor = 'w';
+          applyBoardOrientationForPlayer();
           return reviewPlayerColor;
         }
         if (color === 'black') {
           reviewPlayerColor = 'b';
+          applyBoardOrientationForPlayer();
           return reviewPlayerColor;
         }
         reviewPlayerColor = null;
+        applyBoardOrientationForPlayer();
         return reviewPlayerColor;
       }
 
@@ -6313,8 +6317,15 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         initEvalGraph();
       }
 
+      function applyBoardOrientationForPlayer() {
+        if (!board || typeof board.orientation !== 'function') return;
+        const desired = reviewPlayerColor === 'b' ? 'black' : 'white';
+        board.orientation(desired);
+      }
+
       function renderReviewUi(targetMoveIndex = -1) {
         ensureBoardInitialized();
+        applyBoardOrientationForPlayer();
         board.position('start');
         game.reset();
         clearExploration(true);
