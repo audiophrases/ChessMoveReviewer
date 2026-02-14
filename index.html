@@ -756,14 +756,36 @@
             return;
           }
 
-          // Latest game first (fetchChessComGames already sorts desc).
-          handleGameSelection(games[0]);
+          // Pick the most recent game that this app can parse (skip unsupported variants/invalid PGNs).
+          let selected = null;
+          for (const candidate of games) {
+            if (!candidate || !candidate.pgn) continue;
+            const test = new Chess();
+            const raw = String(candidate.pgn || '');
+            const normalized = normalizePgn(raw);
+            if (test.load_pgn(normalized)) {
+              selected = candidate;
+              break;
+            }
+            const justMoves = normalizePgn(raw.replace(/^(\s*\[.*\]\s*$)+/gm, ''));
+            if (test.load_pgn(justMoves)) {
+              selected = candidate;
+              break;
+            }
+          }
+
+          if (!selected) {
+            showGameLoaderFeedback('Found recent Chess.com games, but none were parseable in this analyzer. Paste PGN manually.', 'error');
+            return;
+          }
+
+          handleGameSelection(selected);
 
           // Auto-run analysis directly after PGN is loaded.
           setTimeout(() => {
             runAnalysisFromPgnInput()
               .then(() => {
-                showGameLoaderFeedback(`Loaded latest Chess.com game for ${targetUser} and started analysis (depth 10).`, 'success');
+                showGameLoaderFeedback(`Loaded latest parseable Chess.com game for ${targetUser} and started analysis (depth 10).`, 'success');
               })
               .catch(err => {
                 console.warn('Auto analyze failed:', err);
