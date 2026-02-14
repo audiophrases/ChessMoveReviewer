@@ -534,6 +534,8 @@
       const closeGamePickerBtn = $('#close-game-picker-btn');
       let activeGameRequestToken = 0;
       let autoGameLoadInitiated = false;
+      let autoAnalyzeOnLoadPending = false;
+      let autoAnalyzeOnLoadStarted = false;
       let gamePickerReturnFocus = null;
       const copyFenBtn = $('#copy-fen-btn');
       const lichessAnalyzeBtn = $('#lichess-analyze-btn');
@@ -559,9 +561,13 @@
       let currentReviewMetadata = null;
       let pendingArchiveLoadNotice = null;
       let pendingReviewSessionPayload = loadPersistedReviewSession();
+      window.__CMR_TRANSIENT_FORM_KEYS = new Set(['pgnInput', 'finalAnalysisInput', 'stockfishOutput']);
 
       applySavedFormState();
-      applyRunNewAnalysisPayloadFromUrl();
+      const runNewPayloadState = applyRunNewAnalysisPayloadFromUrl();
+      if (runNewPayloadState && runNewPayloadState.shouldAutoAnalyze) {
+        autoAnalyzeOnLoadPending = true;
+      }
       bindPersistentInput('#player-name-input', 'playerName');
       bindPersistentInput('#pgn-input', 'pgnInput');
       $('#pgn-input').on('input', function () {
@@ -617,6 +623,7 @@
       });
 
       triggerAutoGameLoadIfNeeded();
+      triggerAutoAnalyzeOnLoadIfNeeded();
 
       if (saveArchiveBtn.length) {
         saveArchiveBtn.on('click', function () {
@@ -798,8 +805,28 @@
         }
       }
 
+      function triggerAutoAnalyzeOnLoadIfNeeded() {
+        if (!autoAnalyzeOnLoadPending || autoAnalyzeOnLoadStarted) return;
+        const pgnRaw = ($('#pgn-input').val() || '').trim();
+        if (!pgnRaw) return;
+        autoAnalyzeOnLoadStarted = true;
+        autoAnalyzeOnLoadPending = false;
+        setTimeout(() => {
+          runAnalysisFromPgnInput()
+            .then(() => {
+              showGameLoaderFeedback('Detected PGN from page load and started analysis automatically.', 'success');
+            })
+            .catch(err => {
+              console.warn('Page-load auto analysis failed:', err);
+              showGameLoaderFeedback('Automatic page-load analysis failed. Try Analyze.', 'error');
+            });
+        }, 100);
+      }
+
       function triggerAutoGameLoadIfNeeded() {
         if (autoGameLoadInitiated) return;
+        const existingPgn = ($('#pgn-input').val() || '').trim();
+        if (existingPgn || autoAnalyzeOnLoadPending) return;
         const username = getRawPlayerNameInput() || DEFAULT_PLAYER_NAME;
         if (!username) return;
         autoGameLoadInitiated = true;
@@ -1534,7 +1561,8 @@
         if (engineAssetCheckPromise) return engineAssetCheckPromise;
         const preflight = (async () => {
           try {
-            const response = await fetch(LOCAL_ENGINE, { method: 'HEAD', cache: 'no-store' });
+            // GitHub Pages may reject HEAD. Use GET preflight to avoid false negatives.
+            const response = await fetch(LOCAL_ENGINE, { method: 'GET', cache: 'no-store' });
             if (response && response.ok) return true;
             console.warn('Engine bundle not reachable', response && response.status, response && response.statusText);
             return false;
@@ -3106,16 +3134,18 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           }
         }
 
-        if (!payload && !queryPgn && !playerNameFromQuery) return;
+        if (!payload && !queryPgn && !playerNameFromQuery) return { applied: false, shouldAutoAnalyze: false };
         if (!payload) payload = {};
         if (!payload.pgn && queryPgn) payload.pgn = queryPgn;
         if (playerNameFromQuery && !payload.playerName) payload.playerName = playerNameFromQuery;
 
         let applied = false;
+        let shouldAutoAnalyze = false;
         if (payload.pgn) {
           $('#pgn-input').val(payload.pgn);
           updateFormState('pgnInput', payload.pgn);
           applied = true;
+          shouldAutoAnalyze = true;
         }
         if (payload.playerName) {
           $('#player-name-input').val(payload.playerName);
@@ -3140,6 +3170,8 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             console.warn('Unable to clean carried payload parameters:', err);
           }
         }
+
+        return { applied, shouldAutoAnalyze };
       }
 
       function prepareRunNewAnalysisPayload() {
@@ -3872,10 +3904,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         return true;
       }
 
-      const TRANSIENT_FORM_KEYS = new Set(['pgnInput', 'finalAnalysisInput', 'stockfishOutput']);
-
       function updateFormState(key, value) {
-        if (!key || TRANSIENT_FORM_KEYS.has(String(key))) return;
+        const transientKeys = window.__CMR_TRANSIENT_FORM_KEYS || new Set(['pgnInput', 'finalAnalysisInput', 'stockfishOutput']);
+        if (!key || transientKeys.has(String(key))) return;
         if (!formState || typeof formState !== 'object') formState = {};
         formState[key] = value;
         persistFormState();
@@ -6087,7 +6118,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         }
       }
 
-      runParseAnalysisFixtures();
+      if (window.location && /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname || '')) {
+        runParseAnalysisFixtures();
+      }
       runFinalReviewRegressionChecks();
 
       // Convert evaluation string like "{+0.23}", "{-1.10}", "{#3}" (WHITE-relative already)
