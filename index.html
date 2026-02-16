@@ -328,11 +328,11 @@
                   <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
                   <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
                   <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
+                  <button id="copy-pgn-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">PGN</button>
                   <button id="lichess-analyze-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" title="Analyze this position on Lichess">Lich</button>
                   <button id="save-archive-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary whitespace-nowrap" disabled>
                     Save
                   </button>
-                  <button id="copy-fen-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">FEN</button>
                   <button id="flip-btn" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Flip</button>
                 </div>
                 <p id="archive-feedback" class="hidden text-xs text-gray-300"></p>
@@ -537,7 +537,7 @@
       let autoAnalyzeOnLoadPending = false;
       let autoAnalyzeOnLoadStarted = false;
       let gamePickerReturnFocus = null;
-      const copyFenBtn = $('#copy-fen-btn');
+      const copyPgnBtn = $('#copy-pgn-btn');
       const lichessAnalyzeBtn = $('#lichess-analyze-btn');
       const saveArchiveBtn = $('#save-archive-btn');
       const archiveFeedback = $('#archive-feedback');
@@ -3464,28 +3464,44 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         }
       }
 
-      async function copyFenToClipboard() {
-        if (!game || typeof game.fen !== 'function') {
+      function buildCleanPgnFromSanMoves(sanMoves) {
+        if (!Array.isArray(sanMoves) || !sanMoves.length) return '';
+        const parts = [];
+        for (let i = 0; i < sanMoves.length; i++) {
+          const san = sanMoves[i];
+          if (!san) continue;
+          if (i % 2 === 0) {
+            parts.push(`${Math.floor(i / 2) + 1}. ${san}`);
+          } else {
+            parts.push(san);
+          }
+        }
+        return parts.join(' ').trim();
+      }
+
+      async function copyPgnToClipboard() {
+        if (!game || typeof game.history !== 'function') {
           showArchiveFeedback('Board is not ready yet.', 'error');
           return;
         }
-        const fen = game.fen();
-        if (!fen) {
-          showArchiveFeedback('No FEN available to copy.', 'error');
+        const sanMoves = game.history();
+        const pgn = buildCleanPgnFromSanMoves(sanMoves);
+        if (!pgn) {
+          showArchiveFeedback('No moves available to copy yet.', 'error');
           return;
         }
         if (navigator.clipboard && navigator.clipboard.writeText) {
           try {
-            await navigator.clipboard.writeText(fen);
-            showArchiveFeedback('Current FEN copied to clipboard.', 'success');
+            await navigator.clipboard.writeText(pgn);
+            showArchiveFeedback('PGN up to current position copied to clipboard.', 'success');
             return;
           } catch (err) {
             console.warn('Clipboard write failed, trying fallback copy:', err);
           }
         }
-        const success = fallbackCopyText(fen);
+        const success = fallbackCopyText(pgn);
         showArchiveFeedback(
-          success ? 'Current FEN copied to clipboard.' : 'Could not copy FEN. Please copy it manually.',
+          success ? 'PGN up to current position copied to clipboard.' : 'Could not copy PGN. Please copy it manually.',
           success ? 'success' : 'error'
         );
       }
@@ -6802,9 +6818,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             clearBestMoveHighlight();
           }
         });
-        if (copyFenBtn.length) {
-          copyFenBtn.on('click', function () {
-            copyFenToClipboard();
+        if (copyPgnBtn.length) {
+          copyPgnBtn.on('click', function () {
+            copyPgnToClipboard();
           });
         }
 
