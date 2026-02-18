@@ -297,15 +297,7 @@
         <div class="w-full mx-auto board-panel">
           <div class="board-shell bg-[#0b0e15] rounded-xl shadow-xl shadow-black/40 overflow-hidden">
             <div class="px-3 pt-3 pb-1">
-              <p id="material-top-label" class="flex items-center justify-between gap-2 text-left text-xs text-gray-300 leading-tight">
-                <span id="material-top-player">White: 0</span>
-                <a
-                  id="material-top-opening"
-                  class="hidden text-gray-300 hover:text-blue-300 hover:underline underline-offset-2"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                ></a>
-              </p>
+              <p id="material-top-label" class="text-center text-xs text-gray-300 leading-tight">White: 0</p>
             </div>
             <div id="board" class="chessboard-container"></div>
             <div id="promotion-overlay" class="promotion-overlay hidden" aria-hidden="true">
@@ -329,15 +321,7 @@
               </div>
             </div>
             <div class="px-3 pb-3 pt-1 space-y-2">
-              <p id="material-bottom-label" class="flex items-center justify-between gap-2 text-left text-xs text-gray-300 leading-tight">
-                <span id="material-bottom-player">Black: 0</span>
-                <a
-                  id="material-bottom-opening"
-                  class="hidden text-gray-300 hover:text-blue-300 hover:underline underline-offset-2"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                ></a>
-              </p>
+              <p id="material-bottom-label" class="text-center text-xs text-gray-300 leading-tight">Black: 0</p>
               <div id="controls" class="flex flex-col gap-1 w-full">
                 <div class="flex flex-wrap items-center gap-2">
                   <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
@@ -530,10 +514,6 @@
       let explorationState = null;
       const materialTopLabel = $('#material-top-label');
       const materialBottomLabel = $('#material-bottom-label');
-      const materialTopPlayer = $('#material-top-player');
-      const materialBottomPlayer = $('#material-bottom-player');
-      const materialTopOpening = $('#material-top-opening');
-      const materialBottomOpening = $('#material-bottom-opening');
       const PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
       const PROMOTION_PIECE_THEME = 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png';
       const promotionOverlay = $('#promotion-overlay');
@@ -2799,35 +2779,8 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           const netLabel = Number.isFinite(net) && net > 0 ? `+${net}` : `${net || 0}`;
           return `${player}: ${netLabel}`;
         };
-        const openingName = String(headers.ECO || '').trim();
-        const openingUrl = String(headers.ECOUrl || '').trim();
-        const coachedLabelColor = reviewPlayerColor === 'b' ? 'black' : reviewPlayerColor === 'w' ? 'white' : null;
-
-        const setOpeningLink = (rowColor, linkEl) => {
-          const shouldShow = rowColor === coachedLabelColor
-            && openingName
-            && /^https?:\/\//i.test(openingUrl);
-          if (!shouldShow || !linkEl || !linkEl.length) {
-            if (linkEl && linkEl.length) {
-              linkEl.addClass('hidden');
-              linkEl.removeAttr('href');
-              linkEl.text('');
-            }
-            return;
-          }
-          linkEl.attr('href', openingUrl);
-          linkEl.text(openingName);
-          linkEl.removeClass('hidden');
-        };
-
-        if (materialTopPlayer.length) materialTopPlayer.text(formatLabel(topColor));
-        else materialTopLabel.text(formatLabel(topColor));
-
-        if (materialBottomPlayer.length) materialBottomPlayer.text(formatLabel(bottomColor));
-        else materialBottomLabel.text(formatLabel(bottomColor));
-
-        setOpeningLink(topColor, materialTopOpening);
-        setOpeningLink(bottomColor, materialBottomOpening);
+        materialTopLabel.text(formatLabel(topColor));
+        materialBottomLabel.text(formatLabel(bottomColor));
       }
 
       function updatePromotionOverlayPieces(color) {
