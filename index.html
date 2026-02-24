@@ -2378,6 +2378,18 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           mv.classification = praiseClass;
         });
 
+        moves.forEach((mv) => {
+          const key = normalizeClassificationKey(mv.classification);
+          if (key !== 'great' && key !== 'brilliant') return;
+          const context = getCentipawnContext(mv);
+          const loss = context && Number.isFinite(context.effectiveLoss)
+            ? context.effectiveLoss
+            : Number(mv.moverDelta);
+          if (Number.isFinite(loss) && loss <= LOSS_BANDS_PROB.normal.inaccuracy) {
+            mv.classification = 'Inaccuracy';
+          }
+        });
+
         const summaryCounts = {};
         Object.values(CLASSIFICATION_CANONICAL).forEach(name => { summaryCounts[name] = 0; });
         moves.forEach(mv => {
@@ -2562,7 +2574,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           if (Number.isFinite(move.moverDelta) && move.moverDelta > 0) {
             return 'Auto insight: extends the advantage according to Stockfish.';
           }
-          return 'Auto insight: flagged as the only move that keeps control.';
+          return 'Auto insight: keeps control according to Stockfish.';
         }
         if (key === 'blunder') {
           if (hasOpponentMate && !hadOpponentMate) {
@@ -6317,9 +6329,19 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           const whiteProbHtml = formatWhiteWinProbDisplay(whiteProbSource);
           if (whiteProbHtml) segments.push(whiteProbHtml);
         }
-        const moverDeltaSource = mv.delta != null
-          ? mv.delta
-          : (mv.analysis && mv.analysis.delta != null ? mv.analysis.delta : null);
+        let moverDeltaSource = null;
+        if (mv.automated && Number.isFinite(Number(mv.automated.moverDelta))) {
+          const autoKey = normalizeClassificationKey(mv.automated.classification);
+          const analysisKey = normalizeClassificationKey(mv.analysis && mv.analysis.classification);
+          const analysisOverridden = !!(mv.analysis && mv.analysis.originalClassification);
+          if (analysisOverridden || !analysisKey || (autoKey && analysisKey === autoKey)) {
+            moverDeltaSource = Number(mv.automated.moverDelta);
+          }
+        }
+        if (moverDeltaSource == null && mv.delta != null) moverDeltaSource = mv.delta;
+        if (moverDeltaSource == null && mv.analysis && mv.analysis.delta != null) {
+          moverDeltaSource = mv.analysis.delta;
+        }
         const moverDeltaHtml = formatMoverDeltaIndicator(moverDeltaSource);
         if (moverDeltaHtml) segments.push(moverDeltaHtml);
         if (!segments.length) {
