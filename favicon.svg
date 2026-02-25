@@ -1,27 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ChessMoveReviewer blunder queen logo">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#111827"/>
-      <stop offset="100%" stop-color="#0b1220"/>
-    </linearGradient>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ChessMoveReviewer graph and chess piece icon">
+  <!-- Transparent background by design -->
 
-  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" stroke="#334155" stroke-width="2"/>
-
-  <!-- Queen silhouette -->
-  <g fill="#f8fafc">
-    <circle cx="21" cy="18" r="3"/>
-    <circle cx="32" cy="14" r="3"/>
-    <circle cx="43" cy="18" r="3"/>
-    <path d="M16 25 L24 21 L32 25 L40 21 L48 25 L44 38 H20 Z"/>
-    <rect x="18" y="38" width="28" height="6" rx="3"/>
-    <rect x="16" y="45" width="32" height="7" rx="3"/>
+  <!-- Graph baseline + rising line -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 56 H58" stroke="#94a3b8" stroke-width="3" opacity="0.75"/>
+    <polyline points="8,46 18,38 28,41 38,30 48,22" stroke="#3b82f6" stroke-width="4"/>
+    <circle cx="8" cy="46" r="2.3" fill="#3b82f6"/>
+    <circle cx="18" cy="38" r="2.3" fill="#3b82f6"/>
+    <circle cx="28" cy="41" r="2.3" fill="#3b82f6"/>
+    <circle cx="38" cy="30" r="2.3" fill="#3b82f6"/>
+    <circle cx="48" cy="22" r="2.3" fill="#3b82f6"/>
   </g>
 
-  <!-- Blunder badge -->
-  <g>
-    <circle cx="48" cy="48" r="13" fill="#ef4444" stroke="#7f1d1d" stroke-width="2"/>
-    <rect x="46.5" y="40" width="3" height="10" rx="1.5" fill="#fff"/>
-    <circle cx="48" cy="53.5" r="2" fill="#fff"/>
+  <!-- Chess piece (pawn) -->
+  <g fill="#0f172a" stroke="#e2e8f0" stroke-width="1.5" stroke-linejoin="round">
+    <circle cx="47" cy="17" r="5.5"/>
+    <path d="M41 29c0-3.9 2.7-7.1 6-7.1s6 3.2 6 7.1c0 3-1.1 5.7-3.2 7.5 3.2 1.8 5.2 5.7 5.2 10.2H39c0-4.5 2-8.4 5.2-10.2-2.1-1.8-3.2-4.5-3.2-7.5Z"/>
+    <rect x="35.5" y="46.5" width="23" height="5" rx="2.5"/>
+    <rect x="33.5" y="52.5" width="27" height="6" rx="3"/>
   </g>
 </svg>
