@@ -3552,21 +3552,58 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         return parts.join(' ').trim();
       }
 
+      function getMainlineSanPrefixThroughBaseIndex(baseIndex) {
+        const moves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis : [];
+        if (!Number.isFinite(baseIndex) || baseIndex < 0 || !moves.length) return [];
+        const cappedIndex = Math.max(-1, Math.min(baseIndex, moves.length - 1));
+        const prefix = [];
+        for (let i = 0; i <= cappedIndex; i++) {
+          const san = moves[i] && moves[i].san;
+          if (san) prefix.push(san);
+        }
+        return prefix;
+      }
+
+      function getCurrentSanMovesForClipboard() {
+        if (isExploring()) {
+          const baseIndex = explorationState && Number.isFinite(explorationState.baseIndex)
+            ? explorationState.baseIndex
+            : -1;
+          const composed = getMainlineSanPrefixThroughBaseIndex(baseIndex);
+          const variationMoves = Array.isArray(explorationState && explorationState.moves)
+            ? explorationState.moves
+            : [];
+          const cursor = explorationState && Number.isFinite(explorationState.cursor)
+            ? explorationState.cursor
+            : variationMoves.length;
+          const cappedCursor = Math.max(0, Math.min(cursor, variationMoves.length));
+          for (let i = 0; i < cappedCursor; i++) {
+            const san = variationMoves[i] && variationMoves[i].san;
+            if (san) composed.push(san);
+          }
+          if (composed.length) return composed;
+        }
+        return (game && typeof game.history === 'function') ? game.history() : [];
+      }
+
       async function copyPgnToClipboard() {
         if (!game || typeof game.history !== 'function') {
           showArchiveFeedback('Board is not ready yet.', 'error');
           return;
         }
-        const sanMoves = game.history();
+        const sanMoves = getCurrentSanMovesForClipboard();
         const pgn = buildCleanPgnFromSanMoves(sanMoves);
         if (!pgn) {
           showArchiveFeedback('No moves available to copy yet.', 'error');
           return;
         }
+        const successMessage = isExploring()
+          ? 'Variation PGN from move 1 to current position copied to clipboard.'
+          : 'PGN up to current position copied to clipboard.';
         if (navigator.clipboard && navigator.clipboard.writeText) {
           try {
             await navigator.clipboard.writeText(pgn);
-            showArchiveFeedback('PGN up to current position copied to clipboard.', 'success');
+            showArchiveFeedback(successMessage, 'success');
             return;
           } catch (err) {
             console.warn('Clipboard write failed, trying fallback copy:', err);
@@ -3574,7 +3611,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         }
         const success = fallbackCopyText(pgn);
         showArchiveFeedback(
-          success ? 'PGN up to current position copied to clipboard.' : 'Could not copy PGN. Please copy it manually.',
+          success ? successMessage : 'Could not copy PGN. Please copy it manually.',
           success ? 'success' : 'error'
         );
       }
