@@ -480,6 +480,7 @@
       const REVIEW_SESSION_STORAGE_KEY = 'cmr.reviewSession.v1';
       const REVIEW_SESSION_SESSION_KEY = 'cmr.reviewSession.session.v1';
       const DEFAULT_PLAYER_NAME = 'eugenime';
+      const DEFAULT_AUTO_ANALYSIS_DEPTH = 14;
       const FOCUSED_MOVE_SCROLL_OFFSET = 28;
       let formState = loadFormState();
       let currentStep = 1;
@@ -765,15 +766,18 @@
         }
       }
 
+      function applyDefaultAutoAnalysisDepth() {
+        if (!$('#depth-input').length) return;
+        $('#depth-input').val(DEFAULT_AUTO_ANALYSIS_DEPTH).trigger('input');
+        updateFormState('depthInput', String(DEFAULT_AUTO_ANALYSIS_DEPTH));
+      }
+
       async function autoLoadLatestChessComGameAndAnalyze(username) {
         const targetUser = username || DEFAULT_PLAYER_NAME;
         if (!targetUser) return;
 
-        // Force depth=12 for the auto-run path.
-        if ($('#depth-input').length) {
-          $('#depth-input').val(12).trigger('input');
-          updateFormState('depthInput', '12');
-        }
+        // Force depth=14 for auto-run analysis.
+        applyDefaultAutoAnalysisDepth();
 
         hideGameLoaderFeedback();
 
@@ -813,7 +817,7 @@
           setTimeout(() => {
             runAnalysisFromPgnInput()
               .then(() => {
-                showGameLoaderFeedback(`Loaded latest parseable Chess.com game for ${targetUser} and started analysis (depth 12).`, 'success');
+                showGameLoaderFeedback(`Loaded latest parseable Chess.com game for ${targetUser} and started analysis (depth ${DEFAULT_AUTO_ANALYSIS_DEPTH}).`, 'success');
               })
               .catch(err => {
                 console.warn('Auto analyze failed:', err);
@@ -832,10 +836,11 @@
         if (!pgnRaw) return;
         autoAnalyzeOnLoadStarted = true;
         autoAnalyzeOnLoadPending = false;
+        applyDefaultAutoAnalysisDepth();
         setTimeout(() => {
           runAnalysisFromPgnInput()
             .then(() => {
-              showGameLoaderFeedback('Detected PGN from page load and started analysis automatically.', 'success');
+              showGameLoaderFeedback(`Detected PGN from page load and started analysis automatically (depth ${DEFAULT_AUTO_ANALYSIS_DEPTH}).`, 'success');
             })
             .catch(err => {
               console.warn('Page-load auto analysis failed:', err);
