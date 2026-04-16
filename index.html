@@ -1453,7 +1453,9 @@
       let engineWarmupRetryHandle = null;
       let engineInitAttempts = 0;
       let lastInfoMsg = '';
+      let lastInfoByPv = {};
       let currentScoreResolver = null;
+      let currentMultiPvResolver = null;
       let showBestMove = false;
       const toggleBestBtn = $('#toggle-eval-btn');
       const defaultBestButtonLabel = toggleBestBtn.length ? (toggleBestBtn.text().trim() || 'Best') : 'Best';
@@ -1663,7 +1665,27 @@
               const mt = /score mate (-?\d+)/.exec(lastInfoMsg);
               const bmMatch = /bestmove\s(\S+)/.exec(msg);
               const bm = bmMatch ? bmMatch[1] : null;
-              if (currentScoreResolver) {
+              if (currentMultiPvResolver) {
+                const pvResults = {};
+                Object.keys(lastInfoByPv).forEach(function(pvKey) {
+                  const info = lastInfoByPv[pvKey];
+                  const pvCp = /score cp (-?\d+)/.exec(info);
+                  const pvMt = /score mate (-?\d+)/.exec(info);
+                  const pvMove = /\bpv\s+([a-h][1-8][a-h][1-8][nbrq]?)/i.exec(info);
+                  let entry;
+                  if (pvMt) {
+                    entry = { type: 'mate', value: parseInt(pvMt[1], 10) };
+                  } else if (pvCp) {
+                    entry = { type: 'cp', value: parseInt(pvCp[1], 10) };
+                  } else {
+                    entry = { type: 'cp', value: 0 };
+                  }
+                  entry.move = pvMove ? pvMove[1] : null;
+                  pvResults[pvKey] = entry;
+                });
+                currentMultiPvResolver({ pvResults: pvResults, bestmove: bm });
+                currentMultiPvResolver = null;
+              } else if (currentScoreResolver) {
                 if (mt) {
                   currentScoreResolver({ type: 'mate', value: parseInt(mt[1], 10), bestmove: bm });
                 } else if (cp) {
@@ -1965,6 +1987,13 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       const NAVIGATION_DROP_THRESHOLD = 14;
       const MIN_NAVIGATION_SEVERITY = CLASSIFICATION_SEVERITY.mistake || 3;
       const SACRIFICE_PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+      const PVGAP_BRILLIANT_THRESHOLD = 200;
+      const PVGAP_GREAT_THRESHOLD = 80;
+      const PVGAP_ONLY_MOVE_THRESHOLD = 300;
+      const PVGAP_DEFENSIVE_GREAT_THRESHOLD = 100;
+      const PVGAP_DEFENSIVE_BRILLIANT_THRESHOLD = 250;
+      const DEFENSIVE_PROB_CEILING = 0.35;
+      const DEFENSIVE_GAIN_THRESHOLD = 8;
       const LOSS_BANDS_PROB = {
         normal: { inaccuracy: -3, mistake: -12, blunder: -27, misclick: -45 },
         winning: { inaccuracy: -3, mistake: -9, blunder: -25, misclick: -40 },
@@ -2186,12 +2215,68 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           : 0;
         const tightenedMate = hadMate && keepsMate && mateDelta >= MATE_TIGHTEN_PRAISE_THRESHOLD;
         const sacrifice = isLikelySacrificeMove(moveRecord);
-        const qualifies = positiveGain || sacrifice || tightenedMate || (previousMoveError && keepsMate && hadMate);
-        if (!qualifies) return null;
-        const winningAfter = keepsMate || (context && Number.isFinite(context.moverAfter) && context.moverAfter > WINNING_PROB_THRESHOLD);
-        if (!winningAfter) return null;
-        if (sacrifice && (positiveGain || keepsMate || tightenedMate)) return 'Brilliant';
+        const boldSacrifice = isLikelyBoldSacrifice(moveRecord);
+
+        // --- Multi-PV difficulty signals ---
+        const pvGap = Number.isFinite(moveRecord.pvGap) ? moveRecord.pvGap : null;
+        const playedIsBest = moveRecord.playedIsBestMove === true;
+        const hasPvData = pvGap != null;
+        const highPvGap = hasPvData && pvGap >= PVGAP_GREAT_THRESHOLD && playedIsBest;
+        const veryHighPvGap = hasPvData && pvGap >= PVGAP_BRILLIANT_THRESHOLD && playedIsBest;
+        const onlyMove = hasPvData && pvGap >= PVGAP_ONLY_MOVE_THRESHOLD && playedIsBest;
+
+        // --- Legacy qualification (without pvGap) ---
+        const legacyQualifies = positiveGain || sacrifice || tightenedMate || (previousMoveError && keepsMate && hadMate);
+
+        // --- PvGap-based qualification ---
+        // A move can qualify for praise purely by being the best move with a large pvGap,
+        // even without a large eval gain, sacrifice, or mate tightening.
+        const pvGapQualifies = highPvGap;
+
+        // --- Defensive brilliance path ---
+        // Allows praise for defensive resources in losing positions
+        const moverBefore = context.moverBefore;
+        const moverAfter = context.moverAfter;
+        const isDefensiveContext = Number.isFinite(moverBefore) && moverBefore < DEFENSIVE_PROB_CEILING;
+        const defensiveGain = Number.isFinite(gain) && gain >= DEFENSIVE_GAIN_THRESHOLD;
+        const defensivePvGap = hasPvData && pvGap >= PVGAP_DEFENSIVE_GREAT_THRESHOLD && playedIsBest;
+        const defensiveQualifies = isDefensiveContext && (defensiveGain || defensivePvGap) && playedIsBest;
+
+        if (!legacyQualifies && !pvGapQualifies && !defensiveQualifies) return null;
+
+        // --- Determine praise level ---
+
+        // Defensive brilliance: doesn't require being "winning after"
+        if (defensiveQualifies && !legacyQualifies && !pvGapQualifies) {
+          const defensiveBrilliant = (hasPvData && pvGap >= PVGAP_DEFENSIVE_BRILLIANT_THRESHOLD)
+            || (sacrifice && defensiveGain);
+          return defensiveBrilliant ? 'Brilliant' : 'Great';
+        }
+
+        // For non-defensive paths, require winning outcome or pvGap-only moves
+        const winningAfter = keepsMate || (Number.isFinite(moverAfter) && moverAfter > WINNING_PROB_THRESHOLD);
+
+        // PvGap-only qualification: if the player found the only strong move, we can relax the
+        // winning-after requirement — the move is praiseworthy because it was hard to find, not
+        // because it leads to a winning position. Require at minimum not-losing.
+        const notLosingAfter = Number.isFinite(moverAfter) && moverAfter >= (0.5 - EVEN_PROB_BUFFER);
+
+        if (!winningAfter && !notLosingAfter) return null;
+        if (!winningAfter && !pvGapQualifies && !defensiveQualifies) return null;
+
+        // --- Brilliant criteria ---
+        // Bold sacrifice + positive outcome
+        if (boldSacrifice && (positiveGain || keepsMate || tightenedMate || veryHighPvGap)) return 'Brilliant';
+        // Very high pvGap: the only strong move in the position, and it's hard to find
+        if (veryHighPvGap && (positiveGain || sacrifice || tightenedMate || keepsMate)) return 'Brilliant';
+        // Sacrifice + high difficulty
+        if (sacrifice && highPvGap && (positiveGain || keepsMate)) return 'Brilliant';
+
+        // --- Great criteria ---
         if (positiveGain || tightenedMate || previousMoveError) return 'Great';
+        if (highPvGap) return 'Great';
+        if (sacrifice && (winningAfter || notLosingAfter)) return 'Great';
+        if (onlyMove) return 'Great';
         return null;
       }
 
@@ -2199,7 +2284,24 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (!moveRecord || !moveRecord.move) return false;
         const move = moveRecord.move;
         const piece = move.piece;
-        if (!piece || piece === 'p' || piece === 'k') return false;
+        if (!piece || piece === 'k') return false;
+        const captured = move.captured;
+        if (captured) {
+          // Capture sacrifice: giving up more material than captured
+          const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
+          const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
+          // Exchange sac (Rxn/Rxb), piece-for-pawn, queen sac — threshold lowered to +1
+          if (moverValue >= capturedValue + 1) return true;
+        }
+        return false;
+      }
+
+      function isLikelyBoldSacrifice(moveRecord) {
+        // Detects larger sacrifices (material gap >= 3) for Brilliant distinction
+        if (!moveRecord || !moveRecord.move) return false;
+        const move = moveRecord.move;
+        const piece = move.piece;
+        if (!piece || piece === 'k') return false;
         const captured = move.captured;
         if (!captured) return false;
         const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
@@ -2558,23 +2660,40 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const hasOpponentMate = opponentHasForcedMateAfter(move);
         const context = getCentipawnContext(move) || {};
         const mateSlowdown = context.moverMateSlowdown;
+        const pvGap = Number.isFinite(move.pvGap) ? move.pvGap : null;
+        const isDefensive = Number.isFinite(context.moverBefore) && context.moverBefore < DEFENSIVE_PROB_CEILING;
         if (mateSlowdown) {
           const slowdownDelta = context.mateSlowdownDelta || 0;
           const slowdownDescriptor = slowdownDelta >= MATE_SLOWDOWN_MISTAKE_THRESHOLD ? 'significantly slows down' : 'slows down';
           return `Auto insight: ${slowdownDescriptor} the forced mate; faster was available.`;
         }
         if (key === 'brilliant') {
+          if (isDefensive && pvGap != null && pvGap >= PVGAP_DEFENSIVE_BRILLIANT_THRESHOLD) {
+            return 'Auto insight: a remarkable defensive resource; the only move to stay in the game.';
+          }
           if (retainsMateForMover(move)) {
             return 'Auto insight: keeps the forced mate alive.';
+          }
+          if (isLikelySacrificeMove(move) && pvGap != null && pvGap >= PVGAP_BRILLIANT_THRESHOLD) {
+            return 'Auto insight: a bold sacrifice and the only strong continuation; alternatives were far worse.';
           }
           if (isLikelySacrificeMove(move)) {
             return 'Auto insight: engine-backed sacrifice keeps the initiative.';
           }
+          if (pvGap != null && pvGap >= PVGAP_BRILLIANT_THRESHOLD) {
+            return 'Auto insight: a difficult-to-find move; every alternative was significantly worse.';
+          }
           return 'Auto insight: Stockfish approves this tactic to extend the attack.';
         }
         if (key === 'great') {
+          if (isDefensive && pvGap != null && pvGap >= PVGAP_DEFENSIVE_GREAT_THRESHOLD) {
+            return 'Auto insight: a strong defensive find; most alternatives led to a worse position.';
+          }
           if (retainsMateForMover(move)) {
             return 'Auto insight: preserves the forced mate the engine spotted.';
+          }
+          if (pvGap != null && pvGap >= PVGAP_GREAT_THRESHOLD) {
+            return 'Auto insight: the clearly best move; alternatives were meaningfully weaker.';
           }
           if (Number.isFinite(move.moverDelta) && move.moverDelta > 0) {
             return 'Auto insight: extends the advantage according to Stockfish.';
@@ -4715,6 +4834,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const stage = opts && opts.stage ? opts.stage : 'quick';
         const depth = opts && Number.isFinite(opts.depth) ? opts.depth : ENGINE_GO_OPTIONS.depth;
         const token = opts && Number.isFinite(opts.token) ? opts.token : activeAnalysisToken;
+        const multiPvDepth = Math.max(10, Math.min(depth, 14));
         const sanMoves = game.history();
         let annotatedPgn = '';
         const headerBlock = buildHeaderTagBlock(game);
@@ -4730,8 +4850,51 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           const prefix = (i % 2 === 0) ? (moveNumber + '. ') : '';
           const move = sanMoves[i];
           updateAnalysisProgress(stage, i, sanMoves.length, move, depth);
+
+          // --- Multi-PV pre-move probe ---
+          const preMovefen = temp.fen();
+          let pvGap = null;
+          let bestEngineMove = null;
+          let secondBestEval = null;
+          let playedIsBestMove = null;
+          let legalMoveCount = null;
+          try {
+            const legalMoves = temp.moves({ verbose: true });
+            legalMoveCount = legalMoves ? legalMoves.length : null;
+          } catch (e) { legalMoveCount = null; }
+          if (legalMoveCount == null || legalMoveCount > 1) {
+            try {
+              const mpvResult = await getMultiPvScore(preMovefen, { depth: multiPvDepth });
+              if (token !== activeAnalysisToken) return null;
+              if (mpvResult && mpvResult.pvResults) {
+                const pv1 = mpvResult.pvResults[1];
+                const pv2 = mpvResult.pvResults[2];
+                if (pv1 && pv1.move) bestEngineMove = pv1.move;
+                if (pv2) secondBestEval = { type: pv2.type, value: pv2.value };
+                if (pv1 && pv2) {
+                  const pv1Cp = pv1.type === 'mate'
+                    ? (pv1.value > 0 ? 10000 - pv1.value * 10 : -10000 - pv1.value * 10)
+                    : pv1.value;
+                  const pv2Cp = pv2.type === 'mate'
+                    ? (pv2.value > 0 ? 10000 - pv2.value * 10 : -10000 - pv2.value * 10)
+                    : pv2.value;
+                  pvGap = Math.abs(pv1Cp - pv2Cp);
+                }
+              }
+            } catch (e) { /* multi-PV probe failed, continue without */ }
+          } else {
+            pvGap = 0;
+          }
+
           const moveObj = temp.move(move);
           if (!moveObj) throw new Error('Encountered an invalid move during analysis.');
+
+          // Check if the played move matches the engine's best move (UCI comparison)
+          if (bestEngineMove && moveObj) {
+            const playedUci = moveObj.from + moveObj.to + (moveObj.promotion || '');
+            playedIsBestMove = playedUci === bestEngineMove;
+          }
+
           const probBeforeMove = prevProb;
           const score = normalizeEngineScore(await getScore(temp.fen(), { ...ENGINE_GO_OPTIONS, depth }));
           if (token !== activeAnalysisToken) return null;
@@ -4779,11 +4942,18 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             mateBefore: lastMateScore,
             mateAfter: mateScore,
             evaluation: evalStr,
-            move: simplifyMoveObject(moveObj)
+            move: simplifyMoveObject(moveObj),
+            pvGap: pvGap,
+            bestEngineMove: bestEngineMove,
+            secondBestEval: secondBestEval,
+            playedIsBestMove: playedIsBestMove,
+            legalMoveCount: legalMoveCount
           });
           lastMateScore = mateScore;
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
         }
+        // Reset to multipv 1 after analysis
+        setEngineMultiPv(1, { force: true });
         const outcome = updatePlayerOutcomeFromGame(game);
         const autoInsights = computeAutomatedMoveInsights(engineMoveRecords, reviewPlayerColor, outcome);
         const autoText = buildAutomatedReviewText(autoInsights);
@@ -5037,7 +5207,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
 
         function getScore(fen, opts) {
           return new Promise(resolve => {
-            currentScoreResolver = resolve; lastInfoMsg = '';
+            currentScoreResolver = resolve; currentMultiPvResolver = null; lastInfoMsg = ''; lastInfoByPv = {};
             const o = opts || ENGINE_GO_OPTIONS || {};
             const preserveMultiPv = !!o.preserveMultiPv;
             const desiredMultiPv = Number.isFinite(o.multipv) ? Number(o.multipv) : null;
@@ -5054,6 +5224,23 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             if (o.depth != null) parts.push('depth ' + o.depth);
             if (o.movetime != null) parts.push('movetime ' + o.movetime);
             if (parts.length === 1) parts.push('depth 15');
+            engineWorker.postMessage(parts.join(' '));
+          });
+        }
+
+        function getMultiPvScore(fen, opts) {
+          return new Promise(resolve => {
+            currentMultiPvResolver = resolve;
+            currentScoreResolver = null;
+            lastInfoMsg = '';
+            lastInfoByPv = {};
+            const o = opts || {};
+            setEngineMultiPv(2, { force: true });
+            engineWorker.postMessage('position fen ' + fen);
+            const parts = ['go'];
+            if (o.depth != null) parts.push('depth ' + o.depth);
+            if (o.movetime != null) parts.push('movetime ' + o.movetime);
+            if (parts.length === 1) parts.push('depth 12');
             engineWorker.postMessage(parts.join(' '));
           });
         }
@@ -5080,6 +5267,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       function handleEngineInfoMessage(msg) {
         if (msg.startsWith('info depth')) {
           lastInfoMsg = msg;
+          const pvIdxMatch = /\bmultipv\s+(\d+)/.exec(msg);
+          const pvIdx = pvIdxMatch ? parseInt(pvIdxMatch[1], 10) : 1;
+          lastInfoByPv[pvIdx] = msg;
         }
         processBestMoveInfo(msg);
       }
