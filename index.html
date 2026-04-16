@@ -2262,15 +2262,15 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const notLosingAfter = Number.isFinite(moverAfter) && moverAfter >= (0.5 - EVEN_PROB_BUFFER);
 
         if (!winningAfter && !notLosingAfter) return null;
-        if (!winningAfter && !pvGapQualifies && !defensiveQualifies) return null;
+        if (!winningAfter && !pvGapQualifies && !defensiveQualifies && !sacrifice) return null;
 
         // --- Brilliant criteria ---
         // Bold sacrifice + positive outcome
         if (boldSacrifice && (positiveGain || keepsMate || tightenedMate || veryHighPvGap)) return 'Brilliant';
         // Very high pvGap: the only strong move in the position, and it's hard to find
         if (veryHighPvGap && (positiveGain || sacrifice || tightenedMate || keepsMate)) return 'Brilliant';
-        // Sacrifice + high difficulty
-        if (sacrifice && highPvGap && (positiveGain || keepsMate)) return 'Brilliant';
+        // Sacrifice + high difficulty — the sacrifice was hard to find
+        if (sacrifice && highPvGap) return 'Brilliant';
 
         // --- Great criteria ---
         if (positiveGain || tightenedMate || previousMoveError) return 'Great';
