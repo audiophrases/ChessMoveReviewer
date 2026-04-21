@@ -1997,7 +1997,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       const PVGAP_DEFENSIVE_BRILLIANT_THRESHOLD = 250;
       const PVRARITY_GREAT_THRESHOLD = 120;
       const PVRARITY_BRILLIANT_THRESHOLD = 220;
-      const LIVE_RECLASS_UPDATE_INTERVAL = 4;
+      const LIVE_RECLASS_UPDATE_INTERVAL = 2;
       const DEFENSIVE_PROB_CEILING = 0.35;
       const DEFENSIVE_GAIN_THRESHOLD = 8;
       const LOSS_BANDS_PROB = {
@@ -4999,6 +4999,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const liveUpdateInterval = opts && Number.isFinite(opts.liveUpdateInterval)
           ? Math.max(1, Number(opts.liveUpdateInterval))
           : LIVE_RECLASS_UPDATE_INTERVAL;
+        const baselineRecords = (opts && Array.isArray(opts.baselineRecords)) ? opts.baselineRecords : null;
         const multiPvDepth = Math.max(10, Math.min(depth, 14));
         const sanMoves = game.history();
         let annotatedPgn = '';
@@ -5083,38 +5084,52 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             playedIsBestMove = playedUci === bestEngineMove;
           }
 
-          const probBeforeMove = prevProb;
-          const score = normalizeEngineScore(await getScore(temp.fen(), { ...ENGINE_GO_OPTIONS, depth }));
-          if (token !== activeAnalysisToken) return null;
+          let probBeforeMove = prevProb;
           let evalStr = '';
           let prob = null;
           let mateScore = null;
-          if (score.type === 'mate') {
-            mateScore = score.value;
-            if (temp.turn() === 'b') mateScore = -mateScore;
-            prob = (mateScore === 0) ? (moveObj.color === 'w' ? 1 : 0) : (mateScore > 0 ? 1 : 0);
-          } else {
-            let cp = score.value;
-            if (temp.turn() === 'b') cp = -cp;
-            prob = cpToProb(cp);
-          }
-          prob = clampProb(prob);
           let moverDelta = null;
           let whiteDelta = null;
-          if (prob != null && prevProb != null) {
-            const diff = (prob - prevProb) * 100;
-            const moverSign = moveObj.color === 'w' ? 1 : -1;
-            moverDelta = diff * moverSign;
-            whiteDelta = diff;
-            prevProb = prob;
-          } else if (prob != null) {
-            prevProb = prob;
-          }
-          const deltaStr = formatDeltaBraced(moverDelta);
-          if (mateScore != null) {
-            evalStr = `{#${mateScore}}`;
+
+          const baselineRec = baselineRecords && baselineRecords[i];
+          if (baselineRec) {
+            // Reuse quick-pass probabilities — skip getScore for speed
+            if (baselineRec.whiteProbBefore != null) probBeforeMove = baselineRec.whiteProbBefore;
+            prob = baselineRec.whiteProbAfter != null ? baselineRec.whiteProbAfter : null;
+            mateScore = baselineRec.mateAfter != null ? baselineRec.mateAfter : null;
+            moverDelta = baselineRec.moverDelta != null ? baselineRec.moverDelta : null;
+            whiteDelta = baselineRec.whiteDelta != null ? baselineRec.whiteDelta : null;
+            evalStr = baselineRec.evaluation || '{0}';
+            if (prob != null) prevProb = prob;
+            if (mateScore != null) lastMateScore = mateScore;
           } else {
-            evalStr = deltaStr || '{0}';
+            const score = normalizeEngineScore(await getScore(temp.fen(), { ...ENGINE_GO_OPTIONS, depth }));
+            if (token !== activeAnalysisToken) return null;
+            if (score.type === 'mate') {
+              mateScore = score.value;
+              if (temp.turn() === 'b') mateScore = -mateScore;
+              prob = (mateScore === 0) ? (moveObj.color === 'w' ? 1 : 0) : (mateScore > 0 ? 1 : 0);
+            } else {
+              let cp = score.value;
+              if (temp.turn() === 'b') cp = -cp;
+              prob = cpToProb(cp);
+            }
+            prob = clampProb(prob);
+            if (prob != null && prevProb != null) {
+              const diff = (prob - prevProb) * 100;
+              const moverSign = moveObj.color === 'w' ? 1 : -1;
+              moverDelta = diff * moverSign;
+              whiteDelta = diff;
+              prevProb = prob;
+            } else if (prob != null) {
+              prevProb = prob;
+            }
+            const deltaStr = formatDeltaBraced(moverDelta);
+            if (mateScore != null) {
+              evalStr = `{#${mateScore}}`;
+            } else {
+              evalStr = deltaStr || '{0}';
+            }
           }
 
           localProbSeries.push(prob);
@@ -5188,6 +5203,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           token,
           enableMultiPvProbes: true,
           multiPvMax: 4,
+          baselineRecords: lastEngineMoveRecords || [],
           liveUpdateInterval: LIVE_RECLASS_UPDATE_INTERVAL,
           onMoveAnalyzed: ({ analyzed, total, records }) => {
             if (token !== activeAnalysisToken) return;
