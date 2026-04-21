@@ -203,7 +203,7 @@
     <div class="flex justify-center gap-2 text-sm">
       <div class="flex flex-col items-center">
         <label for="depth-input" class="text-gray-300">Depth</label>
-        <input id="depth-input" type="number" value="10" class="w-16 p-1 rounded form-input text-center"/>
+        <input id="depth-input" type="number" value="18" class="w-16 p-1 rounded form-input text-center"/>
       </div>
       <div class="flex flex-col items-center">
         <label for="threads-input" class="text-gray-300">Threads</label>
@@ -365,6 +365,8 @@
           <div id="move-analysis-scroll" class="overflow-y-auto">
             <!-- One-line summary appears here (from "Summary:") -->
             <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
+            <!-- Clickable classification jump badges -->
+            <div id="classification-nav" class="hidden mb-2 flex flex-wrap gap-1.5 px-1"></div>
             <div id="step4-live-status" class="hidden mb-3 p-2 rounded bg-[#0b0e15] border border-[#1f2937] text-xs text-cyan-200"></div>
             <div id="move-analysis-container" class="space-y-1"></div>
           </div>
@@ -481,7 +483,7 @@
       const REVIEW_SESSION_STORAGE_KEY = 'cmr.reviewSession.v1';
       const REVIEW_SESSION_SESSION_KEY = 'cmr.reviewSession.session.v1';
       const DEFAULT_PLAYER_NAME = 'eugenime';
-      const DEFAULT_AUTO_ANALYSIS_DEPTH = 14;
+      const DEFAULT_AUTO_ANALYSIS_DEPTH = 18;
       const FOCUSED_MOVE_SCROLL_OFFSET = 28;
       let formState = loadFormState();
       let currentStep = 1;
@@ -1434,17 +1436,15 @@
         : resolveDepthFromInput();
       const ENGINE_GO_OPTIONS = { depth: initialEngineDepth };
       pendingEngineGoDepth = null;
-      const QUICK_ANALYSIS_DEPTH = 10;
-      const DEFAULT_DEEP_ANALYSIS_DEPTH = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : 12;
+      const QUICK_ANALYSIS_DEPTH = 16;
+      const DEFAULT_DEEP_ANALYSIS_DEPTH = ENGINE_SETTING_LIMITS.depth ? ENGINE_SETTING_LIMITS.depth.fallback : 18;
       const defaultManualDeepDepth = Number.isFinite(DEFAULT_DEEP_ANALYSIS_DEPTH)
         ? DEFAULT_DEEP_ANALYSIS_DEPTH
         : (Number.isFinite(ENGINE_GO_OPTIONS.depth) ? ENGINE_GO_OPTIONS.depth : 12);
       manualDeepState = { status: 'idle', depth: defaultManualDeepDepth, token: 0 };
       function getQuickAnalysisDepth() {
-        const depthInfo = getDepthSettingInfo();
-        if (depthInfo.valid) return depthInfo.value;
-        const fallback = Number.isFinite(ENGINE_GO_OPTIONS.depth) ? ENGINE_GO_OPTIONS.depth : QUICK_ANALYSIS_DEPTH;
-        return sanitizeEngineSetting('depth', fallback);
+        // Quick pass always uses the fixed depth — fast enough to show results quickly.
+        return QUICK_ANALYSIS_DEPTH;
       }
       lastQuickAnalysisDepth = getQuickAnalysisDepth();
       const ENGINE_AUTO_RETRY_LIMIT = 2;
@@ -4841,6 +4841,16 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         $('#stockfish-output').val(promptOnly);
         updateFormState('stockfishOutput', promptOnly);
         updateFormState('annotatedPgn', lastAnnotatedPgn);
+        // Always sync final-analysis-input with the latest automated text so generate-review-btn
+        // sees up-to-date classifications (including Brilliant from deep pass) without relying
+        // solely on the autoMove merge path.
+        if (automatedReviewText) {
+          const finalInput = $('#final-analysis-input');
+          if (finalInput.length) {
+            finalInput.val(automatedReviewText);
+            updateFormState('finalAnalysisInput', automatedReviewText);
+          }
+        }
         $('#goto-step3-btn').prop('disabled', false);
         autoCopyStockfishOutputToClipboard();
         autoCompleteReviewFlow();
@@ -5269,7 +5279,8 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           automatedReviewText = '';
           probSeries = [];
           const depthInfo = getDepthSettingInfo();
-          const deepDepth = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
+          const configuredDepth = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
+          const deepDepth = Math.max(configuredDepth, 18);
           const quickDepth = getQuickAnalysisDepth();
           const quickResult = await runSingleDepthAnalysis({
             stage: 'quick',
@@ -6868,17 +6879,77 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         return String(value).replace(/[{}\s]/g, '').toLowerCase();
       }
 
+      // Tracks cycling cursor per classification key for the jump nav
+      const classificationNavCursors = {};
+
       function renderMoveList() {
         const c = $('#move-analysis-container').empty();
         const moves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis : [];
         movesWithAnalysis = moves;
+
+        // Build clickable jump-nav badges that cycle through moves of each notable type
+        const navOrder = ['brilliant', 'great', 'mistake', 'blunder', 'misclick??'];
+        const navLabels  = { brilliant: '✦ Brilliant', great: 'Great', mistake: 'Mistake', blunder: 'Blunder', 'misclick??': 'Misclick??' };
+        const navColors  = {
+          brilliant:   'border-cyan-400 text-cyan-300 hover:bg-cyan-950/60',
+          great:       'border-teal-500 text-teal-300 hover:bg-teal-950/60',
+          mistake:     'border-orange-500 text-orange-300 hover:bg-orange-950/60',
+          blunder:     'border-red-500 text-red-400 hover:bg-red-950/60',
+          'misclick??':'border-fuchsia-500 text-fuchsia-300 hover:bg-fuchsia-950/60',
+        };
+        const byClass = {};
+        moves.forEach((mv, i) => {
+          const key = mv.analysis ? normalizeClassificationKey(mv.analysis.classification) : '';
+          if (!byClass[key]) byClass[key] = [];
+          byClass[key].push(i);
+        });
+        const navEl = $('#classification-nav').empty();
+        let anyBadge = false;
+        navOrder.forEach(key => {
+          const indices = byClass[key];
+          if (!indices || !indices.length) return;
+          if (!classificationNavCursors[key]) classificationNavCursors[key] = 0;
+          const colorCls = navColors[key] || 'border-gray-500 text-gray-300 hover:bg-gray-800';
+          const badge = $('<button type="button"></button>')
+            .addClass('px-2 py-0.5 text-xs font-semibold rounded border cursor-pointer transition-colors ' + colorCls)
+            .text((navLabels[key] || key) + ' (' + indices.length + ')')
+            .on('click', function () {
+              const cur = classificationNavCursors[key] % indices.length;
+              classificationNavCursors[key] = (cur + 1) % indices.length;
+              clearExploration();
+              goToMove(indices[cur], { scrollMode: 'center' });
+            });
+          navEl.append(badge);
+          anyBadge = true;
+        });
+        if (anyBadge) navEl.removeClass('hidden'); else navEl.addClass('hidden');
+
+        const classificationRowAccent = {
+          brilliant: 'border-l-2 border-cyan-400 bg-cyan-950/30',
+          great: 'border-l-2 border-teal-500 bg-teal-950/20',
+          blunder: 'border-l-2 border-red-500 bg-red-950/20',
+          misclick: 'border-l-2 border-fuchsia-500 bg-fuchsia-950/20',
+          mistake: 'border-l-2 border-orange-500 bg-orange-950/20',
+          inaccuracy: 'border-l-2 border-yellow-500 bg-yellow-950/10',
+        };
+        const classificationSymbol = {
+          brilliant: '✦ ',
+          great: '',
+          blunder: '',
+          misclick: '',
+          mistake: '',
+          inaccuracy: '',
+        };
         moves.forEach((mv, i) => {
           const n = mv.color === 'w' ? (Math.floor(i / 2) + 1) + '.' : '';
           const evalSegments = buildEvaluationSegments(mv);
           const evalHtml = evalSegments.length ? '<div class="flex items-center gap-2 ml-2">' + evalSegments.join('') + '</div>' : '';
-          const moveClasses = ['move-item', 'p-2', 'cursor-pointer'];
+          const classKey = mv.analysis ? normalizeClassificationKey(mv.analysis.classification) : '';
+          const accentClasses = classificationRowAccent[classKey] || '';
+          const moveClasses = ['move-item', 'p-2', 'cursor-pointer', accentClasses].filter(Boolean);
+          const symbol = classificationSymbol[classKey] || '';
           const classificationHtml = mv.analysis
-            ? '<span class="font-semibold text-sm ml-2 ' + getStyleForClassification(mv.analysis.classification) + '">' + mv.analysis.classification + '</span>'
+            ? '<span class="font-semibold text-sm ml-2 ' + getStyleForClassification(mv.analysis.classification) + '">' + symbol + mv.analysis.classification + '</span>'
             : '';
           const commentHtml = (mv.analysis && mv.analysis.text)
             ? '<p class="pl-12 text-gray-300 text-sm">' + formatText(mv.analysis.text) + '</p>'
