@@ -4841,14 +4841,16 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         $('#stockfish-output').val(promptOnly);
         updateFormState('stockfishOutput', promptOnly);
         updateFormState('annotatedPgn', lastAnnotatedPgn);
-        // Always sync final-analysis-input with the latest automated text so generate-review-btn
-        // sees up-to-date classifications (including Brilliant from deep pass) without relying
-        // solely on the autoMove merge path.
-        if (automatedReviewText) {
+        // Sync final-analysis-input with lastAnnotatedPgn (valid PGN) so that
+        // attemptBuildGameFromAnalysis can reliably load it via chess.load_pgn.
+        // automatedMoveInsights provides classification data, so parsed.moves from
+        // the PGN text doesn't need to carry classifications.
+        const reviewInputSource = lastAnnotatedPgn || automatedReviewText;
+        if (reviewInputSource) {
           const finalInput = $('#final-analysis-input');
           if (finalInput.length) {
-            finalInput.val(automatedReviewText);
-            updateFormState('finalAnalysisInput', automatedReviewText);
+            finalInput.val(reviewInputSource);
+            updateFormState('finalAnalysisInput', reviewInputSource);
           }
         }
         $('#goto-step3-btn').prop('disabled', false);
