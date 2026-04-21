@@ -157,6 +157,8 @@
     <div id="indicator-1" class="step-indicator active w-8 h-2 rounded-full" data-step="1" role="button" tabindex="0" aria-label="Go to Step 1"></div>
     <div id="indicator-2" class="step-indicator w-8 h-2 rounded-full" data-step="2" role="button" tabindex="0" aria-label="Go to Step 2"></div>
     <div id="indicator-3" class="step-indicator w-8 h-2 rounded-full" data-step="3" role="button" tabindex="0" aria-label="Go to Step 3"></div>
+    <div id="indicator-4" class="step-indicator w-8 h-2 rounded-full" data-step="4" role="button" tabindex="0" aria-label="Go to Step 4"></div>
+    <div id="indicator-5" class="step-indicator w-8 h-2 rounded-full" data-step="5" role="button" tabindex="0" aria-label="Go to Step 5"></div>
   </div>
 
   <!-- Step 1: PGN Input -->
@@ -342,6 +344,7 @@
               <div id="controls" class="flex flex-col gap-1 w-full">
                 <div class="flex flex-wrap items-center gap-2">
                   <button id="back-to-step3-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Back</button>
+                  <button id="goto-step5-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary">Step 5</button>
                   <button id="prev-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Previous move">Prev</button>
                   <button id="next-btn" class="px-3 py-2 text-white font-semibold rounded-lg btn-secondary" aria-label="Next move">Next</button>
                   <button id="toggle-eval-btn" type="button" class="px-4 py-2 text-white font-semibold rounded-lg btn-secondary" aria-pressed="false">Best</button>
@@ -371,6 +374,54 @@
       </div>
     </div>
   </main>
+
+  <!-- Step 5: Live Reclassification -->
+  <section id="step5-section" class="hidden max-w-5xl w-full mx-auto flex flex-col gap-3">
+    <div class="bg-[#0d1220] border border-[#1f2937] rounded-xl p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-xl sm:text-2xl font-bold text-white">Step 5: Live Reclassification</h2>
+        <div class="flex items-center gap-2">
+          <button id="back-to-step4-btn" type="button" class="py-2 px-3 text-sm font-semibold text-white rounded-md btn-secondary">Back to Review</button>
+        </div>
+      </div>
+      <p id="step5-status" class="mt-2 text-sm text-gray-300">Run analysis to start live multi-PV reclassification.</p>
+      <div class="w-full bg-gray-700 rounded-full h-2 mt-3">
+        <div id="step5-progress" class="bg-cyan-500 h-2 rounded-full" style="width: 0%"></div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+        <div class="bg-[#101522] rounded-lg p-3 border border-[#1f2937]">
+          <p class="text-xs text-gray-400">Changed Moves</p>
+          <p id="step5-changed-count" class="text-lg font-semibold text-white">0</p>
+        </div>
+        <div class="bg-[#101522] rounded-lg p-3 border border-[#1f2937]">
+          <p class="text-xs text-gray-400">Live Accuracy</p>
+          <p id="step5-live-accuracy" class="text-lg font-semibold text-cyan-300">0.00%</p>
+        </div>
+        <div class="bg-[#101522] rounded-lg p-3 border border-[#1f2937]">
+          <p class="text-xs text-gray-400">Analyzed Ply</p>
+          <p id="step5-analyzed-ply" class="text-lg font-semibold text-white">0 / 0</p>
+        </div>
+      </div>
+    </div>
+    <div class="bg-[#0d1220] border border-[#1f2937] rounded-xl p-4">
+      <h3 class="text-sm font-semibold text-gray-200 mb-2">Top Reclassifications</h3>
+      <div id="step5-empty" class="text-sm text-gray-400">No reclassifications yet.</div>
+      <div class="overflow-x-auto">
+        <table id="step5-table" class="hidden min-w-full text-sm">
+          <thead>
+            <tr class="text-left text-gray-300 border-b border-[#1f2937]">
+              <th class="py-2 pr-3">Move</th>
+              <th class="py-2 pr-3">Was</th>
+              <th class="py-2 pr-3">Now</th>
+              <th class="py-2 pr-3">Rarity</th>
+              <th class="py-2">Reason</th>
+            </tr>
+          </thead>
+          <tbody id="step5-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 
   <!-- Game Picker Modal -->
   <div id="game-picker-modal" class="hidden fixed inset-0 z-50 bg-black bg-opacity-70 flex items-center justify-center px-4" role="dialog" aria-modal="true" aria-hidden="true">
@@ -474,7 +525,7 @@
         rules.fallback = sanitizeEngineSetting(key, rules.fallback);
       });
 
-      const STEP_HASHES = { 1: '', 2: '#step-2', 3: '#step-3', 4: '#step-4' };
+      const STEP_HASHES = { 1: '', 2: '#step-2', 3: '#step-3', 4: '#step-4', 5: '#step-5' };
       const RUN_NEW_ANALYSIS_STORAGE_KEY = 'cmr.runNewPayload.v1';
       const RUN_NEW_ANALYSIS_SESSION_KEY = 'cmr.runNewPayload.session.v1';
       const REVIEW_SESSION_STORAGE_KEY = 'cmr.reviewSession.v1';
@@ -508,6 +559,16 @@
       const deepAnalysisTitle = $('#deep-analysis-title');
       const deepAnalysisDetail = $('#deep-analysis-detail');
       const applyDeepAnalysisBtn = $('#apply-deep-analysis-btn');
+      const gotoStep5Btn = $('#goto-step5-btn');
+      const backToStep4Btn = $('#back-to-step4-btn');
+      const step5Status = $('#step5-status');
+      const step5Progress = $('#step5-progress');
+      const step5ChangedCount = $('#step5-changed-count');
+      const step5LiveAccuracy = $('#step5-live-accuracy');
+      const step5AnalyzedPly = $('#step5-analyzed-ply');
+      const step5Empty = $('#step5-empty');
+      const step5Table = $('#step5-table');
+      const step5TableBody = $('#step5-table-body');
       const manualDeepAnalysisBtn = $('#manual-deep-analysis-btn');
       const manualDeepAnalysisLabel = $('#manual-deep-analysis-label');
       const manualDeepAnalysisProgress = $('#manual-deep-analysis-progress');
@@ -524,6 +585,15 @@
       let activeAnalysisToken = 0;
       let manualDeepState = null;
       let lastQuickAnalysisDepth = null;
+      let baselineQuickInsights = null;
+      let liveReclassState = {
+        active: false,
+        analyzed: 0,
+        total: 0,
+        changed: [],
+        summary: null,
+        status: 'idle'
+      };
       let reviewUiRenderDeferred = false;
       const engineStatusBanner = $('#engine-status-banner');
       const engineStatusMessage = $('#engine-status-message');
@@ -1992,6 +2062,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       const PVGAP_ONLY_MOVE_THRESHOLD = 300;
       const PVGAP_DEFENSIVE_GREAT_THRESHOLD = 100;
       const PVGAP_DEFENSIVE_BRILLIANT_THRESHOLD = 250;
+      const PVRARITY_GREAT_THRESHOLD = 120;
+      const PVRARITY_BRILLIANT_THRESHOLD = 220;
+      const LIVE_RECLASS_UPDATE_INTERVAL = 4;
       const DEFENSIVE_PROB_CEILING = 0.35;
       const DEFENSIVE_GAIN_THRESHOLD = 8;
       const LOSS_BANDS_PROB = {
@@ -2219,11 +2292,14 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
 
         // --- Multi-PV difficulty signals ---
         const pvGap = Number.isFinite(moveRecord.pvGap) ? moveRecord.pvGap : null;
+        const pvRarityScore = Number.isFinite(moveRecord.pvRarityScore) ? moveRecord.pvRarityScore : null;
         const playedIsBest = moveRecord.playedIsBestMove === true;
-        const hasPvData = pvGap != null;
-        const highPvGap = hasPvData && pvGap >= PVGAP_GREAT_THRESHOLD && playedIsBest;
-        const veryHighPvGap = hasPvData && pvGap >= PVGAP_BRILLIANT_THRESHOLD && playedIsBest;
-        const onlyMove = hasPvData && pvGap >= PVGAP_ONLY_MOVE_THRESHOLD && playedIsBest;
+        const hasPvData = pvGap != null || pvRarityScore != null;
+        const highPvGap = hasPvData && playedIsBest
+          && ((pvGap != null && pvGap >= PVGAP_GREAT_THRESHOLD) || (pvRarityScore != null && pvRarityScore >= PVRARITY_GREAT_THRESHOLD));
+        const veryHighPvGap = hasPvData && playedIsBest
+          && ((pvGap != null && pvGap >= PVGAP_BRILLIANT_THRESHOLD) || (pvRarityScore != null && pvRarityScore >= PVRARITY_BRILLIANT_THRESHOLD));
+        const onlyMove = hasPvData && playedIsBest && (pvGap != null && pvGap >= PVGAP_ONLY_MOVE_THRESHOLD);
 
         // --- Legacy qualification (without pvGap) ---
         const legacyQualifies = positiveGain || sacrifice || tightenedMate || (previousMoveError && keepsMate && hadMate);
@@ -2239,7 +2315,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const moverAfter = context.moverAfter;
         const isDefensiveContext = Number.isFinite(moverBefore) && moverBefore < DEFENSIVE_PROB_CEILING;
         const defensiveGain = Number.isFinite(gain) && gain >= DEFENSIVE_GAIN_THRESHOLD;
-        const defensivePvGap = hasPvData && pvGap >= PVGAP_DEFENSIVE_GREAT_THRESHOLD && playedIsBest;
+        const defensivePvGap = hasPvData && playedIsBest
+          && ((pvGap != null && pvGap >= PVGAP_DEFENSIVE_GREAT_THRESHOLD)
+            || (pvRarityScore != null && pvRarityScore >= PVRARITY_GREAT_THRESHOLD));
         const defensiveQualifies = isDefensiveContext && (defensiveGain || defensivePvGap) && playedIsBest;
 
         if (!legacyQualifies && !pvGapQualifies && !defensiveQualifies) return null;
@@ -2248,7 +2326,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
 
         // Defensive brilliance: doesn't require being "winning after"
         if (defensiveQualifies && !legacyQualifies && !pvGapQualifies) {
-          const defensiveBrilliant = (hasPvData && pvGap >= PVGAP_DEFENSIVE_BRILLIANT_THRESHOLD)
+          const defensiveBrilliant = (hasPvData
+            && ((pvGap != null && pvGap >= PVGAP_DEFENSIVE_BRILLIANT_THRESHOLD)
+              || (pvRarityScore != null && pvRarityScore >= PVRARITY_BRILLIANT_THRESHOLD)))
             || (sacrifice && defensiveGain);
           return defensiveBrilliant ? 'Brilliant' : 'Great';
         }
@@ -2661,6 +2741,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const context = getCentipawnContext(move) || {};
         const mateSlowdown = context.moverMateSlowdown;
         const pvGap = Number.isFinite(move.pvGap) ? move.pvGap : null;
+        const pvRarityScore = Number.isFinite(move.pvRarityScore) ? move.pvRarityScore : null;
         const isDefensive = Number.isFinite(context.moverBefore) && context.moverBefore < DEFENSIVE_PROB_CEILING;
         if (mateSlowdown) {
           const slowdownDelta = context.mateSlowdownDelta || 0;
@@ -2680,7 +2761,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           if (isLikelySacrificeMove(move)) {
             return 'Auto insight: engine-backed sacrifice keeps the initiative.';
           }
-          if (pvGap != null && pvGap >= PVGAP_BRILLIANT_THRESHOLD) {
+          if ((pvGap != null && pvGap >= PVGAP_BRILLIANT_THRESHOLD) || (pvRarityScore != null && pvRarityScore >= PVRARITY_BRILLIANT_THRESHOLD)) {
             return 'Auto insight: a difficult-to-find move; every alternative was significantly worse.';
           }
           return 'Auto insight: Stockfish approves this tactic to extend the attack.';
@@ -2692,7 +2773,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           if (retainsMateForMover(move)) {
             return 'Auto insight: preserves the forced mate the engine spotted.';
           }
-          if (pvGap != null && pvGap >= PVGAP_GREAT_THRESHOLD) {
+          if ((pvGap != null && pvGap >= PVGAP_GREAT_THRESHOLD) || (pvRarityScore != null && pvRarityScore >= PVRARITY_GREAT_THRESHOLD)) {
             return 'Auto insight: the clearly best move; alternatives were meaningfully weaker.';
           }
           if (Number.isFinite(move.moverDelta) && move.moverDelta > 0) {
@@ -3287,7 +3368,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const n = parseInt(step, 10);
         if (!Number.isFinite(n) || Number.isNaN(n)) return 1;
         if (n < 1) return 1;
-        if (n > 4) return 4;
+        if (n > 5) return 5;
         return n;
       }
 
@@ -4277,7 +4358,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         }
         currentStep = normalized;
 
-        const sections = ['#step1-section', '#step2-section', '#step3-section', '#review-section'];
+        const sections = ['#step1-section', '#step2-section', '#step3-section', '#review-section', '#step5-section'];
         sections.forEach((selector, index) => {
           if (index === normalized - 1) {
             $(selector).removeClass('hidden');
@@ -4300,20 +4381,24 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           }
         }
 
+        if (normalized === 5) {
+          renderStep5LiveState();
+        }
+
         $('.step-indicator').removeClass('active').removeAttr('aria-current');
-        const indicatorIndex = Math.min(normalized, 3);
+        const indicatorIndex = Math.min(normalized, 5);
         const indicatorEl = $('#indicator-' + indicatorIndex);
         if (indicatorEl.length) {
           indicatorEl.addClass('active').attr('aria-current', 'step');
         }
 
-        if (normalized === 4) {
+        if (normalized >= 4) {
           $('#app-header, #step-indicators').addClass('hidden');
         } else {
           $('#app-header, #step-indicators').removeClass('hidden');
         }
 
-        if (normalized !== 4) {
+        if (normalized < 4) {
           currentReviewMetadata = null;
         }
 
@@ -4358,7 +4443,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       const navigationStep = historyStateStep != null ? historyStateStep : hashStep;
       const initialStep = hasExplicitStepRequest ? navigationStep : 1;
       switchStep(initialStep, { skipHistory: true });
-      if (pendingReviewSessionPayload && hasExplicitStepRequest && initialStep === 4) {
+      if (pendingReviewSessionPayload && hasExplicitStepRequest && initialStep >= 4) {
         const restored = applyReviewSessionPayload(pendingReviewSessionPayload);
         if (restored) {
           persistCurrentReviewSession(initialStep);
@@ -4521,6 +4606,8 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       $('#back-to-step1-btn').on('click', handleBackClick(1));
       $('#back-to-step2-btn').on('click', handleBackClick(2));
       $('#back-to-step3-btn').on('click', handleBackClick(3));
+      if (gotoStep5Btn.length) gotoStep5Btn.on('click', function(){ switchStep(5); });
+      if (backToStep4Btn.length) backToStep4Btn.on('click', function(){ switchStep(4); });
       bindLongPressReset($('#back-to-step1-btn'));
       bindLongPressReset($('#back-to-step2-btn'));
       bindLongPressReset($('#back-to-step3-btn'));
@@ -4775,30 +4862,29 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
 
       function resetDeepAnalysisUpgrade() {
         pendingDeepAnalysis = null;
+        baselineQuickInsights = null;
         if (deepAnalysisBanner.length) deepAnalysisBanner.addClass('hidden');
         if (deepAnalysisTitle.length) deepAnalysisTitle.text('');
         if (deepAnalysisDetail.length) deepAnalysisDetail.text('');
         if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
         resetManualDeepAnalysisUI();
+        resetStep5LiveState();
       }
 
       function showDeepAnalysisInProgress(depth) {
         if (!deepAnalysisBanner.length) return;
         deepAnalysisBanner.removeClass('hidden');
-        if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Deeper analysis running (depth ${depth})`);
-        if (deepAnalysisDetail.length) deepAnalysisDetail.text('Quick results are ready. A deeper pass is running and will be available soon.');
+        if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Live reclassification running (depth ${depth}, MultiPV 4)`);
+        if (deepAnalysisDetail.length) deepAnalysisDetail.text('Step 4 is ready now. Step 5 will update live while deeper multi-PV analysis refines classifications.');
         if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
       }
 
       function showDeepAnalysisReady(depth) {
         if (!deepAnalysisBanner.length) return;
         deepAnalysisBanner.removeClass('hidden');
-        if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Deeper analysis ready (depth ${depth})`);
-        if (deepAnalysisDetail.length) deepAnalysisDetail.text('Replace the quick results with the deeper evaluation.');
-        if (applyDeepAnalysisBtn.length) {
-          applyDeepAnalysisBtn.text(`Use depth ${depth} analysis`);
-          applyDeepAnalysisBtn.removeClass('hidden').prop('disabled', false);
-        }
+        if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Live reclassification complete (depth ${depth}, MultiPV 4)`);
+        if (deepAnalysisDetail.length) deepAnalysisDetail.text('Deep results were auto-applied and Step 5 now reflects final reclassifications.');
+        if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
       }
 
       function showDeepAnalysisError(message) {
@@ -4807,6 +4893,10 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (deepAnalysisTitle.length) deepAnalysisTitle.text('Deeper analysis unavailable');
         if (deepAnalysisDetail.length) deepAnalysisDetail.text(message || 'There was a problem running the deeper pass. The quick results are still available.');
         if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+        if (liveReclassState) {
+          liveReclassState.statusText = 'Live Step 5 reclassification failed; quick results are still available.';
+          renderStep5LiveState();
+        }
       }
 
       function applyAnalysisResult(result) {
@@ -4830,10 +4920,154 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         renderDeferredReviewUi(-1);
       }
 
+      function updateStep5SummaryMetrics(summary, analyzed, total) {
+        const counts = (summary && summary.counts) ? summary.counts : {};
+        const totalMoves = Number.isFinite(summary && summary.totalMoves) ? summary.totalMoves : 0;
+        const computedAccuracy = totalMoves
+          ? ((Number(summary.totalGood || 0) / totalMoves) * 100)
+          : 0;
+        if (step5LiveAccuracy.length) {
+          step5LiveAccuracy.text(`${computedAccuracy.toFixed(2)}%`);
+        }
+        if (step5AnalyzedPly.length) {
+          step5AnalyzedPly.text(`${analyzed} / ${total}`);
+        }
+      }
+
+      function buildLiveReclassChanges(baseInsights, liveInsights, analyzed) {
+        const baseMoves = baseInsights && Array.isArray(baseInsights.moves) ? baseInsights.moves : [];
+        const liveMoves = liveInsights && Array.isArray(liveInsights.moves) ? liveInsights.moves : [];
+        const limit = Math.min(Number.isFinite(analyzed) ? analyzed : liveMoves.length, liveMoves.length);
+        const changes = [];
+        for (let i = 0; i < limit; i++) {
+          const before = baseMoves[i] ? canonicalizeClassification(baseMoves[i].classification) : null;
+          const after = liveMoves[i] ? canonicalizeClassification(liveMoves[i].classification) : null;
+          if (!before || !after || before === after) continue;
+          const liveMove = liveMoves[i] || {};
+          const moveLabel = formatAutomatedMoveLabel(liveMove, i);
+          const rarity = Number.isFinite(liveMove.pvRarityScore)
+            ? Math.round(liveMove.pvRarityScore)
+            : (Number.isFinite(liveMove.pvGap) ? Math.round(liveMove.pvGap) : null);
+          let reason = 'Reclassified by deeper multi-PV context.';
+          if (Number.isFinite(liveMove.pvGap) && liveMove.pvGap >= PVGAP_BRILLIANT_THRESHOLD) {
+            reason = 'Only-move pressure detected by deep multi-PV.';
+          } else if (Number.isFinite(liveMove.pvRarityScore) && liveMove.pvRarityScore >= PVRARITY_GREAT_THRESHOLD) {
+            reason = 'Move rarity increased after deeper top-line comparison.';
+          }
+          changes.push({
+            index: i,
+            moveLabel,
+            before,
+            after,
+            rarity,
+            reason
+          });
+        }
+        changes.sort((a, b) => {
+          const ra = Number.isFinite(a.rarity) ? a.rarity : -1;
+          const rb = Number.isFinite(b.rarity) ? b.rarity : -1;
+          if (rb !== ra) return rb - ra;
+          return a.index - b.index;
+        });
+        return changes;
+      }
+
+      function renderStep5LiveState() {
+        const state = liveReclassState || {};
+        if (step5Progress.length) {
+          const pct = state.total ? Math.max(0, Math.min(100, (state.analyzed / state.total) * 100)) : 0;
+          step5Progress.css('width', `${pct}%`);
+        }
+        if (step5Status.length) {
+          step5Status.text(state.statusText || 'Waiting for deep analysis.');
+        }
+        if (step5ChangedCount.length) {
+          step5ChangedCount.text(String((state.changed || []).length));
+        }
+        updateStep5SummaryMetrics(state.summary, state.analyzed || 0, state.total || 0);
+
+        const changes = Array.isArray(state.changed) ? state.changed : [];
+        if (!step5TableBody.length || !step5Table.length || !step5Empty.length) return;
+        step5TableBody.empty();
+        if (!changes.length) {
+          step5Table.addClass('hidden');
+          step5Empty.removeClass('hidden');
+          return;
+        }
+
+        step5Empty.addClass('hidden');
+        step5Table.removeClass('hidden');
+        changes.slice(0, 16).forEach(change => {
+          const rarityText = Number.isFinite(change.rarity) ? String(change.rarity) : '—';
+          const row = [
+            '<tr class="border-b border-[#1f2937]">',
+            `<td class="py-2 pr-3 text-gray-100">${change.moveLabel || ''}</td>`,
+            `<td class="py-2 pr-3 text-gray-300">${change.before}</td>`,
+            `<td class="py-2 pr-3 text-cyan-300">${change.after}</td>`,
+            `<td class="py-2 pr-3 font-mono text-gray-300">${rarityText}</td>`,
+            `<td class="py-2 text-gray-300">${change.reason}</td>`,
+            '</tr>'
+          ].join('');
+          step5TableBody.append(row);
+        });
+      }
+
+      function updateLiveReclassificationSnapshot(opts = {}) {
+        const records = Array.isArray(opts.records) ? opts.records : [];
+        const analyzed = Number.isFinite(opts.analyzed) ? opts.analyzed : records.length;
+        const total = Number.isFinite(opts.total) ? opts.total : records.length;
+        const statusText = opts.statusText || '';
+        const outcome = updatePlayerOutcomeFromGame(game);
+        const liveInsights = computeAutomatedMoveInsights(records, reviewPlayerColor, outcome);
+        const changes = buildLiveReclassChanges(baselineQuickInsights, liveInsights, analyzed);
+        liveReclassState = {
+          active: true,
+          analyzed,
+          total,
+          changed: changes,
+          summary: liveInsights.summary,
+          statusText
+        };
+        renderStep5LiveState();
+      }
+
+      function resetStep5LiveState(message) {
+        liveReclassState = {
+          active: false,
+          analyzed: 0,
+          total: 0,
+          changed: [],
+          summary: null,
+          statusText: message || 'Run analysis to start live multi-PV reclassification.'
+        };
+        renderStep5LiveState();
+      }
+
+      resetStep5LiveState();
+
+      function normalizeMultiPvScoreToCp(entry) {
+        if (!entry || !Number.isFinite(entry.value)) return null;
+        if (entry.type === 'mate') {
+          const mate = Number(entry.value);
+          return mate > 0 ? (10000 - mate * 10) : (-10000 - mate * 10);
+        }
+        return Number(entry.value);
+      }
+
       async function runSingleDepthAnalysis(opts) {
         const stage = opts && opts.stage ? opts.stage : 'quick';
         const depth = opts && Number.isFinite(opts.depth) ? opts.depth : ENGINE_GO_OPTIONS.depth;
         const token = opts && Number.isFinite(opts.token) ? opts.token : activeAnalysisToken;
+        const enableMultiPvProbes = (opts && typeof opts.enableMultiPvProbes === 'boolean')
+          ? opts.enableMultiPvProbes
+          : stage !== 'quick';
+        const multiPvMax = enableMultiPvProbes
+          ? ((opts && Number.isFinite(opts.multiPvMax)) ? Math.max(2, Math.min(8, Number(opts.multiPvMax))) : 2)
+          : 1;
+        const onMoveAnalyzed = opts && typeof opts.onMoveAnalyzed === 'function' ? opts.onMoveAnalyzed : null;
+        const liveUpdateInterval = opts && Number.isFinite(opts.liveUpdateInterval)
+          ? Math.max(1, Number(opts.liveUpdateInterval))
+          : LIVE_RECLASS_UPDATE_INTERVAL;
         const multiPvDepth = Math.max(10, Math.min(depth, 14));
         const sanMoves = game.history();
         let annotatedPgn = '';
@@ -4851,9 +5085,11 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           const move = sanMoves[i];
           updateAnalysisProgress(stage, i, sanMoves.length, move, depth);
 
-          // --- Multi-PV pre-move probe ---
-          const preMovefen = temp.fen();
+          const preMoveFen = temp.fen();
           let pvGap = null;
+          let pvGapThird = null;
+          let pvGapFourth = null;
+          let pvRarityScore = null;
           let bestEngineMove = null;
           let secondBestEval = null;
           let playedIsBestMove = null;
@@ -4862,34 +5098,55 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             const legalMoves = temp.moves({ verbose: true });
             legalMoveCount = legalMoves ? legalMoves.length : null;
           } catch (e) { legalMoveCount = null; }
-          if (legalMoveCount == null || legalMoveCount > 1) {
+
+          if (enableMultiPvProbes && (legalMoveCount == null || legalMoveCount > 1)) {
             try {
-              const mpvResult = await getMultiPvScore(preMovefen, { depth: multiPvDepth });
+              const mpvResult = await getMultiPvScore(preMoveFen, { depth: multiPvDepth, maxPv: multiPvMax });
               if (token !== activeAnalysisToken) return null;
               if (mpvResult && mpvResult.pvResults) {
                 const pv1 = mpvResult.pvResults[1];
                 const pv2 = mpvResult.pvResults[2];
+                const pv3 = mpvResult.pvResults[3];
+                const pv4 = mpvResult.pvResults[4];
+                const pv1Cp = normalizeMultiPvScoreToCp(pv1);
+                const pv2Cp = normalizeMultiPvScoreToCp(pv2);
+                const pv3Cp = normalizeMultiPvScoreToCp(pv3);
+                const pv4Cp = normalizeMultiPvScoreToCp(pv4);
+
                 if (pv1 && pv1.move) bestEngineMove = pv1.move;
                 if (pv2) secondBestEval = { type: pv2.type, value: pv2.value };
-                if (pv1 && pv2) {
-                  const pv1Cp = pv1.type === 'mate'
-                    ? (pv1.value > 0 ? 10000 - pv1.value * 10 : -10000 - pv1.value * 10)
-                    : pv1.value;
-                  const pv2Cp = pv2.type === 'mate'
-                    ? (pv2.value > 0 ? 10000 - pv2.value * 10 : -10000 - pv2.value * 10)
-                    : pv2.value;
+                if (Number.isFinite(pv1Cp) && Number.isFinite(pv2Cp)) {
                   pvGap = Math.abs(pv1Cp - pv2Cp);
                 }
+                if (Number.isFinite(pv1Cp) && Number.isFinite(pv3Cp)) {
+                  pvGapThird = Math.abs(pv1Cp - pv3Cp);
+                }
+                if (Number.isFinite(pv1Cp) && Number.isFinite(pv4Cp)) {
+                  pvGapFourth = Math.abs(pv1Cp - pv4Cp);
+                }
+
+                const raritySamples = [pvGap, pvGapThird, pvGapFourth].filter(Number.isFinite);
+                if (raritySamples.length) {
+                  const w2 = Number.isFinite(pvGap) ? pvGap * 0.5 : 0;
+                  const w3 = Number.isFinite(pvGapThird) ? pvGapThird * 0.3 : 0;
+                  const w4 = Number.isFinite(pvGapFourth) ? pvGapFourth * 0.2 : 0;
+                  const weightTotal = (Number.isFinite(pvGap) ? 0.5 : 0)
+                    + (Number.isFinite(pvGapThird) ? 0.3 : 0)
+                    + (Number.isFinite(pvGapFourth) ? 0.2 : 0);
+                  pvRarityScore = weightTotal > 0 ? ((w2 + w3 + w4) / weightTotal) : null;
+                }
               }
-            } catch (e) { /* multi-PV probe failed, continue without */ }
-          } else {
+            } catch (e) {
+              // Multi-PV probing is optional for the quick path.
+            }
+          } else if (enableMultiPvProbes) {
             pvGap = 0;
+            pvRarityScore = 0;
           }
 
           const moveObj = temp.move(move);
           if (!moveObj) throw new Error('Encountered an invalid move during analysis.');
 
-          // Check if the played move matches the engine's best move (UCI comparison)
           if (bestEngineMove && moveObj) {
             const playedUci = moveObj.from + moveObj.to + (moveObj.promotion || '');
             playedIsBestMove = playedUci === bestEngineMove;
@@ -4928,6 +5185,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           } else {
             evalStr = deltaStr || '{0}';
           }
+
           localProbSeries.push(prob);
           engineMoveRecords.push({
             index: i,
@@ -4943,16 +5201,30 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             mateAfter: mateScore,
             evaluation: evalStr,
             move: simplifyMoveObject(moveObj),
-            pvGap: pvGap,
-            bestEngineMove: bestEngineMove,
-            secondBestEval: secondBestEval,
-            playedIsBestMove: playedIsBestMove,
-            legalMoveCount: legalMoveCount
+            pvGap,
+            pvGapThird,
+            pvGapFourth,
+            pvRarityScore,
+            multiPvMax,
+            bestEngineMove,
+            secondBestEval,
+            playedIsBestMove,
+            legalMoveCount,
+            analysisStage: stage
           });
           lastMateScore = mateScore;
           annotatedPgn += (i % 2 === 0 ? prefix : '') + move + ' ' + evalStr + ' ';
+
+          if (onMoveAnalyzed && (((i + 1) % liveUpdateInterval === 0) || i === sanMoves.length - 1)) {
+            onMoveAnalyzed({
+              stage,
+              analyzed: i + 1,
+              total: sanMoves.length,
+              depth,
+              records: engineMoveRecords.map(record => ({ ...record, move: record.move ? { ...record.move } : null }))
+            });
+          }
         }
-        // Reset to multipv 1 after analysis
         setEngineMultiPv(1, { force: true });
         const outcome = updatePlayerOutcomeFromGame(game);
         const autoInsights = computeAutomatedMoveInsights(engineMoveRecords, reviewPlayerColor, outcome);
@@ -4973,12 +5245,47 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         showDeepAnalysisInProgress(depth);
         if (progressTextEl.length) progressTextEl.text(`Deep analysis running (depth ${depth})...`);
         if (progressBarEl.length) progressBarEl.css('width', '0%');
-        runSingleDepthAnalysis({ stage: 'deep', depth, token })
+        updateLiveReclassificationSnapshot({
+          records: lastEngineMoveRecords || [],
+          analyzed: 0,
+          total: (game && typeof game.history === 'function') ? game.history().length : 0,
+          statusText: `Live Step 5 reclassification started (depth ${depth}, MultiPV 4)...`
+        });
+        runSingleDepthAnalysis({
+          stage: 'deep',
+          depth,
+          token,
+          enableMultiPvProbes: true,
+          multiPvMax: 4,
+          liveUpdateInterval: LIVE_RECLASS_UPDATE_INTERVAL,
+          onMoveAnalyzed: ({ analyzed, total, records }) => {
+            if (token !== activeAnalysisToken) return;
+            updateLiveReclassificationSnapshot({
+              records,
+              analyzed,
+              total,
+              statusText: `Live Step 5 reclassification: ${analyzed}/${total} plies analyzed...`
+            });
+          }
+        })
           .then(result => {
             if (!result || token !== activeAnalysisToken) return;
             pendingDeepAnalysis = { token, depth, result };
+            const wasStep5 = currentStep === 5;
+            applyAnalysisResult(result);
+            if (wasStep5) {
+              switchStep(5, { replace: true });
+            }
+            lastQuickAnalysisDepth = depth;
             showDeepAnalysisReady(depth);
-            markAnalysisComplete(`Deeper analysis ready (depth ${depth}). Click “Use deep analysis” to apply.`);
+            updateLiveReclassificationSnapshot({
+              records: result.engineMoveRecords,
+              analyzed: result.engineMoveRecords.length,
+              total: result.engineMoveRecords.length,
+              statusText: `Live Step 5 reclassification complete (depth ${depth}, MultiPV 4).`
+            });
+            markAnalysisComplete(`Deep live reclassification complete (depth ${depth}, MultiPV 4).`);
+            pendingDeepAnalysis = null;
           })
           .catch(err => {
             if (token !== activeAnalysisToken) return;
@@ -5013,17 +5320,24 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           const depthInfo = getDepthSettingInfo();
           const deepDepth = depthInfo.valid ? depthInfo.value : DEFAULT_DEEP_ANALYSIS_DEPTH;
           const quickDepth = getQuickAnalysisDepth();
-          const quickResult = await runSingleDepthAnalysis({ stage: 'quick', depth: quickDepth, token });
+          const quickResult = await runSingleDepthAnalysis({
+            stage: 'quick',
+            depth: quickDepth,
+            token,
+            enableMultiPvProbes: false
+          });
           if (!quickResult) {
             if (token === activeAnalysisToken) renderDeferredReviewUi(-1);
             return;
           }
           if (token !== activeAnalysisToken) return;
           applyAnalysisResult(quickResult);
+          baselineQuickInsights = quickResult.automatedMoveInsights || { moves: [], summary: null, moveOfGame: null };
           lastQuickAnalysisDepth = quickDepth;
           resetManualDeepAnalysisUI({ depth: getManualDeepDepth(), resetPending: true });
-          markAnalysisComplete(`Depth ${quickDepth} ready. Run the deep analysis to upgrade results.`);
+          markAnalysisComplete(`Depth ${quickDepth} ready. Launching live Step 5 reclassification in background...`);
           updateAnalysisDepthContext(quickDepth, deepDepth, { showHint: false });
+          startDeepAnalysisUpgrade(token, Math.max(deepDepth, quickDepth));
         } catch (err) {
           if (token === activeAnalysisToken) {
             console.error('Stockfish analysis failed', err);
@@ -5052,6 +5366,10 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       async function startManualDeepAnalysis() {
         if (!engineReady) {
           showError('Engine is not ready yet. Please wait and try again.');
+          return;
+        }
+        if (pendingDeepAnalysis && pendingDeepAnalysis.token === activeAnalysisToken && !pendingDeepAnalysis.result) {
+          showError('Live deep reclassification is already running in the background. Please wait for it to finish.');
           return;
         }
         if (!lastEngineMoveRecords || !lastEngineMoveRecords.length) {
@@ -5235,7 +5553,8 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             lastInfoMsg = '';
             lastInfoByPv = {};
             const o = opts || {};
-            setEngineMultiPv(2, { force: true });
+            const maxPv = Number.isFinite(o.maxPv) ? Math.max(2, Math.min(8, Number(o.maxPv))) : 2;
+            setEngineMultiPv(maxPv, { force: true });
             engineWorker.postMessage('position fen ' + fen);
             const parts = ['go'];
             if (o.depth != null) parts.push('depth ' + o.depth);
