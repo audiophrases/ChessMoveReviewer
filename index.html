@@ -5001,7 +5001,11 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           : LIVE_RECLASS_UPDATE_INTERVAL;
         const baselineRecords = (opts && Array.isArray(opts.baselineRecords)) ? opts.baselineRecords : null;
         const multiPvDepth = Math.max(10, Math.min(depth, 14));
-        const sanMoves = game.history();
+        // Use pre-captured sanMoves if provided (important for deep pass: game.reset() may have
+        // been called by renderReviewUi before this function runs, making game.history() return []).
+        const sanMoves = (opts && Array.isArray(opts.sanMoves) && opts.sanMoves.length)
+          ? opts.sanMoves
+          : game.history();
         let annotatedPgn = '';
         const headerBlock = buildHeaderTagBlock(game);
         if (headerBlock) annotatedPgn = headerBlock + '\n\n';
@@ -5185,8 +5189,11 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         };
       }
 
-      function startDeepAnalysisUpgrade(token, depth) {
+      function startDeepAnalysisUpgrade(token, depth, opts) {
         if (!engineReady) return;
+        const capturedSanMoves = (opts && Array.isArray(opts.sanMoves) && opts.sanMoves.length)
+          ? opts.sanMoves
+          : (lastEngineMoveRecords || []).map(r => r.san).filter(Boolean);
         pendingDeepAnalysis = { token, depth, result: null };
         showDeepAnalysisInProgress(depth);
         if (progressTextEl.length) progressTextEl.text(`Deep analysis running (depth ${depth})...`);
@@ -5194,7 +5201,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         updateLiveReclassificationSnapshot({
           records: lastEngineMoveRecords || [],
           analyzed: 0,
-          total: (game && typeof game.history === 'function') ? game.history().length : 0,
+          total: capturedSanMoves.length,
           statusText: `Live reclassification started (depth ${depth}, MultiPV 4)...`
         });
         runSingleDepthAnalysis({
@@ -5203,6 +5210,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           token,
           enableMultiPvProbes: true,
           multiPvMax: 4,
+          sanMoves: capturedSanMoves,
           baselineRecords: lastEngineMoveRecords || [],
           liveUpdateInterval: LIVE_RECLASS_UPDATE_INTERVAL,
           onMoveAnalyzed: ({ analyzed, total, records }) => {
@@ -5274,13 +5282,17 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             return;
           }
           if (token !== activeAnalysisToken) return;
+          // Capture sanMoves NOW before applyAnalysisResult triggers renderReviewUi → game.reset()
+          const deepPassSanMoves = Array.isArray(quickResult.engineMoveRecords)
+            ? quickResult.engineMoveRecords.map(r => r.san).filter(Boolean)
+            : game.history();
           applyAnalysisResult(quickResult);
           baselineQuickInsights = quickResult.automatedMoveInsights || { moves: [], summary: null, moveOfGame: null };
           lastQuickAnalysisDepth = quickDepth;
           resetManualDeepAnalysisUI({ depth: getManualDeepDepth(), resetPending: true });
           markAnalysisComplete(`Depth ${quickDepth} ready. Launching live reclassification in background...`);
           updateAnalysisDepthContext(quickDepth, deepDepth, { showHint: false });
-          startDeepAnalysisUpgrade(token, Math.max(deepDepth, quickDepth));
+          startDeepAnalysisUpgrade(token, Math.max(deepDepth, quickDepth), { sanMoves: deepPassSanMoves });
         } catch (err) {
           if (token === activeAnalysisToken) {
             console.error('Stockfish analysis failed', err);
