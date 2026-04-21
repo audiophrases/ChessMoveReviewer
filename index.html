@@ -1993,6 +1993,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       const PVGAP_BRILLIANT_THRESHOLD = 200;
       const PVGAP_GREAT_THRESHOLD = 80;
       const PVGAP_ONLY_MOVE_THRESHOLD = 300;
+      // If the mover's win-probability before the move is at or above this ceiling,
+      // they were already clearly dominating — a sacrifice earns Great, not Brilliant.
+      const BRILLIANT_ALREADY_WINNING_CEILING = 0.85;
       const PVGAP_DEFENSIVE_GREAT_THRESHOLD = 100;
       const PVGAP_DEFENSIVE_BRILLIANT_THRESHOLD = 250;
       const PVRARITY_GREAT_THRESHOLD = 120;
@@ -2278,12 +2281,29 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (!winningAfter && !pvGapQualifies && !defensiveQualifies && !sacrifice) return null;
 
         // --- Brilliant criteria ---
-        // Bold sacrifice + positive outcome
-        if (boldSacrifice && (positiveGain || keepsMate || tightenedMate || veryHighPvGap)) return 'Brilliant';
-        // Very high pvGap: the only strong move in the position, and it's hard to find
-        if (veryHighPvGap && (positiveGain || sacrifice || tightenedMate || keepsMate)) return 'Brilliant';
-        // Sacrifice + high difficulty — the sacrifice was hard to find
-        if (sacrifice && highPvGap) return 'Brilliant';
+        // Requirements (per Lichess/Chess.com definition):
+        //   1. Sacrifice — almost always gives up material not immediately regained.
+        //   2. Best move — engine confirms it is the top engine line (playedIsBest).
+        //   3. Not already winning — if the mover was already clearly dominant before
+        //      the move, a sacrifice is Great, not Brilliant.
+        //   4. Complexity — the move is hard to find at low depth (pvGap evidence).
+        const alreadyWinning = Number.isFinite(moverBefore) && moverBefore >= BRILLIANT_ALREADY_WINNING_CEILING;
+
+        // (1) Bold sacrifice (material gap >= 3) that is validated as the best move and the
+        //   position was not already decided. When MultiPV data is present, playedIsBest is
+        //   enforced; without it (quick pass, no pvGap) we rely on eval/mate signals alone.
+        if (boldSacrifice && !alreadyWinning
+          && (positiveGain || keepsMate || tightenedMate || veryHighPvGap)
+          && (!hasPvData || playedIsBest)) return 'Brilliant';
+
+        // (2) Any sound sacrifice + engine confirms best move (playedIsBest via highPvGap) +
+        //   hard to find (large pvGap) + not already winning. Canonical sacrifice-Brilliant:
+        //   gave up material, engine agrees it was top move, non-intuitive to find.
+        if (sacrifice && highPvGap && !alreadyWinning) return 'Brilliant';
+
+        // (3) No sacrifice but creates a forced mate from a non-winning position via a
+        //   deeply hidden move (pure calculation brilliance, rare exception).
+        if (veryHighPvGap && keepsMate && !hadMate && !alreadyWinning) return 'Brilliant';
 
         // --- Great criteria ---
         if (positiveGain || tightenedMate || previousMoveError) return 'Great';
