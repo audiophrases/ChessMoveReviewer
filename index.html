@@ -365,6 +365,7 @@
           <div id="move-analysis-scroll" class="overflow-y-auto">
             <!-- One-line summary appears here (from "Summary:") -->
             <div id="game-summary" class="hidden mb-3 p-2 rounded bg-[#0b0e15] text-sm text-gray-200"></div>
+            <div id="step4-live-status" class="hidden mb-3 p-2 rounded bg-[#0b0e15] border border-[#1f2937] text-xs text-cyan-200"></div>
             <div id="move-analysis-container" class="space-y-1"></div>
           </div>
         </div>
@@ -507,6 +508,7 @@
       const deepAnalysisBanner = $('#deep-analysis-banner');
       const deepAnalysisTitle = $('#deep-analysis-title');
       const deepAnalysisDetail = $('#deep-analysis-detail');
+      const step4LiveStatus = $('#step4-live-status');
       const applyDeepAnalysisBtn = $('#apply-deep-analysis-btn');
       const manualDeepAnalysisBtn = $('#manual-deep-analysis-btn');
       const manualDeepAnalysisLabel = $('#manual-deep-analysis-label');
@@ -4142,6 +4144,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         } else {
           $('#game-summary').addClass('hidden').html('');
         }
+        setStep4LiveStatus('');
         const assignedColor = payload.reviewPlayerColor ? setReviewPlayerColor(payload.reviewPlayerColor) : null;
         if (!assignedColor && playerNameValue) {
           updateReviewPlayerColorFromHeaders(headersFromPayload, playerNameValue, { clearOnMiss: false });
@@ -4792,6 +4795,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (deepAnalysisTitle.length) deepAnalysisTitle.text('');
         if (deepAnalysisDetail.length) deepAnalysisDetail.text('');
         if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+        setStep4LiveStatus('');
         resetManualDeepAnalysisUI();
       }
 
@@ -4801,6 +4805,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (deepAnalysisTitle.length) deepAnalysisTitle.text(`Live reclassification running (depth ${depth}, MultiPV 4)`);
         if (deepAnalysisDetail.length) deepAnalysisDetail.text('Step 4 is ready now and will update live while deeper multi-PV analysis refines classifications.');
         if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
+        setStep4LiveStatus(`Live reclassification started at depth ${depth} (MultiPV 4).`);
       }
 
       function showDeepAnalysisReady(depth) {
@@ -4818,6 +4823,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (deepAnalysisDetail.length) deepAnalysisDetail.text(message || 'There was a problem running the deeper pass. The quick results are still available.');
         if (applyDeepAnalysisBtn.length) applyDeepAnalysisBtn.addClass('hidden').prop('disabled', true);
         if (progressTextEl.length) progressTextEl.text('Live deep reclassification failed; quick results are still available.');
+        setStep4LiveStatus('Live deep reclassification failed; quick results are still available.', 'error');
       }
 
       function applyAnalysisResult(result) {
@@ -4839,6 +4845,43 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         autoCopyStockfishOutputToClipboard();
         autoCompleteReviewFlow();
         renderDeferredReviewUi(-1);
+      }
+
+      function setStep4LiveStatus(message, tone) {
+        if (!step4LiveStatus.length) return;
+        const text = message == null ? '' : String(message).trim();
+        step4LiveStatus
+          .removeClass('hidden text-cyan-200 text-red-300 border-red-500/50 border-[#1f2937]');
+        if (!text) {
+          step4LiveStatus.text('').addClass('hidden').addClass('border-[#1f2937]');
+          return;
+        }
+        const isError = tone === 'error';
+        step4LiveStatus
+          .text(text)
+          .addClass(isError ? 'text-red-300 border-red-500/50' : 'text-cyan-200 border-[#1f2937]');
+      }
+
+      function countLiveReclassifications(liveInsights, analyzed) {
+        const baseMoves = baselineQuickInsights && Array.isArray(baselineQuickInsights.moves)
+          ? baselineQuickInsights.moves
+          : [];
+        const liveMoves = liveInsights && Array.isArray(liveInsights.moves)
+          ? liveInsights.moves
+          : [];
+        const limit = Math.min(
+          Number.isFinite(analyzed) ? analyzed : liveMoves.length,
+          baseMoves.length,
+          liveMoves.length
+        );
+        let changed = 0;
+        for (let i = 0; i < limit; i++) {
+          const before = normalizeClassificationKey(baseMoves[i] && baseMoves[i].classification);
+          const after = normalizeClassificationKey(liveMoves[i] && liveMoves[i].classification);
+          if (!before || !after) continue;
+          if (before !== after) changed += 1;
+        }
+        return changed;
       }
 
       function applyLiveInsightsToStep4(liveInsights, analyzed, total, statusText) {
@@ -4904,6 +4947,16 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           currentReviewMetadata.summary = autoSummary;
           if (statusText) currentReviewMetadata.liveStatus = statusText;
         }
+
+        const summaryData = liveInsights.summary || {};
+        const totalMoves = Number.isFinite(summaryData.totalMoves) ? summaryData.totalMoves : 0;
+        const liveAccuracy = totalMoves
+          ? ((Number(summaryData.totalGood || 0) / totalMoves) * 100)
+          : 0;
+        const changed = countLiveReclassifications(liveInsights, analyzed);
+        const analyzedText = `${Math.max(0, Number(analyzed) || 0)}/${Math.max(0, Number(total) || 0)} plies`;
+        const prefix = statusText ? `${statusText} ` : '';
+        setStep4LiveStatus(`${prefix}${analyzedText} analyzed | ${changed} reclassified | Live accuracy ${liveAccuracy.toFixed(2)}%`);
 
         refreshStockfishOutput();
         renderReviewUi(currentMoveIndex >= 0 ? currentMoveIndex : -1);
@@ -6289,6 +6342,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         } else {
           $('#game-summary').addClass('hidden').html('');
         }
+        setStep4LiveStatus('');
 
         renderReviewUi(-1);
         reviewUiRenderDeferred = false;
