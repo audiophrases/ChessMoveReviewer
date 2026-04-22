@@ -1735,15 +1735,13 @@ Your primary task is to process these moves into a specific format while applyin
 
 RECLASSIFICATION LOGIC FOR GREAT MOVES:
 
-Re-label as Only: If the move is an obvious material retake — the opponent just captured one of your pieces and you are clearly recapturing it back (e.g. a pawn, knight, bishop, or rook recapture on the same square). The move is the best option but easy to find because it is the natural response to the opponent's capture.
-
-Re-label as Good: If the move is a forced move to escape check, a standard piece trade with no exceptional quality, or any other routine move that is correct but unremarkable.
+Re-label as Good: If the move is a routine recapture of equal material, a forced move to escape check, or a standard piece trade.
 
 Re-label as Brilliant: If the move involves a material sacrifice that leads to an advantage, a difficult-to-find tactical resource, or a move that significantly increases the evaluation compared to the next best engine line.
 
-Keep as Great: If it is a very strong move that does not meet the specific criteria for Brilliant, Only, or Good.
+Keep as Great: If it is a very strong move that does not meet the specific criteria for Brilliant or Good.
 
-Update Summary Counts: If you change a Great move to Only, Good, or Brilliant, you MUST adjust the final Summary count for Brilliant, Great, Only, and the implied Good count accordingly.
+Update Summary Counts: If you change a Great move to Good or Brilliant, you MUST adjust the final Summary count for Brilliant, Great, and the implied Good count accordingly.
 
 STRICT DATA INTEGRITY: Do NOT change any other classification (Book, Forced, Only, Inaccuracy, Mistake, Blunder, Misclick??). Do NOT change the Accuracy percentage.
 
@@ -2291,24 +2289,6 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (!winningAfter && !notLosingAfter) return null;
         if (!winningAfter && !pvGapQualifies && !defensiveQualifies && !sacrifice) return null;
 
-        // --- Only (checked before Brilliant) ---
-        // An obvious retake is easier to find than a Brilliant move, so we check 'Only'
-        // first. Uses !isLikelyBoldSacrifice (gap >= 3) so exchange recaptures such as
-        // Rxn or Rxb still qualify, while true bold sacrifices (queen-for-pawn etc.) do not.
-        // The pvGap threshold scales down with the value of the captured piece: recapturing
-        // a queen is more obviously forced than recapturing a pawn.
-        if (hasPvData && playedIsBest && pvGap != null) {
-          const isCapture = !!(moveRecord.move && moveRecord.move.captured);
-          if (isCapture && !isLikelyBoldSacrifice(moveRecord)) {
-            const capturedValue = SACRIFICE_PIECE_VALUES[moveRecord.move.captured] || 0;
-            const materialThreshold = Math.max(
-              PVGAP_ONLY_MIN_THRESHOLD,
-              PVGAP_ONLY_MOVE_THRESHOLD - capturedValue * PVGAP_ONLY_MATERIAL_REDUCTION
-            );
-            if (pvGap >= materialThreshold) return 'Only';
-          }
-        }
-
         // --- Brilliant criteria ---
         // Requirements (per Lichess/Chess.com definition):
         //   1. Sacrifice — almost always gives up material not immediately regained.
@@ -2328,8 +2308,6 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         // (2) Any sound sacrifice + engine confirms best move (playedIsBest via highPvGap) +
         //   hard to find (large pvGap) + not already winning. Canonical sacrifice-Brilliant:
         //   gave up material, engine agrees it was top move, non-intuitive to find.
-        //   Bold sacrifices (gap >= 3) are already handled above; this catches smaller sacs
-        //   (e.g. exchange sac Rxb/Rxn) that were NOT already classified as 'Only'.
         if (sacrifice && highPvGap && !alreadyWinning) return 'Brilliant';
 
         // (3) No sacrifice but creates a forced mate from a non-winning position via a
@@ -2337,6 +2315,20 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (veryHighPvGap && keepsMate && !hadMate && !alreadyWinning) return 'Brilliant';
 
         // --- Great criteria ---
+        // Check 'Only' first before positiveGain / highPvGap can claim the move.
+        // The required pvGap scales down with captured-piece value: recapturing a
+        // queen is more obviously forced than recapturing a pawn.
+        if (hasPvData && playedIsBest && pvGap != null) {
+          const isCapture = !!(moveRecord.move && moveRecord.move.captured);
+          if (isCapture && !isLikelySacrificeMove(moveRecord)) {
+            const capturedValue = SACRIFICE_PIECE_VALUES[moveRecord.move.captured] || 0;
+            const materialThreshold = Math.max(
+              PVGAP_ONLY_MIN_THRESHOLD,
+              PVGAP_ONLY_MOVE_THRESHOLD - capturedValue * PVGAP_ONLY_MATERIAL_REDUCTION
+            );
+            if (pvGap >= materialThreshold) return 'Only';
+          }
+        }
         if (positiveGain || tightenedMate || previousMoveError) return 'Great';
         if (highPvGap) return 'Great';
         if (sacrifice && (winningAfter || notLosingAfter)) return 'Great';
