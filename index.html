@@ -2267,6 +2267,21 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             || (pvRarityScore != null && pvRarityScore >= PVRARITY_GREAT_THRESHOLD));
         const defensiveQualifies = isDefensiveContext && (defensiveGain || defensivePvGap) && playedIsBest;
 
+        // Detect if this move is a direct, immediate recapture
+        let isDirectRecapture = false;
+        if (opts.allMoves && opts.plyIndex > 0) {
+          const prevMove = opts.allMoves[opts.plyIndex - 1];
+          if (moveRecord.move && moveRecord.move.captured && prevMove && prevMove.move) {
+            // A recapture typically lands on the exact same square the opponent just moved to.
+            if (moveRecord.move.to === prevMove.move.to) {
+              isDirectRecapture = true;
+            }
+          }
+        }
+
+        // Check if direct recapture is the best move right away
+        if (isDirectRecapture && playedIsBest) return 'Only';
+
         if (!legacyQualifies && !pvGapQualifies && !defensiveQualifies) return null;
 
         // --- Determine praise level ---
