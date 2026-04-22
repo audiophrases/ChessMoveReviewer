@@ -2311,14 +2311,17 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (veryHighPvGap && keepsMate && !hadMate && !alreadyWinning) return 'Brilliant';
 
         // --- Great criteria ---
-        if (positiveGain || tightenedMate || previousMoveError) return 'Great';
-        if (highPvGap) return 'Great';
-        if (sacrifice && (winningAfter || notLosingAfter)) return 'Great';
+        // Check 'Only' first: a non-sacrifice capture where pvGap >= PVGAP_ONLY_MOVE_THRESHOLD
+        // is "Only" (the only sensible recapture) regardless of positiveGain or highPvGap,
+        // both of which would otherwise fire before this check and incorrectly return 'Great'.
         if (onlyMove) {
           const isCapture = !!(moveRecord.move && moveRecord.move.captured);
           if (isCapture && !isLikelySacrificeMove(moveRecord)) return 'Only';
-          return 'Great';
         }
+        if (positiveGain || tightenedMate || previousMoveError) return 'Great';
+        if (highPvGap) return 'Great';
+        if (sacrifice && (winningAfter || notLosingAfter)) return 'Great';
+        if (onlyMove) return 'Great';
         return null;
       }
 
