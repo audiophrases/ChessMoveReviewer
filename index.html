@@ -1731,11 +1731,11 @@
       // Prompt (adds one-line Summary at the end)
       const ANALYSIS_PROMPT_TEMPLATE = `You are an expert chess coach and data processor. You will be provided with a PGN with SAN moves and mover-centric deltas, an Automated Insights block, and precomputed summary statistics for the player eugenime.
 
-Your primary task is to process these moves into a specific format while applying one specific logical filter: you must re-evaluate every move originally labeled Great.
+Your primary task is to process these moves into a specific format while applying one specific logical filter: you must re-evaluate every move originally labeled Good, Great, or Brilliant.
 
-RECLASSIFICATION LOGIC FOR GREAT MOVES:
+RECLASSIFICATION LOGIC FOR GOOD, GREAT AND BRILLIANT MOVES:
 
-Re-label as Only: If the move is the best move possible but super easy to find by the chess player, such as an obvious material retake.
+Re-label as Only: If the move is the best move possible but super easy to find by the chess player, such as an obvious material retake. This is especially true for recaptures that were originally labeled Brilliant, Great, or Good.
 
 Re-label as Good: If the move is a forced move to escape check, or a standard piece trade.
 
@@ -1743,7 +1743,7 @@ Re-label as Brilliant: If the move involves a material sacrifice that leads to a
 
 Keep as Great: If it is a very strong move that does not meet the specific criteria for Brilliant, Only, or Good.
 
-Update Summary Counts: If you change a Great move to Good, Only, or Brilliant, you MUST adjust the final Summary count for Brilliant, Great, Only, and the implied Good count accordingly.
+Update Summary Counts: If you change a Good, Great or Brilliant move to Good, Only, Great, or Brilliant, you MUST adjust the final Summary count for Brilliant, Great, Only, and the implied Good count accordingly.
 
 STRICT DATA INTEGRITY: Do NOT change any other classification (Book, Forced, Inaccuracy, Mistake, Blunder, Misclick??). Do NOT change the Accuracy percentage.
 
