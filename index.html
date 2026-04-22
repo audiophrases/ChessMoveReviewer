@@ -5004,7 +5004,13 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         setStep4LiveStatus(`${prefix}${analyzedText} analyzed | ${changed} reclassified | Live accuracy ${liveAccuracy.toFixed(2)}%`);
 
         refreshStockfishOutput();
-        renderReviewUi(currentMoveIndex >= 0 ? currentMoveIndex : -1);
+        // Refresh only the move list and eval graph without resetting the board
+        // position or replaying moves (which would animate pieces and play sounds).
+        const liveTargetIdx = currentMoveIndex >= 0 ? currentMoveIndex : -1;
+        renderMoveList();
+        resizeEvalGraph();
+        renderEvalGraph(liveTargetIdx);
+        syncNavigationControls();
         persistCurrentReviewSession(4);
       }
 
