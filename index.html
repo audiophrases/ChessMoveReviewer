@@ -2181,7 +2181,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         return moveRecord._centipawnContext;
       }
 
-      function computeBaseClassification(moveRecord, plyIndex) {
+      function computeBaseClassification(moveRecord, plyIndex, allMoves) {
         const fallback = plyIndex < 7 ? 'Book' : 'Good';
         const context = getCentipawnContext(moveRecord);
         if (!context) return fallback;
@@ -2208,7 +2208,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           }
         }
         if (classification === fallback) {
-          const praise = classifyHighPraise(moveRecord);
+          const praise = classifyHighPraise(moveRecord, { allMoves, plyIndex });
           if (praise) classification = praise;
         }
 
@@ -2291,6 +2291,18 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (!winningAfter && !notLosingAfter) return null;
         if (!winningAfter && !pvGapQualifies && !defensiveQualifies && !sacrifice) return null;
 
+        // Detect if this move is a direct, immediate recapture
+        let isDirectRecapture = false;
+        if (opts.allMoves && opts.plyIndex > 0) {
+          const prevMove = opts.allMoves[opts.plyIndex - 1];
+          if (moveRecord.move && moveRecord.move.captured && prevMove && prevMove.move) {
+            // A recapture typically lands on the exact same square the opponent just moved to.
+            if (moveRecord.move.to === prevMove.move.to) {
+              isDirectRecapture = true;
+            }
+          }
+        }
+
         // --- Brilliant criteria ---
         // Requirements (per Lichess/Chess.com definition):
         //   1. Sacrifice — almost always gives up material not immediately regained.
@@ -2298,37 +2310,45 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         //   3. Not already winning — if the mover was already clearly dominant before
         //      the move, a sacrifice is Great, not Brilliant.
         //   4. Complexity — the move is hard to find at low depth (pvGap evidence).
+        // Exceptions: Obvious direct recaptures should not be awarded Brilliant.
         const alreadyWinning = Number.isFinite(moverBefore) && moverBefore >= BRILLIANT_ALREADY_WINNING_CEILING;
 
-        // (1) Bold sacrifice (material gap >= 3) that is validated as the best move and the
-        //   position was not already decided. When MultiPV data is present, playedIsBest is
-        //   enforced; without it (quick pass, no pvGap) we rely on eval/mate signals alone.
-        if (boldSacrifice && !alreadyWinning
-          && (positiveGain || keepsMate || tightenedMate || veryHighPvGap)
-          && (!hasPvData || playedIsBest)) return 'Brilliant';
+        if (!isDirectRecapture) {
+          // (1) Bold sacrifice (material gap >= 3) that is validated as the best move and the
+          //   position was not already decided. When MultiPV data is present, playedIsBest is
+          //   enforced; without it (quick pass, no pvGap) we rely on eval/mate signals alone.
+          if (boldSacrifice && !alreadyWinning
+            && (positiveGain || keepsMate || tightenedMate || veryHighPvGap)
+            && (!hasPvData || playedIsBest)) return 'Brilliant';
 
-        // (2) Any sound sacrifice + engine confirms best move (playedIsBest via highPvGap) +
-        //   hard to find (large pvGap) + not already winning. Canonical sacrifice-Brilliant:
-        //   gave up material, engine agrees it was top move, non-intuitive to find.
-        if (sacrifice && highPvGap && !alreadyWinning) return 'Brilliant';
+          // (2) Any sound sacrifice + engine confirms best move (playedIsBest via highPvGap) +
+          //   hard to find (large pvGap) + not already winning. Canonical sacrifice-Brilliant:
+          //   gave up material, engine agrees it was top move, non-intuitive to find.
+          if (sacrifice && highPvGap && !alreadyWinning) return 'Brilliant';
 
-        // (3) No sacrifice but creates a forced mate from a non-winning position via a
-        //   deeply hidden move (pure calculation brilliance, rare exception).
-        if (veryHighPvGap && keepsMate && !hadMate && !alreadyWinning) return 'Brilliant';
+          // (3) No sacrifice but creates a forced mate from a non-winning position via a
+          //   deeply hidden move (pure calculation brilliance, rare exception).
+          if (veryHighPvGap && keepsMate && !hadMate && !alreadyWinning) return 'Brilliant';
+        }
 
         // --- Great criteria ---
         // Check 'Only' first before positiveGain / highPvGap can claim the move.
         // The required pvGap scales down with captured-piece value: recapturing a
         // queen is more obviously forced than recapturing a pawn.
-        if (hasPvData && playedIsBest && pvGap != null) {
+        if (isDirectRecapture && playedIsBest) return 'Only';
+
+        if (hasPvData && playedIsBest && (pvGap != null || isDirectRecapture)) {
           const isCapture = !!(moveRecord.move && moveRecord.move.captured);
-          if (isCapture && !isLikelySacrificeMove(moveRecord)) {
-            const capturedValue = SACRIFICE_PIECE_VALUES[moveRecord.move.captured] || 0;
-            const materialThreshold = Math.max(
-              PVGAP_ONLY_MIN_THRESHOLD,
-              PVGAP_ONLY_MOVE_THRESHOLD - capturedValue * PVGAP_ONLY_MATERIAL_REDUCTION
-            );
-            if (pvGap >= materialThreshold) return 'Only';
+          if (isCapture && (!isLikelySacrificeMove(moveRecord) || isDirectRecapture)) {
+            let materialThreshold = PVGAP_ONLY_MIN_THRESHOLD;
+            if (pvGap != null) {
+              const capturedValue = SACRIFICE_PIECE_VALUES[moveRecord.move.captured] || 0;
+              materialThreshold = Math.max(
+                PVGAP_ONLY_MIN_THRESHOLD,
+                PVGAP_ONLY_MOVE_THRESHOLD - capturedValue * PVGAP_ONLY_MATERIAL_REDUCTION
+              );
+            }
+            if (pvGap != null && pvGap >= materialThreshold) return 'Only';
           }
         }
         if (positiveGain || tightenedMate || previousMoveError) return 'Great';
@@ -2463,7 +2483,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
 
         const moves = rawMoves.map((mv, idx) => {
           const enriched = { ...mv, index: idx };
-          enriched.classification = computeBaseClassification(enriched, idx);
+          enriched.classification = computeBaseClassification(enriched, idx, rawMoves);
           return enriched;
         });
 
@@ -2538,7 +2558,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             }
           }
           if (!PREVIOUS_ERROR_KEYS.has(prevKey)) return;
-          const praiseClass = classifyHighPraise(mv, { previousMoveError: true });
+          const praiseClass = classifyHighPraise(mv, { previousMoveError: true, allMoves: moves, plyIndex: mv.index });
           if (!praiseClass) return;
           mv.classification = praiseClass;
         });
