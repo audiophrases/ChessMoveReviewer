@@ -2315,17 +2315,24 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (veryHighPvGap && keepsMate && !hadMate && !alreadyWinning) return 'Brilliant';
 
         // --- Great criteria ---
-        // Check 'Only' first: a non-sacrifice capture where pvGap >= PVGAP_ONLY_MOVE_THRESHOLD
-        // is "Only" (the only sensible recapture) regardless of positiveGain or highPvGap,
-        // both of which would otherwise fire before this check and incorrectly return 'Great'.
-        if (onlyMove) {
+        // Check 'Only' first before positiveGain / highPvGap can claim the move.
+        // The required pvGap scales down with captured-piece value: recapturing a
+        // queen is more obviously forced than recapturing a pawn.
+        if (hasPvData && playedIsBest && pvGap != null) {
           const isCapture = !!(moveRecord.move && moveRecord.move.captured);
-          if (isCapture && !isLikelySacrificeMove(moveRecord)) return 'Only';
+          if (isCapture && !isLikelySacrificeMove(moveRecord)) {
+            const capturedValue = SACRIFICE_PIECE_VALUES[moveRecord.move.captured] || 0;
+            const materialThreshold = Math.max(
+              PVGAP_ONLY_MIN_THRESHOLD,
+              PVGAP_ONLY_MOVE_THRESHOLD - capturedValue * PVGAP_ONLY_MATERIAL_REDUCTION
+            );
+            if (pvGap >= materialThreshold) return 'Only';
+          }
         }
         if (positiveGain || tightenedMate || previousMoveError) return 'Great';
         if (highPvGap) return 'Great';
         if (sacrifice && (winningAfter || notLosingAfter)) return 'Great';
-        if (onlyMove) return 'Great';
+        if (hasPvData && playedIsBest && pvGap != null && pvGap >= PVGAP_ONLY_MOVE_THRESHOLD) return 'Great';
         return null;
       }
 
