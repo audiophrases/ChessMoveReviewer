@@ -1998,6 +1998,10 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       const PVGAP_BRILLIANT_THRESHOLD = 200;
       const PVGAP_GREAT_THRESHOLD = 80;
       const PVGAP_ONLY_MOVE_THRESHOLD = 300;
+      // For every material point of the captured piece the Only threshold drops by this amount.
+      // e.g. queen (9): 300 - 9*20 = 120 → clamped to 150.  Pawn (1): 300 - 20 = 280.
+      const PVGAP_ONLY_MATERIAL_REDUCTION = 20;
+      const PVGAP_ONLY_MIN_THRESHOLD = 150;
       // If the mover's win-probability before the move is at or above this ceiling,
       // they were already clearly dominating — a sacrifice earns Great, not Brilliant.
       const BRILLIANT_ALREADY_WINNING_CEILING = 0.85;
