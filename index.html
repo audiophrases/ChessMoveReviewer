@@ -1743,7 +1743,7 @@ Keep as Great: If it is a very strong move that does not meet the specific crite
 
 Update Summary Counts: If you change a Great move to Good or Brilliant, you MUST adjust the final Summary count for Brilliant, Great, and the implied Good count accordingly.
 
-STRICT DATA INTEGRITY: Do NOT change any other classification (Book, Forced, Inaccuracy, Mistake, Blunder, Misclick??). Do NOT change the Accuracy percentage.
+STRICT DATA INTEGRITY: Do NOT change any other classification (Book, Forced, Only, Inaccuracy, Mistake, Blunder, Misclick??). Do NOT change the Accuracy percentage.
 
 COMMENTING AND FORMATTING RULES:
 
@@ -1767,7 +1767,7 @@ OUTPUT STRUCTURE:
 
 The list of formatted moves (one per line).
 
-Updated Summary: Brilliant = X | Great = Y | Mistakes = Z | Blunders = W | Misclicks = V
+Updated Summary: Brilliant = X | Great = Y | Only = O | Mistakes = Z | Blunders = W | Misclicks = V
 
 Accuracy: <Accuracy percentage>
 
@@ -1920,6 +1920,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         good: 'text-green-400',
         book: 'text-blue-400',
         forced: 'text-gray-300',
+        only: 'text-purple-300',
         inaccuracy: 'text-yellow-400',
         mistake: 'text-orange-400',
         blunder: 'text-red-500',
@@ -1937,6 +1938,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       const CLASSIFICATION_MARKER_COLORS = {
         brilliant: '#22d3ee',
         great: '#22c55e',
+        only: '#c084fc',
         blunder: '#ef4444',
         misclick: '#d946ef',
         mistake: '#f97316',
@@ -1946,13 +1948,14 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
       const CLASSIFICATION_MARKER_FILLS = {
         brilliant: 'rgba(34, 211, 238, 0.12)',
         great: 'rgba(34, 197, 94, 0.12)',
+        only: 'rgba(192, 132, 252, 0.12)',
         blunder: 'rgba(239, 68, 68, 0.12)',
         misclick: 'rgba(217, 70, 239, 0.12)',
         mistake: 'rgba(249, 115, 22, 0.12)',
         inaccuracy: 'rgba(245, 158, 11, 0.12)',
         default: 'rgba(107, 114, 128, 0.12)'
       };
-      const CLASSIFICATION_MARKER_KEYS = ['brilliant', 'great', 'blunder', 'misclick', 'mistake', 'inaccuracy'];
+      const CLASSIFICATION_MARKER_KEYS = ['brilliant', 'great', 'only', 'blunder', 'misclick', 'mistake', 'inaccuracy'];
       function getClassificationMarkerStyle(key) {
         const normalized = normalizeClassificationKey(key);
         const stroke = CLASSIFICATION_MARKER_COLORS[normalized] || CLASSIFICATION_MARKER_COLORS.default;
@@ -1971,6 +1974,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         good: 'Good',
         book: 'Book',
         forced: 'Forced',
+        only: 'Only',
         inaccuracy: 'Inaccuracy',
         mistake: 'Mistake',
         blunder: 'Blunder',
@@ -1984,6 +1988,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         forced: 1,
         good: 1,
         book: 1,
+        only: 1,
         great: 0,
         brilliant: 0
       };
@@ -2309,7 +2314,11 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (positiveGain || tightenedMate || previousMoveError) return 'Great';
         if (highPvGap) return 'Great';
         if (sacrifice && (winningAfter || notLosingAfter)) return 'Great';
-        if (onlyMove) return 'Great';
+        if (onlyMove) {
+          const isCapture = !!(moveRecord.move && moveRecord.move.captured);
+          if (isCapture && !isLikelySacrificeMove(moveRecord)) return 'Only';
+          return 'Great';
+        }
         return null;
       }
 
@@ -2570,7 +2579,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         });
 
         const totalMoves = relevantMoves.length;
-        const totalGood = (summaryCounts['Brilliant'] || 0) + (summaryCounts['Great'] || 0) + (summaryCounts['Good'] || 0) + (summaryCounts['Book'] || 0) + (summaryCounts['Forced'] || 0);
+        const totalGood = (summaryCounts['Brilliant'] || 0) + (summaryCounts['Great'] || 0) + (summaryCounts['Good'] || 0) + (summaryCounts['Book'] || 0) + (summaryCounts['Forced'] || 0) + (summaryCounts['Only'] || 0);
         const totalBad = (summaryCounts['Mistake'] || 0) + (summaryCounts['Blunder'] || 0) + (summaryCounts['Misclick??'] || 0);
         const accuracy = totalMoves ? (totalGood / totalMoves) * 100 : 0;
 
@@ -2746,6 +2755,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           }
           return `Auto insight: ${describeAutomatedImpact(move.moverDelta)} collapse detected by Stockfish.`;
         }
+        if (key === 'only') {
+          return 'Auto insight: the only good move; all alternatives were significantly worse.';
+        }
         if (key === 'forced') {
           const keepsMate = hadMateForMoverBefore(move) && retainsMateForMover(move);
           const defensiveMate = hadOpponentMate && hasOpponentMate;
@@ -2811,7 +2823,8 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const totalGood = summaryData.totalGood || 0;
         const totalBad = summaryData.totalBad || 0;
         const accuracy = summaryData.totalMoves ? (summaryData.totalGood / summaryData.totalMoves) * 100 : 0;
-        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%. Narrative Summary: Automated engine insights summary generated from Stockfish evaluations with probability-based scaling and context-aware loss bands.`;
+        const only = counts['Only'] || 0;
+        return `Summary: Brilliant = ${brilliant} | Great = ${great} | Only = ${only} | Mistakes = ${mistakes} | Blunders = ${blunders} | Misclicks = ${misclicks}. ${totalGood} Total Good = (Brilliant + Great + Good + Book + Forced + Only); ${totalBad} Total Bad = (Inaccuracies + Mistakes + Blunders + Misclicks). Accuracy: ${accuracy.toFixed(2)}%. Narrative Summary: Automated engine insights summary generated from Stockfish evaluations with probability-based scaling and context-aware loss bands.`;
       }
       function normalizeSanToken(value) {
         if (!value) return '';
@@ -6910,11 +6923,12 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         movesWithAnalysis = moves;
 
         // Build clickable jump-nav badges that cycle through moves of each notable type
-        const navOrder = ['brilliant', 'great', 'mistake', 'blunder', 'misclick??'];
-        const navLabels  = { brilliant: '✦ Brilliant', great: 'Great', mistake: 'Mistake', blunder: 'Blunder', 'misclick??': 'Misclick??' };
+        const navOrder = ['brilliant', 'great', 'only', 'mistake', 'blunder', 'misclick??'];
+        const navLabels  = { brilliant: '✦ Brilliant', great: 'Great', only: 'Only', mistake: 'Mistake', blunder: 'Blunder', 'misclick??': 'Misclick??' };
         const navColors  = {
           brilliant:   'border-cyan-400 text-cyan-300 hover:bg-cyan-950/60',
           great:       'border-teal-500 text-teal-300 hover:bg-teal-950/60',
+          only:        'border-purple-400 text-purple-300 hover:bg-purple-950/60',
           mistake:     'border-orange-500 text-orange-300 hover:bg-orange-950/60',
           blunder:     'border-red-500 text-red-400 hover:bg-red-950/60',
           'misclick??':'border-fuchsia-500 text-fuchsia-300 hover:bg-fuchsia-950/60',
@@ -6949,6 +6963,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const classificationRowAccent = {
           brilliant: 'border-l-2 border-cyan-400 bg-cyan-950/30',
           great: 'border-l-2 border-teal-500 bg-teal-950/20',
+          only: 'border-l-2 border-purple-400 bg-purple-950/20',
           blunder: 'border-l-2 border-red-500 bg-red-950/20',
           misclick: 'border-l-2 border-fuchsia-500 bg-fuchsia-950/20',
           mistake: 'border-l-2 border-orange-500 bg-orange-950/20',
