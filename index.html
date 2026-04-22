@@ -2306,18 +2306,6 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (!winningAfter && !notLosingAfter) return null;
         if (!winningAfter && !pvGapQualifies && !defensiveQualifies && !sacrifice) return null;
 
-        // Detect if this move is a direct, immediate recapture
-        let isDirectRecapture = false;
-        if (opts.allMoves && opts.plyIndex > 0) {
-          const prevMove = opts.allMoves[opts.plyIndex - 1];
-          if (moveRecord.move && moveRecord.move.captured && prevMove && prevMove.move) {
-            // A recapture typically lands on the exact same square the opponent just moved to.
-            if (moveRecord.move.to === prevMove.move.to) {
-              isDirectRecapture = true;
-            }
-          }
-        }
-
         // --- Brilliant criteria ---
         // Requirements (per Lichess/Chess.com definition):
         //   1. Sacrifice — almost always gives up material not immediately regained.
@@ -2350,7 +2338,6 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         // Check 'Only' first before positiveGain / highPvGap can claim the move.
         // The required pvGap scales down with captured-piece value: recapturing a
         // queen is more obviously forced than recapturing a pawn.
-        if (isDirectRecapture && playedIsBest) return 'Only';
 
         if (hasPvData && playedIsBest && (pvGap != null || isDirectRecapture)) {
           const isCapture = !!(moveRecord.move && moveRecord.move.captured);
