@@ -2379,7 +2379,12 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
           const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
           // Exchange sac (Rxn/Rxb), piece-for-pawn, queen sac — threshold lowered to +1
-          if (moverValue >= capturedValue + 1) return true;
+          if (moverValue >= capturedValue + 1) {
+            // If we know the captured piece was undefended (no recapture available),
+            // it is a free capture, not a sacrifice — explicitly not Brilliant territory.
+            if (moveRecord.captureDefended === false) return false;
+            return true;
+          }
         }
         return false;
       }
@@ -2394,7 +2399,10 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         if (!captured) return false;
         const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
         const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
-        return moverValue >= capturedValue + 3;
+        if (moverValue < capturedValue + 3) return false;
+        // An undefended piece is a free capture, not a bold sacrifice.
+        if (moveRecord.captureDefended === false) return false;
+        return true;
       }
 
       function hadMateForMoverBefore(moveRecord) {
@@ -5185,6 +5193,20 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             playedIsBestMove = playedUci === bestEngineMove;
           }
 
+          // Determine whether the captured piece was actually defended.
+          // After the capture, check if any opponent legal move recaptures on the
+          // same square. If none can, the piece was undefended — a free capture,
+          // not a sacrifice. null means no capture occurred.
+          let captureDefended = null;
+          if (moveObj.captured) {
+            try {
+              const opponentMoves = temp.moves({ verbose: true });
+              captureDefended = opponentMoves.some(m => m.to === moveObj.to && m.flags && m.flags.includes('c'));
+            } catch (e) {
+              captureDefended = null;
+            }
+          }
+
           let probBeforeMove = prevProb;
           let evalStr = '';
           let prob = null;
@@ -5248,6 +5270,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             mateAfter: mateScore,
             evaluation: evalStr,
             move: simplifyMoveObject(moveObj),
+            captureDefended,
             pvGap,
             pvGapThird,
             pvGapFourth,
