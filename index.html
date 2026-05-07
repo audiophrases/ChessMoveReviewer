@@ -2320,18 +2320,26 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           // (1) Bold sacrifice (material gap >= 3) that is validated as the best move and the
           //   position was not already decided. When MultiPV data is present, playedIsBest is
           //   enforced; without it (quick pass, no pvGap) we rely on eval/mate signals alone.
-          if (boldSacrifice && !alreadyWinning
+          //   !hadMate guard: if you already had forced mate before this move, you are merely
+          //   executing the plan — that is never Brilliant, even if the move captures material.
+          if (boldSacrifice && !alreadyWinning && !hadMate
             && (positiveGain || keepsMate || tightenedMate || veryHighPvGap)
             && (!hasPvData || playedIsBest)) return 'Brilliant';
 
           // (2) Any sound sacrifice + engine confirms best move (playedIsBest via highPvGap) +
           //   hard to find (large pvGap) + not already winning. Canonical sacrifice-Brilliant:
           //   gave up material, engine agrees it was top move, non-intuitive to find.
-          if (sacrifice && highPvGap && !alreadyWinning) return 'Brilliant';
+          //   Requires a meaningful outcome (positive eval gain or forced mate) to filter out
+          //   false-positive "sacrifices" such as capturing an undefended pawn with no risk.
+          if (sacrifice && highPvGap && !alreadyWinning && !hadMate
+            && (positiveGain || keepsMate || tightenedMate)) return 'Brilliant';
 
-          // (3) No sacrifice but creates a forced mate from a non-winning position via a
-          //   deeply hidden move (pure calculation brilliance, rare exception).
-          if (veryHighPvGap && keepsMate && !hadMate && !alreadyWinning) return 'Brilliant';
+          // (3) Creates a forced mate from scratch via a hard-to-find move — pure calculation
+          //   brilliance. The !alreadyWinning guard is intentionally omitted here: finding the
+          //   only forcing sequence that initiates a brand-new mating net (even from a winning
+          //   but non-mating position) is a legitimate Brilliant, e.g. a knight sacrifice Nf6+
+          //   that forces Qxh7#. !hadMate ensures the mating net did not exist before the move.
+          if (veryHighPvGap && keepsMate && !hadMate) return 'Brilliant';
         }
 
         // --- Great criteria ---
