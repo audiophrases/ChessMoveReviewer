@@ -2350,11 +2350,11 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           //   canonical brilliancy where a piece is given up to initiate a mating attack —
           //   e.g. Nf6+ leaving the knight hanging to force Qxh7#. alreadyWinning is not
           //   required (you can already be winning materially yet still find the mating
-          //   sacrifice), and veryHighPvGap is not required either: when several parallel
-          //   mating continuations exist, pvGap collapses and (3) misses the move even
-          //   though the sacrificial idea is still the brilliancy.
-          if ((sacrifice || boldSacrifice) && keepsMate && !hadMate
-            && (!hasPvData || playedIsBest)) return 'Brilliant';
+          //   sacrifice), veryHighPvGap is not required (parallel mating continuations
+          //   collapse pvGap so (3) misses these), and playedIsBest is not required
+          //   either — keepsMate is a stronger signal than the engine's depth-limited
+          //   top-line ranking, since the move provably leads to a forced mate.
+          if ((sacrifice || boldSacrifice) && keepsMate && !hadMate) return 'Brilliant';
         }
 
         // --- Great criteria ---
