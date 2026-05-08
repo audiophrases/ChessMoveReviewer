@@ -2314,9 +2314,14 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         //      the move, a sacrifice is Great, not Brilliant.
         //   4. Complexity — the move is hard to find at low depth (pvGap evidence).
         // Exceptions: Obvious direct recaptures should not be awarded Brilliant.
+        // A move that delivers checkmate is never Brilliant: by definition it cannot
+        // be a sacrifice (the game ends), so it falls into the Great/Only/Forced
+        // tracks below regardless of pvGap or mate-state propagation quirks.
+        const deliversMate = !!(moveRecord.move && moveRecord.move.san
+          && moveRecord.move.san.indexOf('#') !== -1);
         const alreadyWinning = Number.isFinite(moverBefore) && moverBefore >= BRILLIANT_ALREADY_WINNING_CEILING;
 
-        if (!isDirectRecapture) {
+        if (!isDirectRecapture && !deliversMate) {
           // (1) Bold sacrifice (material gap >= 3) that is validated as the best move and the
           //   position was not already decided. When MultiPV data is present, playedIsBest is
           //   enforced; without it (quick pass, no pvGap) we rely on eval/mate signals alone.
