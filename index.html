@@ -2310,7 +2310,14 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         //   gave up material, engine agrees it was top move, non-intuitive to find.
         if (sacrifice && highPvGap && !alreadyWinning) return 'Brilliant';
 
-        // (3) No sacrifice but creates a forced mate from a non-winning position via a
+        // (3) Sacrifice that creates a forced mate from a non-mate position. Even if the
+        //   mover was already materially winning, converting that into a forced mating
+        //   attack via a sacrificial move (e.g. Nf6+ leaving the knight hanging) is the
+        //   canonical Brilliant pattern — alreadyWinning is intentionally not required.
+        if ((sacrifice || boldSacrifice) && keepsMate && !hadMate
+          && (!hasPvData || playedIsBest)) return 'Brilliant';
+
+        // (4) No sacrifice but creates a forced mate from a non-winning position via a
         //   deeply hidden move (pure calculation brilliance, rare exception).
         if (veryHighPvGap && keepsMate && !hadMate && !alreadyWinning) return 'Brilliant';
 
@@ -2341,14 +2348,20 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const move = moveRecord.move;
         const piece = move.piece;
         if (!piece || piece === 'k') return false;
+        // A move that delivers checkmate cannot be a sacrifice — the game ends
+        // immediately, so no material is ever lost.
+        const san = move.san || '';
+        if (san.indexOf('#') !== -1) return false;
+        const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
         const captured = move.captured;
-        if (captured) {
-          // Capture sacrifice: giving up more material than captured
-          const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
-          const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
-          // Exchange sac (Rxn/Rxb), piece-for-pawn, queen sac — threshold lowered to +1
-          if (moverValue >= capturedValue + 1) return true;
-        }
+        const capturedValue = captured ? (SACRIFICE_PIECE_VALUES[captured] || 0) : 0;
+        if (captured && moverValue >= capturedValue + 1) return true;
+        // Hanging-piece sacrifice: the moved piece sits on a square where an
+        // opponent piece can legally capture it next move, with no equivalent
+        // material gain on this move. _hangingAttackerValue is precomputed as
+        // the lowest-value attacker on the destination square.
+        if (Number.isFinite(moveRecord._hangingAttackerValue)
+          && moverValue - capturedValue >= 1) return true;
         return false;
       }
 
@@ -2358,11 +2371,47 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const move = moveRecord.move;
         const piece = move.piece;
         if (!piece || piece === 'k') return false;
-        const captured = move.captured;
-        if (!captured) return false;
+        const san = move.san || '';
+        if (san.indexOf('#') !== -1) return false;
         const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
-        const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
-        return moverValue >= capturedValue + 3;
+        const captured = move.captured;
+        const capturedValue = captured ? (SACRIFICE_PIECE_VALUES[captured] || 0) : 0;
+        if (captured && moverValue >= capturedValue + 3) return true;
+        // Hanging-piece bold sacrifice: net material at risk >= 3 (e.g. a knight
+        // or higher placed where it can be taken without compensation).
+        if (Number.isFinite(moveRecord._hangingAttackerValue)
+          && moverValue - capturedValue >= 3) return true;
+        return false;
+      }
+
+      function computeHangingPieceFlags(rawMoves) {
+        // For each played move, returns the lowest enemy attacker value on the
+        // moved piece's destination square (right after the move), or null if
+        // the piece is not legally capturable next move. Used to detect
+        // non-capture sacrifices like Nf6+ that leave a knight hanging.
+        const flags = new Array(rawMoves.length).fill(null);
+        let board;
+        try { board = new Chess(); } catch (e) { return flags; }
+        for (let i = 0; i < rawMoves.length; i++) {
+          const mv = rawMoves[i];
+          if (!mv || !mv.san) return flags;
+          let played = null;
+          try { played = board.move(mv.san); } catch (e) { played = null; }
+          if (!played) return flags;
+          try {
+            const opponentMoves = board.moves({ verbose: true });
+            let lowest = null;
+            for (let j = 0; j < opponentMoves.length; j++) {
+              const om = opponentMoves[j];
+              if (om.to === played.to && om.captured) {
+                const v = SACRIFICE_PIECE_VALUES[om.piece] || 0;
+                if (lowest === null || v < lowest) lowest = v;
+              }
+            }
+            if (lowest !== null) flags[i] = lowest;
+          } catch (e) { /* ignore — replay best-effort */ }
+        }
+        return flags;
       }
 
       function hadMateForMoverBefore(moveRecord) {
@@ -2459,8 +2508,11 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           return { moves: [], summary: null, moveOfGame: null };
         }
 
+        const hangingFlags = computeHangingPieceFlags(rawMoves);
+
         const moves = rawMoves.map((mv, idx) => {
           const enriched = { ...mv, index: idx };
+          if (hangingFlags[idx] != null) enriched._hangingAttackerValue = hangingFlags[idx];
           enriched.classification = computeBaseClassification(enriched, idx);
           return enriched;
         });
