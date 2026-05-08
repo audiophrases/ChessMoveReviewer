@@ -2373,36 +2373,60 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const move = moveRecord.move;
         const piece = move.piece;
         if (!piece || piece === 'k') return false;
+        // For promotion moves, the piece on the destination is the promoted piece.
+        // If the new queen/rook/etc. is captured, the sacrifice should be graded by
+        // what is actually exposed on the board, not by the original pawn value.
+        const effectivePieceKey = move.promotion || piece;
+        const moverValue = SACRIFICE_PIECE_VALUES[effectivePieceKey] || 0;
         const captured = move.captured;
         if (captured) {
-          // Capture sacrifice: giving up more material than captured
-          const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
+          // Capture sacrifice: giving up more material than captured.
           const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
-          // Exchange sac (Rxn/Rxb), piece-for-pawn, queen sac — threshold lowered to +1
+          // Exchange sac (Rxn/Rxb), piece-for-pawn, queen sac — threshold of +1.
           if (moverValue >= capturedValue + 1) {
             // If we know the captured piece was undefended (no recapture available),
             // it is a free capture, not a sacrifice — explicitly not Brilliant territory.
             if (moveRecord.captureDefended === false) return false;
             return true;
           }
+          return false;
         }
-        return false;
+        // Quiet sacrifice: the moved piece lands on a square attacked by an opponent
+        // piece of strictly lesser value (e.g. Nf6 into a pawn's range, queen incursion
+        // into a knight's range). Catches non-capture sacs that classical material-gap
+        // logic would miss. Defenders are intentionally ignored — opponent will choose
+        // the cheapest attacker, and any forced recapture sequence still costs us net
+        // material when moverValue exceeds the cheapest attacker.
+        const attackerMinValue = Number.isFinite(moveRecord.attackerMinValue)
+          ? moveRecord.attackerMinValue
+          : null;
+        if (attackerMinValue == null) return false;
+        return moverValue - attackerMinValue >= 1;
       }
 
       function isLikelyBoldSacrifice(moveRecord) {
-        // Detects larger sacrifices (material gap >= 3) for Brilliant distinction
+        // Detects larger sacrifices (material gap >= 3) for Brilliant distinction.
         if (!moveRecord || !moveRecord.move) return false;
         const move = moveRecord.move;
         const piece = move.piece;
         if (!piece || piece === 'k') return false;
+        const effectivePieceKey = move.promotion || piece;
+        const moverValue = SACRIFICE_PIECE_VALUES[effectivePieceKey] || 0;
         const captured = move.captured;
-        if (!captured) return false;
-        const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
-        const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
-        if (moverValue < capturedValue + 3) return false;
-        // An undefended piece is a free capture, not a bold sacrifice.
-        if (moveRecord.captureDefended === false) return false;
-        return true;
+        if (captured) {
+          const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
+          if (moverValue < capturedValue + 3) return false;
+          // An undefended piece is a free capture, not a bold sacrifice.
+          if (moveRecord.captureDefended === false) return false;
+          return true;
+        }
+        // Quiet bold sacrifice: e.g. queen (9) stepping into a knight's range (3),
+        // gap of 6. Pure-tactical brilliancies that don't capture anything.
+        const attackerMinValue = Number.isFinite(moveRecord.attackerMinValue)
+          ? moveRecord.attackerMinValue
+          : null;
+        if (attackerMinValue == null) return false;
+        return moverValue - attackerMinValue >= 3;
       }
 
       function hadMateForMoverBefore(moveRecord) {
@@ -5193,18 +5217,29 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             playedIsBestMove = playedUci === bestEngineMove;
           }
 
-          // Determine whether the captured piece was actually defended.
-          // After the capture, check if any opponent legal move recaptures on the
-          // same square. If none can, the piece was undefended — a free capture,
-          // not a sacrifice. null means no capture occurred.
+          // Inspect attackers on the destination square AFTER the move so we can grade
+          // sacrifices uniformly across captures and quiet moves.
+          //   captureDefended: legacy field — true if a captured piece had any defender
+          //     (so taking it cost material), false if it was a free capture, null when
+          //     no capture occurred. Preserved for back-compat with isLikelySacrificeMove.
+          //   attackerMinValue: value of the cheapest opponent piece that could recapture
+          //     on the destination square, or null if the moved piece is not attacked.
+          //     Computed for ALL moves to power quiet-sacrifice detection (e.g. Nf6+
+          //     where the knight steps into an enemy pawn's range without capturing).
           let captureDefended = null;
-          if (moveObj.captured) {
-            try {
-              const opponentMoves = temp.moves({ verbose: true });
-              captureDefended = opponentMoves.some(m => m.to === moveObj.to && m.flags && m.flags.includes('c'));
-            } catch (e) {
-              captureDefended = null;
+          let attackerMinValue = null;
+          try {
+            const opponentMoves = temp.moves({ verbose: true });
+            const attackers = opponentMoves.filter(m => m.to === moveObj.to && m.flags && m.flags.includes('c'));
+            if (attackers.length > 0) {
+              attackerMinValue = Math.min(...attackers.map(a => SACRIFICE_PIECE_VALUES[a.piece] || 0));
             }
+            if (moveObj.captured) {
+              captureDefended = attackers.length > 0;
+            }
+          } catch (e) {
+            captureDefended = null;
+            attackerMinValue = null;
           }
 
           let probBeforeMove = prevProb;
@@ -5271,6 +5306,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             evaluation: evalStr,
             move: simplifyMoveObject(moveObj),
             captureDefended,
+            attackerMinValue,
             pvGap,
             pvGapThird,
             pvGapFourth,
