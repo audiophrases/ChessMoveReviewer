@@ -2345,6 +2345,16 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           //   but non-mating position) is a legitimate Brilliant, e.g. a knight sacrifice Nf6+
           //   that forces Qxh7#. !hadMate ensures the mating net did not exist before the move.
           if (veryHighPvGap && keepsMate && !hadMate) return 'Brilliant';
+
+          // (4) Sacrifice that creates a forced mate from a non-mate position. Covers the
+          //   canonical brilliancy where a piece is given up to initiate a mating attack —
+          //   e.g. Nf6+ leaving the knight hanging to force Qxh7#. alreadyWinning is not
+          //   required (you can already be winning materially yet still find the mating
+          //   sacrifice), and veryHighPvGap is not required either: when several parallel
+          //   mating continuations exist, pvGap collapses and (3) misses the move even
+          //   though the sacrificial idea is still the brilliancy.
+          if ((sacrifice || boldSacrifice) && keepsMate && !hadMate
+            && (!hasPvData || playedIsBest)) return 'Brilliant';
         }
 
         // --- Great criteria ---
