@@ -1731,19 +1731,21 @@
       // Prompt (adds one-line Summary at the end)
       const ANALYSIS_PROMPT_TEMPLATE = `You are an expert chess coach and data processor. You will be provided with a PGN with SAN moves and mover-centric deltas, an Automated Insights block, and precomputed summary statistics for the player eugenime.
 
-Your primary task is to process these moves into a specific format while applying one specific logical filter: you must re-evaluate every move originally labeled Great.
+Your primary task is to process these moves into a specific format while applying one specific logical filter: you must re-evaluate every move originally labeled Good, Great, or Brilliant.
 
-RECLASSIFICATION LOGIC FOR GREAT MOVES:
+RECLASSIFICATION LOGIC FOR GOOD, GREAT AND BRILLIANT MOVES:
 
-Re-label as Good: If the move is a routine recapture of equal material, a forced move to escape check, or a standard piece trade.
+Re-label as Only: If the move is the best move possible but super easy to find by the chess player, such as an obvious material retake. This is especially true for recaptures that were originally labeled Brilliant, Great, or Good.
+
+Re-label as Good: If the move is a forced move to escape check, or a standard piece trade.
 
 Re-label as Brilliant: If the move involves a material sacrifice that leads to an advantage, a difficult-to-find tactical resource, or a move that significantly increases the evaluation compared to the next best engine line.
 
-Keep as Great: If it is a very strong move that does not meet the specific criteria for Brilliant or Good.
+Keep as Great: If it is a very strong move that does not meet the specific criteria for Brilliant, Only, or Good.
 
-Update Summary Counts: If you change a Great move to Good or Brilliant, you MUST adjust the final Summary count for Brilliant, Great, and the implied Good count accordingly.
+Update Summary Counts: If you change a Good, Great or Brilliant move to Good, Only, Great, or Brilliant, you MUST adjust the final Summary count for Brilliant, Great, Only, and the implied Good count accordingly.
 
-STRICT DATA INTEGRITY: Do NOT change any other classification (Book, Forced, Only, Inaccuracy, Mistake, Blunder, Misclick??). Do NOT change the Accuracy percentage.
+STRICT DATA INTEGRITY: Do NOT change any other classification (Book, Forced, Inaccuracy, Mistake, Blunder, Misclick??). Do NOT change the Accuracy percentage.
 
 COMMENTING AND FORMATTING RULES:
 
@@ -2179,7 +2181,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         return moveRecord._centipawnContext;
       }
 
-      function computeBaseClassification(moveRecord, plyIndex) {
+      function computeBaseClassification(moveRecord, plyIndex, allMoves) {
         const fallback = plyIndex < 7 ? 'Book' : 'Good';
         const context = getCentipawnContext(moveRecord);
         if (!context) return fallback;
@@ -2206,7 +2208,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           }
         }
         if (classification === fallback) {
-          const praise = classifyHighPraise(moveRecord);
+          const praise = classifyHighPraise(moveRecord, { allMoves, plyIndex });
           if (praise) classification = praise;
         }
 
@@ -2265,6 +2267,21 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             || (pvRarityScore != null && pvRarityScore >= PVRARITY_GREAT_THRESHOLD));
         const defensiveQualifies = isDefensiveContext && (defensiveGain || defensivePvGap) && playedIsBest;
 
+        // Detect if this move is a direct, immediate recapture
+        let isDirectRecapture = false;
+        if (opts.allMoves && opts.plyIndex > 0) {
+          const prevMove = opts.allMoves[opts.plyIndex - 1];
+          if (moveRecord.move && moveRecord.move.captured && prevMove && prevMove.move) {
+            // A recapture typically lands on the exact same square the opponent just moved to.
+            if (moveRecord.move.to === prevMove.move.to) {
+              isDirectRecapture = true;
+            }
+          }
+        }
+
+        // Check if direct recapture is the best move right away
+        if (isDirectRecapture && playedIsBest) return 'Only';
+
         if (!legacyQualifies && !pvGapQualifies && !defensiveQualifies) return null;
 
         // --- Determine praise level ---
@@ -2296,44 +2313,52 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         //   3. Not already winning — if the mover was already clearly dominant before
         //      the move, a sacrifice is Great, not Brilliant.
         //   4. Complexity — the move is hard to find at low depth (pvGap evidence).
+        // Exceptions: Obvious direct recaptures should not be awarded Brilliant.
         const alreadyWinning = Number.isFinite(moverBefore) && moverBefore >= BRILLIANT_ALREADY_WINNING_CEILING;
 
-        // (1) Bold sacrifice (material gap >= 3) that is validated as the best move and the
-        //   position was not already decided. When MultiPV data is present, playedIsBest is
-        //   enforced; without it (quick pass, no pvGap) we rely on eval/mate signals alone.
-        if (boldSacrifice && !alreadyWinning
-          && (positiveGain || keepsMate || tightenedMate || veryHighPvGap)
-          && (!hasPvData || playedIsBest)) return 'Brilliant';
+        if (!isDirectRecapture) {
+          // (1) Bold sacrifice (material gap >= 3) that is validated as the best move and the
+          //   position was not already decided. When MultiPV data is present, playedIsBest is
+          //   enforced; without it (quick pass, no pvGap) we rely on eval/mate signals alone.
+          //   !hadMate guard: if you already had forced mate before this move, you are merely
+          //   executing the plan — that is never Brilliant, even if the move captures material.
+          if (boldSacrifice && !alreadyWinning && !hadMate
+            && (positiveGain || keepsMate || tightenedMate || veryHighPvGap)
+            && (!hasPvData || playedIsBest)) return 'Brilliant';
 
-        // (2) Any sound sacrifice + engine confirms best move (playedIsBest via highPvGap) +
-        //   hard to find (large pvGap) + not already winning. Canonical sacrifice-Brilliant:
-        //   gave up material, engine agrees it was top move, non-intuitive to find.
-        if (sacrifice && highPvGap && !alreadyWinning) return 'Brilliant';
+          // (2) Any sound sacrifice + engine confirms best move (playedIsBest via highPvGap) +
+          //   hard to find (large pvGap) + not already winning. Canonical sacrifice-Brilliant:
+          //   gave up material, engine agrees it was top move, non-intuitive to find.
+          //   Requires a meaningful outcome (positive eval gain or forced mate) to filter out
+          //   false-positive "sacrifices" such as capturing an undefended pawn with no risk.
+          if (sacrifice && highPvGap && !alreadyWinning && !hadMate
+            && (positiveGain || keepsMate || tightenedMate)) return 'Brilliant';
 
-        // (3) Sacrifice that creates a forced mate from a non-mate position. Even if the
-        //   mover was already materially winning, converting that into a forced mating
-        //   attack via a sacrificial move (e.g. Nf6+ leaving the knight hanging) is the
-        //   canonical Brilliant pattern — alreadyWinning is intentionally not required.
-        if ((sacrifice || boldSacrifice) && keepsMate && !hadMate
-          && (!hasPvData || playedIsBest)) return 'Brilliant';
-
-        // (4) No sacrifice but creates a forced mate from a non-winning position via a
-        //   deeply hidden move (pure calculation brilliance, rare exception).
-        if (veryHighPvGap && keepsMate && !hadMate && !alreadyWinning) return 'Brilliant';
+          // (3) Creates a forced mate from scratch via a hard-to-find move — pure calculation
+          //   brilliance. The !alreadyWinning guard is intentionally omitted here: finding the
+          //   only forcing sequence that initiates a brand-new mating net (even from a winning
+          //   but non-mating position) is a legitimate Brilliant, e.g. a knight sacrifice Nf6+
+          //   that forces Qxh7#. !hadMate ensures the mating net did not exist before the move.
+          if (veryHighPvGap && keepsMate && !hadMate) return 'Brilliant';
+        }
 
         // --- Great criteria ---
         // Check 'Only' first before positiveGain / highPvGap can claim the move.
         // The required pvGap scales down with captured-piece value: recapturing a
         // queen is more obviously forced than recapturing a pawn.
-        if (hasPvData && playedIsBest && pvGap != null) {
+
+        if (hasPvData && playedIsBest && (pvGap != null || isDirectRecapture)) {
           const isCapture = !!(moveRecord.move && moveRecord.move.captured);
-          if (isCapture && !isLikelySacrificeMove(moveRecord)) {
-            const capturedValue = SACRIFICE_PIECE_VALUES[moveRecord.move.captured] || 0;
-            const materialThreshold = Math.max(
-              PVGAP_ONLY_MIN_THRESHOLD,
-              PVGAP_ONLY_MOVE_THRESHOLD - capturedValue * PVGAP_ONLY_MATERIAL_REDUCTION
-            );
-            if (pvGap >= materialThreshold) return 'Only';
+          if (isCapture && (!isLikelySacrificeMove(moveRecord) || isDirectRecapture)) {
+            let materialThreshold = PVGAP_ONLY_MIN_THRESHOLD;
+            if (pvGap != null) {
+              const capturedValue = SACRIFICE_PIECE_VALUES[moveRecord.move.captured] || 0;
+              materialThreshold = Math.max(
+                PVGAP_ONLY_MIN_THRESHOLD,
+                PVGAP_ONLY_MOVE_THRESHOLD - capturedValue * PVGAP_ONLY_MATERIAL_REDUCTION
+              );
+            }
+            if (pvGap != null && pvGap >= materialThreshold) return 'Only';
           }
         }
         if (positiveGain || tightenedMate || previousMoveError) return 'Great';
@@ -2348,70 +2373,60 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const move = moveRecord.move;
         const piece = move.piece;
         if (!piece || piece === 'k') return false;
-        // A move that delivers checkmate cannot be a sacrifice — the game ends
-        // immediately, so no material is ever lost.
-        const san = move.san || '';
-        if (san.indexOf('#') !== -1) return false;
-        const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
+        // For promotion moves, the piece on the destination is the promoted piece.
+        // If the new queen/rook/etc. is captured, the sacrifice should be graded by
+        // what is actually exposed on the board, not by the original pawn value.
+        const effectivePieceKey = move.promotion || piece;
+        const moverValue = SACRIFICE_PIECE_VALUES[effectivePieceKey] || 0;
         const captured = move.captured;
-        const capturedValue = captured ? (SACRIFICE_PIECE_VALUES[captured] || 0) : 0;
-        if (captured && moverValue >= capturedValue + 1) return true;
-        // Hanging-piece sacrifice: the moved piece sits on a square where an
-        // opponent piece can legally capture it next move, with no equivalent
-        // material gain on this move. _hangingAttackerValue is precomputed as
-        // the lowest-value attacker on the destination square.
-        if (Number.isFinite(moveRecord._hangingAttackerValue)
-          && moverValue - capturedValue >= 1) return true;
-        return false;
+        if (captured) {
+          // Capture sacrifice: giving up more material than captured.
+          const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
+          // Exchange sac (Rxn/Rxb), piece-for-pawn, queen sac — threshold of +1.
+          if (moverValue >= capturedValue + 1) {
+            // If we know the captured piece was undefended (no recapture available),
+            // it is a free capture, not a sacrifice — explicitly not Brilliant territory.
+            if (moveRecord.captureDefended === false) return false;
+            return true;
+          }
+          return false;
+        }
+        // Quiet sacrifice: the moved piece lands on a square attacked by an opponent
+        // piece of strictly lesser value (e.g. Nf6 into a pawn's range, queen incursion
+        // into a knight's range). Catches non-capture sacs that classical material-gap
+        // logic would miss. Defenders are intentionally ignored — opponent will choose
+        // the cheapest attacker, and any forced recapture sequence still costs us net
+        // material when moverValue exceeds the cheapest attacker.
+        const attackerMinValue = Number.isFinite(moveRecord.attackerMinValue)
+          ? moveRecord.attackerMinValue
+          : null;
+        if (attackerMinValue == null) return false;
+        return moverValue - attackerMinValue >= 1;
       }
 
       function isLikelyBoldSacrifice(moveRecord) {
-        // Detects larger sacrifices (material gap >= 3) for Brilliant distinction
+        // Detects larger sacrifices (material gap >= 3) for Brilliant distinction.
         if (!moveRecord || !moveRecord.move) return false;
         const move = moveRecord.move;
         const piece = move.piece;
         if (!piece || piece === 'k') return false;
-        const san = move.san || '';
-        if (san.indexOf('#') !== -1) return false;
-        const moverValue = SACRIFICE_PIECE_VALUES[piece] || 0;
+        const effectivePieceKey = move.promotion || piece;
+        const moverValue = SACRIFICE_PIECE_VALUES[effectivePieceKey] || 0;
         const captured = move.captured;
-        const capturedValue = captured ? (SACRIFICE_PIECE_VALUES[captured] || 0) : 0;
-        if (captured && moverValue >= capturedValue + 3) return true;
-        // Hanging-piece bold sacrifice: net material at risk >= 3 (e.g. a knight
-        // or higher placed where it can be taken without compensation).
-        if (Number.isFinite(moveRecord._hangingAttackerValue)
-          && moverValue - capturedValue >= 3) return true;
-        return false;
-      }
-
-      function computeHangingPieceFlags(rawMoves) {
-        // For each played move, returns the lowest enemy attacker value on the
-        // moved piece's destination square (right after the move), or null if
-        // the piece is not legally capturable next move. Used to detect
-        // non-capture sacrifices like Nf6+ that leave a knight hanging.
-        const flags = new Array(rawMoves.length).fill(null);
-        let board;
-        try { board = new Chess(); } catch (e) { return flags; }
-        for (let i = 0; i < rawMoves.length; i++) {
-          const mv = rawMoves[i];
-          if (!mv || !mv.san) return flags;
-          let played = null;
-          try { played = board.move(mv.san); } catch (e) { played = null; }
-          if (!played) return flags;
-          try {
-            const opponentMoves = board.moves({ verbose: true });
-            let lowest = null;
-            for (let j = 0; j < opponentMoves.length; j++) {
-              const om = opponentMoves[j];
-              if (om.to === played.to && om.captured) {
-                const v = SACRIFICE_PIECE_VALUES[om.piece] || 0;
-                if (lowest === null || v < lowest) lowest = v;
-              }
-            }
-            if (lowest !== null) flags[i] = lowest;
-          } catch (e) { /* ignore — replay best-effort */ }
+        if (captured) {
+          const capturedValue = SACRIFICE_PIECE_VALUES[captured] || 0;
+          if (moverValue < capturedValue + 3) return false;
+          // An undefended piece is a free capture, not a bold sacrifice.
+          if (moveRecord.captureDefended === false) return false;
+          return true;
         }
-        return flags;
+        // Quiet bold sacrifice: e.g. queen (9) stepping into a knight's range (3),
+        // gap of 6. Pure-tactical brilliancies that don't capture anything.
+        const attackerMinValue = Number.isFinite(moveRecord.attackerMinValue)
+          ? moveRecord.attackerMinValue
+          : null;
+        if (attackerMinValue == null) return false;
+        return moverValue - attackerMinValue >= 3;
       }
 
       function hadMateForMoverBefore(moveRecord) {
@@ -2508,12 +2523,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           return { moves: [], summary: null, moveOfGame: null };
         }
 
-        const hangingFlags = computeHangingPieceFlags(rawMoves);
-
         const moves = rawMoves.map((mv, idx) => {
           const enriched = { ...mv, index: idx };
-          if (hangingFlags[idx] != null) enriched._hangingAttackerValue = hangingFlags[idx];
-          enriched.classification = computeBaseClassification(enriched, idx);
+          enriched.classification = computeBaseClassification(enriched, idx, rawMoves);
           return enriched;
         });
 
@@ -2588,7 +2600,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             }
           }
           if (!PREVIOUS_ERROR_KEYS.has(prevKey)) return;
-          const praiseClass = classifyHighPraise(mv, { previousMoveError: true });
+          const praiseClass = classifyHighPraise(mv, { previousMoveError: true, allMoves: moves, plyIndex: mv.index });
           if (!praiseClass) return;
           mv.classification = praiseClass;
         });
@@ -5205,6 +5217,31 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             playedIsBestMove = playedUci === bestEngineMove;
           }
 
+          // Inspect attackers on the destination square AFTER the move so we can grade
+          // sacrifices uniformly across captures and quiet moves.
+          //   captureDefended: legacy field — true if a captured piece had any defender
+          //     (so taking it cost material), false if it was a free capture, null when
+          //     no capture occurred. Preserved for back-compat with isLikelySacrificeMove.
+          //   attackerMinValue: value of the cheapest opponent piece that could recapture
+          //     on the destination square, or null if the moved piece is not attacked.
+          //     Computed for ALL moves to power quiet-sacrifice detection (e.g. Nf6+
+          //     where the knight steps into an enemy pawn's range without capturing).
+          let captureDefended = null;
+          let attackerMinValue = null;
+          try {
+            const opponentMoves = temp.moves({ verbose: true });
+            const attackers = opponentMoves.filter(m => m.to === moveObj.to && m.flags && m.flags.includes('c'));
+            if (attackers.length > 0) {
+              attackerMinValue = Math.min(...attackers.map(a => SACRIFICE_PIECE_VALUES[a.piece] || 0));
+            }
+            if (moveObj.captured) {
+              captureDefended = attackers.length > 0;
+            }
+          } catch (e) {
+            captureDefended = null;
+            attackerMinValue = null;
+          }
+
           let probBeforeMove = prevProb;
           let evalStr = '';
           let prob = null;
@@ -5268,6 +5305,8 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             mateAfter: mateScore,
             evaluation: evalStr,
             move: simplifyMoveObject(moveObj),
+            captureDefended,
+            attackerMinValue,
             pvGap,
             pvGapThird,
             pvGapFourth,
