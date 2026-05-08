@@ -2346,15 +2346,22 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           //   that forces Qxh7#. !hadMate ensures the mating net did not exist before the move.
           if (veryHighPvGap && keepsMate && !hadMate) return 'Brilliant';
 
-          // (4) Sacrifice that creates a forced mate from a non-mate position. Covers the
-          //   canonical brilliancy where a piece is given up to initiate a mating attack —
-          //   e.g. Nf6+ leaving the knight hanging to force Qxh7#. alreadyWinning is not
-          //   required (you can already be winning materially yet still find the mating
-          //   sacrifice), veryHighPvGap is not required (parallel mating continuations
-          //   collapse pvGap so (3) misses these), and playedIsBest is not required
-          //   either — keepsMate is a stronger signal than the engine's depth-limited
-          //   top-line ranking, since the move provably leads to a forced mate.
-          if ((sacrifice || boldSacrifice) && keepsMate && !hadMate) return 'Brilliant';
+          // (4) Sacrifice that lands in a forced-mate sequence. Covers the canonical
+          //   brilliancy where a piece is given up to drive the mating attack — e.g.
+          //   Nf6+ leaving the knight hanging to force Qxh7#. None of alreadyWinning,
+          //   !hadMate, veryHighPvGap, or playedIsBest are required:
+          //     * alreadyWinning: you can be materially winning yet still find a
+          //       sacrificial mate.
+          //     * !hadMate: at high search depths the engine often "already saw" the
+          //       mate from the previous position, so mateBefore can be positive even
+          //       for the move that human-found it; gating on this would suppress
+          //       genuine brilliancies.
+          //     * veryHighPvGap: parallel mating continuations collapse pvGap.
+          //     * playedIsBest: keepsMate is a stronger signal than depth-limited
+          //       multiPV ranking — the move provably leads to forced mate.
+          //   Spite sacrifices that slow the mate are already filtered upstream by
+          //   the moverMateSlowdown early-return.
+          if ((sacrifice || boldSacrifice) && keepsMate) return 'Brilliant';
         }
 
         // --- Great criteria ---
