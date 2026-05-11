@@ -5404,7 +5404,18 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           .then(result => {
             if (!result || token !== activeAnalysisToken) return;
             pendingDeepAnalysis = { token, depth, result };
-            applyAnalysisResult(result);
+            // Update core state from deep result without overwriting the user's pasted AI output
+            // or re-triggering the review flow (which applyAnalysisResult would do).
+            if (result.annotatedPgn) lastAnnotatedPgn = result.annotatedPgn.trim();
+            if (Array.isArray(result.probSeries)) probSeries = result.probSeries.slice();
+            if (Array.isArray(result.engineMoveRecords)) {
+              lastEngineMoveRecords = result.engineMoveRecords.map(mv => ({
+                ...mv, move: mv.move ? { ...mv.move } : null
+              }));
+            }
+            updateFormState('annotatedPgn', lastAnnotatedPgn);
+            $('#goto-step3-btn').prop('disabled', false);
+            renderDeferredReviewUi(-1);
             lastQuickAnalysisDepth = depth;
             showDeepAnalysisReady(depth);
             updateLiveReclassificationSnapshot({
@@ -5413,6 +5424,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
               total: result.engineMoveRecords.length,
               statusText: `Live reclassification complete (depth ${depth}, MultiPV 4).`
             });
+            // Regenerate the AI prompt with the final second-pass values and copy to clipboard.
+            refreshStockfishOutput();
+            autoCopyStockfishOutputToClipboard();
             markAnalysisComplete(`Deep live reclassification complete (depth ${depth}, MultiPV 4).`);
             pendingDeepAnalysis = null;
           })
