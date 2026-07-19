@@ -856,6 +856,11 @@
 
       function triggerAutoGameLoadIfNeeded() {
         if (autoGameLoadInitiated) return;
+        // Opening a saved review via ?archive= — don't race it with an
+        // auto-loaded game analysis.
+        try {
+          if (new URLSearchParams(window.location.search || '').has('archive')) return;
+        } catch (err) { /* ignore */ }
         const existingPgn = ($('#pgn-input').val() || '').trim();
         if (existingPgn || autoAnalyzeOnLoadPending) return;
         const username = getRawPlayerNameInput() || DEFAULT_PLAYER_NAME;
